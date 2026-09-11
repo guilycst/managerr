@@ -1,0 +1,98 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: root
+            directory: .
+          - module: ui
+            directory: ui
+          - module: tools
+            directory: tools
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            ui/go.sum
+            tools/go.sum
+
+      - name: Download modules
+        env:
+          GOWORK: off
+        run: go mod download
+
+      - name: Verify modules
+        env:
+          GOWORK: off
+        run: go mod verify
+
+      - name: Test
+        env:
+          GOWORK: off
+        run: |
+          packages=$(go list ./...)
+          if [ -n "$packages" ]; then
+            go test $packages
+          else
+            echo "no packages in this module yet"
+          fi
+
+      - name: Vet
+        env:
+          GOWORK: off
+        run: |
+          packages=$(go list ./...)
+          if [ -n "$packages" ]; then
+            go vet $packages
+          else
+            echo "no packages in this module yet"
+          fi
+
+  generation:
+    name: Reproducible generation
+    runs-on: ubuntu-latest
+    needs: go
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            ui/go.sum
+            tools/go.sum
+
+      - name: Check generated artifacts
+        env:
+          GOWORK: off
+        run: ./scripts/generate.sh --check
+
+      - name: Check for changes
+        run: git diff --exit-code
