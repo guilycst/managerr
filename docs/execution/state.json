@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "U-00"
+    "U-00",
+    "D-01"
   ],
   "openGates": [
     "G-01",
@@ -377,12 +378,42 @@
       }
     },
     "D-01": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/d01_implementer",
+      "baseSha": "e28ff3f7e6978a94e6357aa2c998a70b1fc286c6",
       "integratedSha": null,
+      "implementationCommit": null,
       "evidence": [],
-      "review": null
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/d01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/storage/",
+          "migrations/",
+          "sqlc.yaml"
+        ],
+        "expectedChecks": [
+          "A-32",
+          "A-36",
+          "A-43",
+          "A-45"
+        ],
+        "reviewPath": "docs/execution/handoffs/D-01-review-round1.md",
+        "nextReviewer": "/root/d01_reviewer",
+        "dependencyCommits": {
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        }
+      }
     },
     "D-02": {
       "status": "planned",
