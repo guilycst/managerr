@@ -502,7 +502,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
@@ -539,14 +539,19 @@
         "5f58a72d6ab4484dc1f4851236152bbae3e7a4ed D-01 round-nine review receipt",
         "docs/execution/handoffs/D-01-review-round9.md",
         "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c D-01 round-ten correction product",
-        "42758d4ec54854d5df9cbc60be5b4fe421c0e17c D-01 round-ten handoff"
+        "42758d4ec54854d5df9cbc60be5b4fe421c0e17c D-01 round-ten handoff",
+        "5f3632a397b1a858a8493c7528c9a80cc94164a6 D-01 round-ten review receipt",
+        "docs/execution/handoffs/D-01-review-round10.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "5f3632a397b1a858a8493c7528c9a80cc94164a6",
+        "findings": [
+          "P1: cancellation after the initial-dispatch janitor/trash terminal transaction advances only the still-running action version, so FinalizeApprovedPurgeAction returns sql.ErrNoRows and the applied purge remains permanently fenced",
+          "P1: succeeded janitor outcomes with outcome='applied' trust zero, malformed, contradictory alias, or duplicate-key evidence and mislabel the action succeeded/applied without coherent effect evidence"
+        ],
         "round": 10
       },
       "reviewHistory": [
@@ -614,6 +619,14 @@
           "status": "changes_requested",
           "sourceCommit": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
           "receipt": "docs/execution/handoffs/D-01-review-round9.md"
+        },
+        {
+          "round": 10,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "5f3632a397b1a858a8493c7528c9a80cc94164a6",
+          "status": "changes_requested",
+          "sourceCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+          "receipt": "docs/execution/handoffs/D-01-review-round10.md"
         }
       ],
       "dispatch": {
@@ -632,20 +645,20 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round10.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round11.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "correctionRound": 10,
+        "correctionRound": 11,
         "correctionOwner": "/root/f01_implementer",
-        "correctionBaseSha": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
-        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round10.md",
+        "correctionBaseSha": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round11.md",
         "implementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
-        "correctionImplementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
-        "correctionHandoffCommit": "42758d4ec54854d5df9cbc60be5b4fe421c0e17c",
         "handoffCommit": "42758d4ec54854d5df9cbc60be5b4fe421c0e17c",
-        "reviewCommit": "5f58a72d6ab4484dc1f4851236152bbae3e7a4ed"
+        "reviewCommit": "5f3632a397b1a858a8493c7528c9a80cc94164a6",
+        "handoffPath": "docs/execution/handoffs/D-01.md",
+        "reviewSourceCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c"
       }
     },
     "D-02": {
@@ -1359,7 +1372,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete D-01 round-ten review, X-03 correction round five, and X-04 build",
+  "nextAction": "Complete D-01 correction round eleven, X-03 correction round five, and X-04 build",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
