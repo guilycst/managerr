@@ -360,13 +360,95 @@
       "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
     },
     {
+      "id": "X-10",
+      "lane": "X",
+      "title": "Build standalone qBittorrent client module",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "clients/qbittorrent/"
+      ],
+      "acceptance": [
+        "A-04",
+        "A-09",
+        "A-28",
+        "A-45"
+      ],
+      "deliverable": "Create the independent clients/qbittorrent Go module with a narrow, versioned Mastarr-owned OpenAPI compatibility document for application and WebUI versions, torrent inventory, properties, files, categories and tags. Generate typed Go code with the pinned oapi-codegen tool; keep cookie login, request authentication, deadlines and typed upstream errors inside the module; cover synthetic WebUI behavior with httptest; document supported versions and limitations. Read methods only in this slice.",
+      "handoff": "docs/execution/handoffs/X-10.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-11",
+      "lane": "X",
+      "title": "Build standalone NZBGet client module",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "clients/nzbget/"
+      ],
+      "acceptance": [
+        "A-05",
+        "A-06",
+        "A-09",
+        "A-45"
+      ],
+      "deliverable": "Create the independent clients/nzbget Go module with a Mastarr-owned OpenRPC compatibility document using paramStructure by-position for version, listgroups, listfiles and history. Generate typed method wrappers and DTOs through a deterministic tools-module generator; keep the JSON-RPC envelope, request IDs, Basic authentication, deadlines, positional quirks, 64-bit Hi/Lo values, ID/NZBID aliases, nullable fields and typed upstream errors inside the module; cover synthetic httptest behavior and document supported versions and limitations. Do not assume rpc.discover.",
+      "handoff": "docs/execution/handoffs/X-11.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-12",
+      "lane": "X",
+      "title": "Migrate qBittorrent adapter to standalone client",
+      "dependsOn": [
+        "X-10",
+        "C-05"
+      ],
+      "ownedPaths": [
+        "internal/adapters/qbittorrent/inventory/",
+        "tests/fixtures/qbittorrent/"
+      ],
+      "acceptance": [
+        "A-04",
+        "A-09",
+        "A-28"
+      ],
+      "deliverable": "Translate standalone qBittorrent client DTOs and typed errors into the existing Mastarr download-inventory and capability ports without leaking generated types. Preserve the current read-only behavior while the nested module is released; record any unpublished-module bootstrap blocker instead of adding a local replace directive.",
+      "handoff": "docs/execution/handoffs/X-12.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-13",
+      "lane": "X",
+      "title": "Migrate NZBGet adapter to standalone client",
+      "dependsOn": [
+        "X-11",
+        "C-05"
+      ],
+      "ownedPaths": [
+        "internal/adapters/nzbget/",
+        "tests/fixtures/nzbget/"
+      ],
+      "acceptance": [
+        "A-05",
+        "A-06",
+        "A-09"
+      ],
+      "deliverable": "Translate standalone NZBGet client DTOs and typed errors into the existing Mastarr download-inventory and capability ports without leaking generated types. Preserve positional correlation and partial coverage semantics; record any unpublished-module bootstrap blocker instead of adding a local replace directive.",
+      "handoff": "docs/execution/handoffs/X-13.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
       "id": "X-05",
       "lane": "X",
       "title": "Prove upstream write safety in disposable fixtures",
       "dependsOn": [
         "C-00",
-        "X-01",
-        "X-02",
+        "X-12",
+        "X-13",
         "X-03",
         "X-04",
         "F-01"
@@ -474,8 +556,8 @@
       "title": "Implement tracking aggregation and immutable plans",
       "dependsOn": [
         "F-03",
-        "X-01",
-        "X-02",
+        "X-12",
+        "X-13",
         "X-03",
         "X-04"
       ],
@@ -620,6 +702,29 @@
       ],
       "deliverable": "Wire strict generated server to services for every documented resource, validation/problem responses/ETags/idempotency, startup locking/migrations/key readiness and graceful shutdown. Coordinator integrates shared registrations and schema drift.",
       "handoff": "docs/execution/handoffs/C-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-05",
+      "lane": "C",
+      "title": "Extend generation and CI across standalone client modules",
+      "dependsOn": [
+        "X-10",
+        "X-11"
+      ],
+      "ownedPaths": [
+        "tools/internal/nzbgetgen/",
+        "scripts/generate.sh",
+        "scripts/check-guardrails.sh",
+        "scripts/check-lint.sh",
+        ".github/workflows/checks.yml"
+      ],
+      "acceptance": [
+        "A-43",
+        "A-45"
+      ],
+      "deliverable": "Add the deterministic NZBGet OpenRPC generator to the tools module and make generation, formatting, tests, vet, lint, module verification and architecture checks discover every nested client module with GOWORK=off. Keep generated outputs committed and reproducible without go.work or local replace directives.",
+      "handoff": "docs/execution/handoffs/C-05.md",
       "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
     },
     {

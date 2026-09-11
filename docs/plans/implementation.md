@@ -262,9 +262,69 @@ Implement complete item/media/request coverage, provider relationships, native s
 - Handoff: `docs/execution/handoffs/X-04.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
 
+### X-10: Build standalone qBittorrent client module
+
+Lane X. Dependencies: C-03.
+
+Create the independent `clients/qbittorrent` Go module. Keep a narrow,
+versioned Mastarr-owned OpenAPI compatibility document for application and
+WebUI versions, torrent inventory, properties, files, categories and tags.
+Generate typed code with the pinned oapi-codegen tool. Keep cookie login,
+request authentication, deadlines and typed upstream errors inside the module.
+Read methods only in this slice; mutations remain in the control lane.
+
+- Owned paths: `clients/qbittorrent/`.
+- Acceptance contributions: A-04, A-09, A-28, A-45.
+- Handoff: `docs/execution/handoffs/X-10.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-11: Build standalone NZBGet client module
+
+Lane X. Dependencies: C-03.
+
+Create the independent `clients/nzbget` Go module with a Mastarr-owned OpenRPC
+compatibility document using positional parameters for `version`, `listgroups`,
+`listfiles` and `history`. Generate typed wrappers and DTOs with a deterministic
+tools-module generator. Keep the JSON-RPC envelope, request IDs, Basic
+authentication, deadlines, wire aliases and typed upstream errors inside the
+module. Do not assume `rpc.discover` exists.
+
+- Owned paths: `clients/nzbget/`.
+- Acceptance contributions: A-05, A-06, A-09, A-45.
+- Handoff: `docs/execution/handoffs/X-11.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-12: Migrate qBittorrent adapter to standalone client
+
+Lane X. Dependencies: X-10, C-05.
+
+Translate standalone qBittorrent DTOs and typed errors into the existing
+Mastarr download-inventory and capability ports without leaking generated types.
+Keep the current adapter until the nested module is released and record any
+bootstrap blocker instead of adding a local replace directive.
+
+- Owned paths: `internal/adapters/qbittorrent/inventory/`, `tests/fixtures/qbittorrent/`.
+- Acceptance contributions: A-04, A-09, A-28.
+- Handoff: `docs/execution/handoffs/X-12.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-13: Migrate NZBGet adapter to standalone client
+
+Lane X. Dependencies: X-11, C-05.
+
+Translate standalone NZBGet DTOs and typed errors into the existing Mastarr
+download-inventory and capability ports without leaking generated types. Keep
+positional correlation and partial coverage semantics, and record any
+unpublished-module bootstrap blocker instead of adding a local replace.
+
+- Owned paths: `internal/adapters/nzbget/`, `tests/fixtures/nzbget/`.
+- Acceptance contributions: A-05, A-06, A-09.
+- Handoff: `docs/execution/handoffs/X-13.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
 ### X-05: Prove upstream write safety in disposable fixtures
 
-Lane X. Dependencies: C-00, X-01, X-02, X-03, X-04, F-01.
+Lane X. Dependencies: C-00, X-12, X-13, X-03, X-04, F-01.
 
 Exercise pinned native APIs with synthetic files, collision/rejection/race/lost-response scenarios and subtitle/episode mapping. Freeze enabled write capabilities only with evidence. Record unresolved G-01 as blocker, not a weaker hidden guarantee.
 
@@ -319,7 +379,7 @@ Implement only tested refresh scopes and response observation. Report accepted r
 
 ### W-01: Implement tracking aggregation and immutable plans
 
-Lane W. Dependencies: F-03, X-01, X-02, X-03, X-04.
+Lane W. Dependencies: F-03, X-12, X-13, X-03, X-04.
 
 Aggregate per-instance evidence without universal tracked boolean. Create bounded exact manifests, semantic desired predicates, conflicts and immutable revisions bound to meaningful config/source identity.
 
@@ -381,6 +441,20 @@ Wire strict generated server to services for every documented resource, validati
 - Owned paths: `internal/transport/`, `cmd/mastarr/`.
 - Acceptance contributions: A-38, A-39, A-42, A-46, A-47, A-56.
 - Handoff: `docs/execution/handoffs/C-04.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### C-05: Extend generation and CI across standalone client modules
+
+Lane C. Dependencies: X-10, X-11.
+
+Add the deterministic NZBGet OpenRPC generator to the tools module. Make
+generation, formatting, tests, vet, lint, module verification and architecture
+checks discover every nested client module with `GOWORK=off`. Generated output
+stays committed and reproducible without `go.work` or local replace directives.
+
+- Owned paths: `tools/internal/nzbgetgen/`, `scripts/generate.sh`, `scripts/check-guardrails.sh`, `scripts/check-lint.sh`, `.github/workflows/checks.yml`.
+- Acceptance contributions: A-43, A-45.
+- Handoff: `docs/execution/handoffs/C-05.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
 
 ### U-00: Select public Goshtoso components and compatible runtime

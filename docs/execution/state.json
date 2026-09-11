@@ -16,8 +16,7 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-01",
-    "X-04"
+    "D-01"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -140,7 +139,7 @@
         "go mod verify for root, UI, and tools"
       ]
     },
-    "nextAction": "Complete the D-01 correction and X-02/X-03 implementations, then queue their independent reviews"
+    "nextAction": "Complete D-01 review and begin standalone qBittorrent/NZBGet client module lanes before adapter migration."
   },
   "openGates": [
     "G-01",
@@ -1164,10 +1163,10 @@
       ]
     },
     "X-04": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
-      "integratedSha": null,
+      "integratedSha": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
       "implementationCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
       "evidence": [
         "82a8a80b05cd150716dcdc1f41965f30148cbbdc superseded empty X-04 product commit",
@@ -1185,13 +1184,15 @@
         "docs/execution/handoffs/X-04-review-round2.md",
         "b5594b668185245304f70a0f46c1f77ae7b76d7b X-04 correction round-three product",
         "f1dfeafe50212bd0d763eb61e5d8c15fd9c4da6c X-04 correction round-three handoff",
-        "docs/execution/handoffs/X-04-correction-round3.md"
+        "docs/execution/handoffs/X-04-correction-round3.md",
+        "f5b945b141b236c3bbca7869e5c7dc89971739d7 X-04 review round-three approval",
+        "docs/execution/handoffs/X-04-review-round3.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
+        "commit": "f5b945b141b236c3bbca7869e5c7dc89971739d7",
         "findings": [],
         "round": 3
       },
@@ -1227,7 +1228,7 @@
         "implementationCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
         "handoffCommit": "f1dfeafe50212bd0d763eb61e5d8c15fd9c4da6c",
         "reviewSourceCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
-        "reviewCommit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
+        "reviewCommit": "f5b945b141b236c3bbca7869e5c7dc89971739d7",
         "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "1df74b45b100b891b6afdf54567d2658d0f6228b",
@@ -1251,6 +1252,14 @@
           "status": "changes_requested",
           "sourceCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
           "receipt": "docs/execution/handoffs/X-04-review-round2.md"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "f5b945b141b236c3bbca7869e5c7dc89971739d7",
+          "status": "approved",
+          "sourceCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
+          "receipt": "docs/execution/handoffs/X-04-review-round3.md"
         }
       ]
     },
@@ -1480,9 +1489,49 @@
       "integratedSha": null,
       "evidence": [],
       "review": null
+    },
+    "C-05": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-10": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-11": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-12": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-13": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-fourteen and X-04 round-three reviews",
+  "nextAction": "Dispatch X-10 qBittorrent and X-11 NZBGet standalone client modules; keep X-12/X-13 migration and C-05 generation/CI queued behind their outputs.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
