@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+/data/
+/bin/
+/coverage.out
+*.sqlite
+*.sqlite-*
+.DS_Store
+/ui/bin/
+/docs/execution/private/

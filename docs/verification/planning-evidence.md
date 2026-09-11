@@ -1,0 +1,25 @@
+# Planning verification
+
+Date: 2026-09-11. Scope is planning artifacts only.
+
+- `python3 scripts/check_planning.py --self-test` passes. It checks 38 unique tasks,
+  defined dependencies without cycles, 60 assigned acceptance cases, state task IDs,
+  readable task entries and local Markdown links. Its self-checks detect cycles,
+  missing dependencies and unsupported completion records.
+- `git diff --cached --check` is the whitespace gate before the planning commit.
+- Current drafts were reconciled against the interview. Superseded single-instance,
+  client-only discovery, blanket no-filesystem-actions and mandatory application
+  authentication assumptions were removed from the active contracts.
+- Public-content scan found no user-specific local paths, private runtime addresses,
+  real inventories or inline credential values in the authored artifacts. Synthetic
+  endpoint names and secret-file references are examples, not supplied credentials.
+- GitHub identity and requested repository absence were checked before creation.
+  Publication verification is recorded in state.json after creating the repository.
+- Goshtoso latest release was rechecked as v0.3.0. Upstream source observations and
+  native behavior limits are in the research record; no supported-version integration
+  matrix is claimed complete.
+
+No application modules, generated API, runnable service, runtime tests, container
+images or deployments were produced. The planning validator is the only executable
+artifact. Implementation tasks remain planned and implementationAuthorized=false.
+No independent implementation review or live-stack acceptance is claimed.

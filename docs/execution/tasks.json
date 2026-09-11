@@ -1,0 +1,866 @@
+{
+  "schemaVersion": 1,
+  "definitionsOnly": true,
+  "tasks": [
+    {
+      "id": "C-00",
+      "lane": "C",
+      "title": "Freeze upstream evidence and capability gates",
+      "dependsOn": [],
+      "ownedPaths": [
+        "docs/research/compatibility-matrix.md",
+        "tests/compatibility/research/"
+      ],
+      "acceptance": [
+        "A-16",
+        "A-31",
+        "A-54",
+        "A-55"
+      ],
+      "deliverable": "Pin candidate supported upstream versions and public schemas. Document native import race/rejection behavior, qBittorrent payload scope, descriptor export, Jellyfin refresh and subtitle/anime limits. Unknowns stay capability blockers; no live-stack mutation.",
+      "handoff": "docs/execution/handoffs/C-00.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-01",
+      "lane": "C",
+      "title": "Freeze OpenAPI resource and action schemas",
+      "dependsOn": [
+        "C-00"
+      ],
+      "ownedPaths": [
+        "api/openapi.yaml",
+        "api/oapi-codegen.yaml",
+        "ui/oapi-codegen.yaml",
+        "docs/specs/spec-001-media-reconciliation/http-api.md"
+      ],
+      "acceptance": [
+        "A-12",
+        "A-15",
+        "A-45",
+        "A-46",
+        "A-56",
+        "A-60"
+      ],
+      "deliverable": "Define every route, discriminator, problem response, async resource, config-source rule, pagination and no-auth attribution. Include standalone actions and workflow approval gates. Validate schema before generated consumers begin.",
+      "handoff": "docs/execution/handoffs/C-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-02",
+      "lane": "C",
+      "title": "Establish independent modules and pinned tools",
+      "dependsOn": [
+        "C-01"
+      ],
+      "ownedPaths": [
+        "go.mod",
+        "go.sum",
+        "tools/",
+        "ui/go.mod",
+        "ui/go.sum",
+        "scripts/generate.sh",
+        ".github/workflows/checks.yml"
+      ],
+      "acceptance": [
+        "A-43",
+        "A-45"
+      ],
+      "deliverable": "Create root, nested UI and tools modules; pin toolchain/generators, select and test SQLite/migrate build compatibility. Establish reproducible generation and GOWORK=off CI. No local replace or go.work.",
+      "handoff": "docs/execution/handoffs/C-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-03",
+      "lane": "C",
+      "title": "Freeze domain ports and bootstrap contracts",
+      "dependsOn": [
+        "C-02"
+      ],
+      "ownedPaths": [
+        "internal/domain/",
+        "internal/ports/",
+        "internal/bootstrap/",
+        "docs/generated/environment.md"
+      ],
+      "acceptance": [
+        "A-09",
+        "A-38",
+        "A-40",
+        "A-45",
+        "A-60"
+      ],
+      "deliverable": "Define typed identities, observations, capabilities, manifests, action lifecycle and errors. Parse env once with env/v11 and generate envdoc. Separate runtime UUIDs from stable config IDs and define worker/config bounds.",
+      "handoff": "docs/execution/handoffs/C-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "D-01",
+      "lane": "D",
+      "title": "Create SQLite schema, migrations and sqlc repository",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/storage/",
+        "migrations/",
+        "sqlc.yaml"
+      ],
+      "acceptance": [
+        "A-32",
+        "A-36",
+        "A-43",
+        "A-45"
+      ],
+      "deliverable": "Implement schema constraints, source ownership, immutable plans, decisions, queue/attempt/effect records, idempotency, trash, coverage and audit. Generate sqlc queries and enforce one active process. Subsequent SQL changes return to this owner/coordinator.",
+      "handoff": "docs/execution/handoffs/D-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "D-02",
+      "lane": "D",
+      "title": "Implement credential encryption and key lifecycle",
+      "dependsOn": [
+        "D-01"
+      ],
+      "ownedPaths": [
+        "internal/credentials/"
+      ],
+      "acceptance": [
+        "A-40",
+        "A-41",
+        "A-42"
+      ],
+      "deliverable": "Implement standard AEAD envelope, atomic persistent generation, env/file key selection, validation, key-check record, redaction and credential field binding. Prove missing/wrong key fails without regeneration.",
+      "handoff": "docs/execution/handoffs/D-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "D-03",
+      "lane": "D",
+      "title": "Implement effective configuration and source ownership",
+      "dependsOn": [
+        "D-02"
+      ],
+      "ownedPaths": [
+        "internal/configuration/"
+      ],
+      "acceptance": [
+        "A-38",
+        "A-39",
+        "A-42"
+      ],
+      "deliverable": "Load YAML/secret refs once, validate all ownership collisions and mappings before activation, retire removed config, expose editable/source/revision, handle managed credential updates and authority-bearing revision invalidation.",
+      "handoff": "docs/execution/handoffs/D-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "D-04",
+      "lane": "D",
+      "title": "Implement backup and restore procedure",
+      "dependsOn": [
+        "D-03"
+      ],
+      "ownedPaths": [
+        "internal/backup/",
+        "docs/operations/backup-restore.md"
+      ],
+      "acceptance": [
+        "A-41",
+        "A-43",
+        "A-44"
+      ],
+      "deliverable": "Create consistent SQLite/key/descriptor/trash backup instructions and isolated restore check. No automatic live migration downgrade. Document required volumes and incomplete-backup failure behavior.",
+      "handoff": "docs/execution/handoffs/D-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "F-01",
+      "lane": "F",
+      "title": "Implement root-constrained filesystem observations",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/filesystem/observe/"
+      ],
+      "acceptance": [
+        "A-19",
+        "A-21",
+        "A-23"
+      ],
+      "deliverable": "Implement bounded enumeration, file identity/hash, no-follow confinement, component-aware mapping and permission/capability observations. Reject root targets, symlinks and special files; verify Linux race behavior.",
+      "handoff": "docs/execution/handoffs/F-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "F-02",
+      "lane": "F",
+      "title": "Implement discovery groups and media readiness",
+      "dependsOn": [
+        "D-03",
+        "F-01"
+      ],
+      "ownedPaths": [
+        "internal/discovery/"
+      ],
+      "acceptance": [
+        "A-01",
+        "A-02",
+        "A-10",
+        "A-11"
+      ],
+      "deliverable": "Persist directory observations and grouping for video/subtitles/packs. Preserve orphan unknown provenance and distinguish stability from client completion. Exclude trash/staging and expose ambiguous companions for review.",
+      "handoff": "docs/execution/handoffs/F-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "F-03",
+      "lane": "F",
+      "title": "Implement durable scan scheduler and coverage",
+      "dependsOn": [
+        "F-02"
+      ],
+      "ownedPaths": [
+        "internal/scanning/"
+      ],
+      "acceptance": [
+        "A-02",
+        "A-03",
+        "A-53"
+      ],
+      "deliverable": "Schedule per-root intervals, manual coalescing, bounded concurrency/cancellation and restart progress. Record complete/partial/unknown source coverage; do not replace complete evidence with false absence.",
+      "handoff": "docs/execution/handoffs/F-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "F-04",
+      "lane": "F",
+      "title": "Implement copy and hardlink actions",
+      "dependsOn": [
+        "D-01",
+        "F-01"
+      ],
+      "ownedPaths": [
+        "internal/filesystem/placement/"
+      ],
+      "acceptance": [
+        "A-18",
+        "A-19",
+        "A-20",
+        "A-22",
+        "A-59"
+      ],
+      "deliverable": "Implement exact-plan content checks, exclusive staging, sync and atomic no-replace publication. Hardlink proves same file object and has no copy fallback. Journal/reconcile per-file effects through frozen ports.",
+      "handoff": "docs/execution/handoffs/F-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "F-05",
+      "lane": "F",
+      "title": "Implement move, rename and permanent filesystem delete",
+      "dependsOn": [
+        "F-04"
+      ],
+      "ownedPaths": [
+        "internal/filesystem/organize/"
+      ],
+      "acceptance": [
+        "A-21",
+        "A-23",
+        "A-24",
+        "A-59"
+      ],
+      "deliverable": "Implement same-filesystem no-replace move/rename and scoped delete with identity checks. Cross-device operations expose explicit copy/verify/delete composition. Never silently broaden directories or linked-client scope.",
+      "handoff": "docs/execution/handoffs/F-05.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-01",
+      "lane": "X",
+      "title": "Implement qBittorrent inventory adapter",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/adapters/qbittorrent/inventory/",
+        "tests/fixtures/qbittorrent/"
+      ],
+      "acceptance": [
+        "A-04",
+        "A-09",
+        "A-28"
+      ],
+      "deliverable": "Implement authenticated session handling, version/capability discovery, files/seeding/progress/completion and hash identity. Categories/tags are read hints. Sanitize errors and model uncertain/missing client evidence.",
+      "handoff": "docs/execution/handoffs/X-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-02",
+      "lane": "X",
+      "title": "Implement NZBGet inventory adapter",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/adapters/nzbget/",
+        "tests/fixtures/nzbget/"
+      ],
+      "acceptance": [
+        "A-05",
+        "A-06",
+        "A-09"
+      ],
+      "deliverable": "Implement positional JSON-RPC queue/postprocessing/history, full-array bounds, FinalDir/DestDir mapping and correct drone/history/NZBID correlation. Prove partial coverage and original descriptor availability remain distinct.",
+      "handoff": "docs/execution/handoffs/X-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-03",
+      "lane": "X",
+      "title": "Implement Arr inventory, lookup and native previews",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/adapters/arr/read/",
+        "tests/fixtures/arr/read/"
+      ],
+      "acceptance": [
+        "A-07",
+        "A-09",
+        "A-10",
+        "A-11",
+        "A-16"
+      ],
+      "deliverable": "Read all movies/series/files/options/history; support provider search and exact native preview/reprocessing DTOs per product. Distinguish preview endpoints from execution and retain rejection evidence.",
+      "handoff": "docs/execution/handoffs/X-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-04",
+      "lane": "X",
+      "title": "Implement Jellyfin and Seerr observations",
+      "dependsOn": [
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/adapters/jellyfin/read/",
+        "internal/adapters/seerr/",
+        "tests/fixtures/catalogs/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-54",
+        "A-55"
+      ],
+      "deliverable": "Implement complete item/media/request coverage, provider relationships, native status preservation and independent availability. Seerr connector exposes no writes. Version unsupported results stay explicit.",
+      "handoff": "docs/execution/handoffs/X-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-05",
+      "lane": "X",
+      "title": "Prove upstream write safety in disposable fixtures",
+      "dependsOn": [
+        "C-00",
+        "X-01",
+        "X-02",
+        "X-03",
+        "X-04",
+        "F-01"
+      ],
+      "ownedPaths": [
+        "tests/compatibility/writes/",
+        "docs/research/write-capabilities.md"
+      ],
+      "acceptance": [
+        "A-16",
+        "A-17",
+        "A-28",
+        "A-29",
+        "A-31",
+        "A-55"
+      ],
+      "deliverable": "Exercise pinned native APIs with synthetic files, collision/rejection/race/lost-response scenarios and subtitle/episode mapping. Freeze enabled write capabilities only with evidence. Record unresolved G-01 as blocker, not a weaker hidden guarantee.",
+      "handoff": "docs/execution/handoffs/X-05.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-06",
+      "lane": "X",
+      "title": "Implement Arr upsert and manual import adapters",
+      "dependsOn": [
+        "X-05"
+      ],
+      "ownedPaths": [
+        "internal/adapters/arr/write/",
+        "tests/fixtures/arr/write/"
+      ],
+      "acceptance": [
+        "A-12",
+        "A-13",
+        "A-16",
+        "A-17",
+        "A-33"
+      ],
+      "deliverable": "Implement explicit patch fields, unmonitored/no-search add and validated ManualImport command. Read back identity, command/history and exact file associations; preserve source and reconcile ambiguous results.",
+      "handoff": "docs/execution/handoffs/X-06.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-07",
+      "lane": "X",
+      "title": "Implement qBittorrent control adapter",
+      "dependsOn": [
+        "X-05"
+      ],
+      "ownedPaths": [
+        "internal/adapters/qbittorrent/control/"
+      ],
+      "acceptance": [
+        "A-28",
+        "A-29",
+        "A-30",
+        "A-31",
+        "A-33"
+      ],
+      "deliverable": "Implement stop/read-back, supported setLocation/renameFile/renameFolder and metadata-only removal. Model whole-torrent versus selected-file impacts, no deleteFiles=true and no automatic re-add/resume.",
+      "handoff": "docs/execution/handoffs/X-07.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-08",
+      "lane": "X",
+      "title": "Implement retained descriptor service",
+      "dependsOn": [
+        "D-03",
+        "X-01",
+        "X-02"
+      ],
+      "ownedPaths": [
+        "internal/descriptors/"
+      ],
+      "acceptance": [
+        "A-06",
+        "A-42"
+      ],
+      "deliverable": "Capture exact original bytes only from verified export or configured mounted directory. Restricted storage, digests/provenance, unavailable states and independent reviewed deletion. No raw descriptor ordinary response/log.",
+      "handoff": "docs/execution/handoffs/X-08.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-09",
+      "lane": "X",
+      "title": "Implement Jellyfin refresh adapter",
+      "dependsOn": [
+        "X-05"
+      ],
+      "ownedPaths": [
+        "internal/adapters/jellyfin/write/"
+      ],
+      "acceptance": [
+        "A-33",
+        "A-55"
+      ],
+      "deliverable": "Implement only tested refresh scopes and response observation. Report accepted refresh separately from eventual library visibility; no Seerr status mutation.",
+      "handoff": "docs/execution/handoffs/X-09.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "W-01",
+      "lane": "W",
+      "title": "Implement tracking aggregation and immutable plans",
+      "dependsOn": [
+        "F-03",
+        "X-01",
+        "X-02",
+        "X-03",
+        "X-04"
+      ],
+      "ownedPaths": [
+        "internal/reconciliation/",
+        "internal/planning/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-10",
+        "A-11",
+        "A-15",
+        "A-19"
+      ],
+      "deliverable": "Aggregate per-instance evidence without universal tracked boolean. Create bounded exact manifests, semantic desired predicates, conflicts and immutable revisions bound to meaningful config/source identity.",
+      "handoff": "docs/execution/handoffs/W-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "W-02",
+      "lane": "W",
+      "title": "Implement durable action executor and cancellation",
+      "dependsOn": [
+        "D-01",
+        "C-03"
+      ],
+      "ownedPaths": [
+        "internal/execution/"
+      ],
+      "acceptance": [
+        "A-14",
+        "A-32",
+        "A-33",
+        "A-34",
+        "A-35",
+        "A-36",
+        "A-59",
+        "A-60"
+      ],
+      "deliverable": "Implement transaction/CAS work claiming, ordered attempt journal, observe-before-write, uncertain reconciliation, persisted backoff/deadlines and cancellation dispatch boundary. No generic DAG or duplicate outbox.",
+      "handoff": "docs/execution/handoffs/W-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "W-03",
+      "lane": "W",
+      "title": "Wire typed standalone action handlers",
+      "dependsOn": [
+        "W-01",
+        "W-02",
+        "F-04",
+        "F-05",
+        "X-06",
+        "X-07",
+        "X-08",
+        "X-09"
+      ],
+      "ownedPaths": [
+        "internal/actions/"
+      ],
+      "acceptance": [
+        "A-13",
+        "A-14",
+        "A-17",
+        "A-18",
+        "A-20",
+        "A-24",
+        "A-33",
+        "A-60"
+      ],
+      "deliverable": "Implement independent registration/import/placement/organize/client/descriptor/refresh handlers with shared safety and recovery contracts. Enforce linked-client prerequisites even when called outside a composition.",
+      "handoff": "docs/execution/handoffs/W-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "W-04",
+      "lane": "W",
+      "title": "Implement ordered workflows and review decisions",
+      "dependsOn": [
+        "W-03"
+      ],
+      "ownedPaths": [
+        "internal/workflows/",
+        "internal/reviews/"
+      ],
+      "acceptance": [
+        "A-12",
+        "A-15",
+        "A-32",
+        "A-35",
+        "A-37",
+        "A-56"
+      ],
+      "deliverable": "Atomically approve immutable plans and enqueue actions. Compose explicit recipes/gates, generate later import review after registration, preserve failures/effects, and reject blanket approval or steps added to cancelled workflows.",
+      "handoff": "docs/execution/handoffs/W-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "W-05",
+      "lane": "W",
+      "title": "Implement trash, restore and janitor workflows",
+      "dependsOn": [
+        "W-04"
+      ],
+      "ownedPaths": [
+        "internal/trash/"
+      ],
+      "acceptance": [
+        "A-25",
+        "A-26",
+        "A-27",
+        "A-29",
+        "A-30",
+        "A-57"
+      ],
+      "deliverable": "Coordinate exact per-volume manifests, retention, stop prerequisites, claim against restore, expiry authority and metadata-only torrent removal. Hold uncertain entries, preserve partial state, leave restore stopped.",
+      "handoff": "docs/execution/handoffs/W-05.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-04",
+      "lane": "C",
+      "title": "Integrate generated REST transport and process startup",
+      "dependsOn": [
+        "D-04",
+        "F-03",
+        "X-08",
+        "W-05"
+      ],
+      "ownedPaths": [
+        "internal/transport/",
+        "cmd/managerr/"
+      ],
+      "acceptance": [
+        "A-38",
+        "A-39",
+        "A-42",
+        "A-46",
+        "A-47",
+        "A-56"
+      ],
+      "deliverable": "Wire strict generated server to services for every documented resource, validation/problem responses/ETags/idempotency, startup locking/migrations/key readiness and graceful shutdown. Coordinator integrates shared registrations and schema drift.",
+      "handoff": "docs/execution/handoffs/C-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-00",
+      "lane": "U",
+      "title": "Select public Goshtoso components and compatible runtime",
+      "dependsOn": [
+        "C-02"
+      ],
+      "ownedPaths": [
+        "docs/research/ui-components.md",
+        "ui/go.mod",
+        "ui/go.sum"
+      ],
+      "acceptance": [
+        "A-45",
+        "A-50",
+        "A-51"
+      ],
+      "deliverable": "Recheck latest release, choose compatible App Shell/runtime pair and explicit pins, record reuse/compose/gap ledger. Freeze public assets/templ conventions before dashboard markup; request tools-version edits from coordinator.",
+      "handoff": "docs/execution/handoffs/U-00.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-01",
+      "lane": "U",
+      "title": "Build BFF shell and generated-client boundary",
+      "dependsOn": [
+        "U-00",
+        "C-03",
+        "C-04"
+      ],
+      "ownedPaths": [
+        "ui/internal/client/",
+        "ui/internal/shell/",
+        "ui/internal/config/",
+        "ui/cmd/",
+        "ui/internal/assets/"
+      ],
+      "acceptance": [
+        "A-45",
+        "A-46",
+        "A-47",
+        "A-51"
+      ],
+      "deliverable": "Generate HTTP client from frozen OpenAPI, add server-rendered shell/routes/errors, bootstrap origin and API URL, private-safe initial metadata and actual static preview asset. Prove no DB/upstream/root-internal imports.",
+      "handoff": "docs/execution/handoffs/U-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-02",
+      "lane": "U",
+      "title": "Build discovery, inventory and matching views",
+      "dependsOn": [
+        "U-01"
+      ],
+      "ownedPaths": [
+        "ui/internal/inventory/"
+      ],
+      "acceptance": [
+        "A-01",
+        "A-07",
+        "A-08",
+        "A-09",
+        "A-10",
+        "A-11",
+        "A-49"
+      ],
+      "deliverable": "Render paginated discoveries/catalogs/detail with provenance, unknown states, descriptors, seeding, per-instance tracking, editable identity/episode/subtitle associations. Preserve deep-link identity and input state.",
+      "handoff": "docs/execution/handoffs/U-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-03",
+      "lane": "U",
+      "title": "Build exact review and workflow controls",
+      "dependsOn": [
+        "U-02",
+        "W-04"
+      ],
+      "ownedPaths": [
+        "ui/internal/review/",
+        "ui/internal/workflows/"
+      ],
+      "acceptance": [
+        "A-12",
+        "A-13",
+        "A-15",
+        "A-20",
+        "A-35",
+        "A-37",
+        "A-48",
+        "A-49"
+      ],
+      "deliverable": "Render both approval phases, standalone/composed effects, monitoring opt-in, copy fallback review, retries and cancellation. Preserve idempotency keys across failed submissions; show late/partial effects honestly.",
+      "handoff": "docs/execution/handoffs/U-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-04",
+      "lane": "U",
+      "title": "Build trash and configuration views",
+      "dependsOn": [
+        "U-01",
+        "W-05"
+      ],
+      "ownedPaths": [
+        "ui/internal/trash/",
+        "ui/internal/settings/"
+      ],
+      "acceptance": [
+        "A-25",
+        "A-26",
+        "A-27",
+        "A-30",
+        "A-38",
+        "A-39",
+        "A-42"
+      ],
+      "deliverable": "Implement UI trash-then-purge, restore/conflict/expiry/client-state views and multi-instance config CRUD with immutable YAML provenance. Credentials replace-only and no plaintext rendering.",
+      "handoff": "docs/execution/handoffs/U-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "U-05",
+      "lane": "U",
+      "title": "Verify browser interaction and accessibility",
+      "dependsOn": [
+        "U-03",
+        "U-04"
+      ],
+      "ownedPaths": [
+        "ui/tests/browser/",
+        "docs/verification/ui-ledger.md"
+      ],
+      "acceptance": [
+        "A-26",
+        "A-42",
+        "A-47",
+        "A-48",
+        "A-49",
+        "A-50",
+        "A-51"
+      ],
+      "deliverable": "Run consequential-action allowed/denied/repeated ledger, direct forged requests, real transport failures, keyboard/focus, narrow/wide themes and initial metadata/assets. Record actual effect counts and screenshots with synthetic data.",
+      "handoff": "docs/execution/handoffs/U-05.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "V-01",
+      "lane": "V",
+      "title": "Run cross-system fault and recovery acceptance",
+      "dependsOn": [
+        "C-04",
+        "U-05"
+      ],
+      "ownedPaths": [
+        "tests/integration/",
+        "docs/verification/integration-evidence.md"
+      ],
+      "acceptance": [
+        "A-06",
+        "A-12",
+        "A-16",
+        "A-17",
+        "A-24",
+        "A-27",
+        "A-29",
+        "A-32",
+        "A-33",
+        "A-34",
+        "A-35",
+        "A-37",
+        "A-44",
+        "A-59"
+      ],
+      "deliverable": "Run end-to-end synthetic Arr/library-only/cleanup flows with crash injection at each durable boundary, outage and partial pack effects. Verify same desired state across restarts/new keys and no data-loss scope expansion.",
+      "handoff": "docs/execution/handoffs/V-01.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "V-02",
+      "lane": "V",
+      "title": "Package portable containers and measure operating limits",
+      "dependsOn": [
+        "C-04",
+        "U-05"
+      ],
+      "ownedPaths": [
+        "deploy/",
+        "build/",
+        "docs/operations/deployment.md",
+        "tests/containers/"
+      ],
+      "acceptance": [
+        "A-43",
+        "A-44",
+        "A-45",
+        "A-52",
+        "A-53"
+      ],
+      "deliverable": "Build nonroot amd64/arm64 API/BFF OCI targets, generic/Kubernetes examples, key/DB/volume documentation and smoke/restore tests. Measure bounded synthetic inventory behavior; no live deploy or image publication implied.",
+      "handoff": "docs/execution/handoffs/V-02.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "V-03",
+      "lane": "V",
+      "title": "Independently review completed release scope",
+      "dependsOn": [
+        "V-01",
+        "V-02"
+      ],
+      "ownedPaths": [
+        "docs/verification/review.md"
+      ],
+      "acceptance": [
+        "A-58"
+      ],
+      "deliverable": "Assign reviewer who authored none of reviewed implementation batch. Audit invariant-to-evidence coverage, contracts, no-auth boundaries, upstream uncertainty, filesystem loss risks, packaging and outstanding gates. Findings reopen owning tasks.",
+      "handoff": "docs/execution/handoffs/V-03.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "V-04",
+      "lane": "V",
+      "title": "Prepare release readiness and user acceptance report",
+      "dependsOn": [
+        "V-03"
+      ],
+      "ownedPaths": [
+        "docs/verification/release-readiness.md",
+        "CHANGELOG.md"
+      ],
+      "acceptance": [
+        "A-45",
+        "A-58"
+      ],
+      "deliverable": "Coordinator gathers exact commit/CI/review evidence and known limitations, reruns only invalidated checks, and prepares v0.0.1 readiness. Do not tag, publish images, release or deploy without release-specific authorization.",
+      "handoff": "docs/execution/handoffs/V-04.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    }
+  ]
+}
