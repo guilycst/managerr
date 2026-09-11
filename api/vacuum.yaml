@@ -1,0 +1,12 @@
+# Mastarr's lint policy starts with document validity. Add style rules only
+# when the contract can satisfy them without weakening this zero-warning gate.
+extends: [[vacuum:oas, off]]
+rules:
+  oas3-schema:
+    description: The bundled document must be a valid OpenAPI 3.1 document.
+    severity: error
+    recommended: true
+    formats: [oas3, oas3_1, oas3_2]
+    given: $
+    then:
+      function: oasDocumentSchema

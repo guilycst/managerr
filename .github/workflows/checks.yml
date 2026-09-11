@@ -96,3 +96,33 @@ jobs:
 
       - name: Check for changes
         run: git diff --exit-code
+
+  api:
+    name: API contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            ui/go.sum
+            tools/go.sum
+
+      - name: Download modules
+        env:
+          GOWORK: off
+        run: |
+          go mod download
+          (cd ui && go mod download)
+          (cd tools && go mod download)
+
+      - name: Validate bundled contract and generated clients
+        env:
+          GOWORK: off
+        run: ./scripts/check-api.sh
