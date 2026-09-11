@@ -1543,6 +1543,10 @@ components:
     Timestamp:
       type: string
       format: date-time
+    NullableTimestamp:
+      type: string
+      format: date-time
+      nullable: true
     MediaKind:
       type: string
       enum: [movie, episode, season, anime]
@@ -3039,8 +3043,7 @@ components:
         state:
           $ref: '#/components/schemas/WorkflowState'
         deadlineAt:
-          $ref: '#/components/schemas/Timestamp'
-          nullable: true
+          $ref: '#/components/schemas/NullableTimestamp'
         aggregateEffectCount:
           type: integer
           minimum: 0
