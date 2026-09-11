@@ -3,9 +3,11 @@ package observe
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,6 +221,180 @@ func TestObserveEnumerationPageThroughFilesystemReadPort(t *testing.T) {
 	}
 }
 
+func TestObserveEnumerationCursorRejectsReplay(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	for _, name := range []string{"one.mkv", "two.mkv", "three.mkv", "four.mkv"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+
+	first, err := observer.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1); !errors.Is(err, ErrEnumerationStale) {
+		t.Fatalf("replayed cursor error = %v, want ErrEnumerationStale", err)
+	}
+
+	seen := len(first.Items) + len(second.Items)
+	page := second
+	for page.NextCursor != "" {
+		page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen += len(page.Items)
+	}
+	if seen != 4 {
+		t.Fatalf("replay-safe continuation returned %d items, want 4", seen)
+	}
+}
+
+func TestObserveEnumerationCursorRejectsConcurrentReplay(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	for _, name := range []string{"one.mkv", "two.mkv", "three.mkv", "four.mkv"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+	first, err := observer.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		page ports.Page[domain.FileManifestEntry]
+		err  error
+	}
+	results := make([]result, 2)
+	start := make(chan struct{})
+	var group sync.WaitGroup
+	group.Add(2)
+	for index := range results {
+		go func(index int) {
+			defer group.Done()
+			<-start
+			results[index].page, results[index].err = observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1)
+		}(index)
+	}
+	close(start)
+	group.Wait()
+
+	successes := 0
+	stale := 0
+	var successfulPage ports.Page[domain.FileManifestEntry]
+	for _, result := range results {
+		if result.err == nil {
+			successes++
+			successfulPage = result.page
+			continue
+		}
+		if errors.Is(result.err, ErrEnumerationStale) {
+			stale++
+			continue
+		}
+		t.Fatalf("concurrent replay error = %v, want nil or ErrEnumerationStale", result.err)
+	}
+	if successes != 1 || stale != 1 {
+		t.Fatalf("concurrent replay outcomes = successes %d stale %d, want one each", successes, stale)
+	}
+
+	seen := len(first.Items) + len(successfulPage.Items)
+	page := successfulPage
+	for page.NextCursor != "" {
+		page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen += len(page.Items)
+	}
+	if seen != 4 {
+		t.Fatalf("concurrent replay continuation returned %d items, want 4", seen)
+	}
+}
+
+func TestObserveEnumerationCancellationInvalidatesCursor(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		cancelAfter int
+	}{
+		{name: "before child", cancelAfter: 1},
+		{name: "after child", cancelAfter: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observer, root, rootID := newTestObserver(t, false)
+			for _, name := range []string{"one.mkv", "two.mkv", "three.mkv", "four.mkv"} {
+				writeFile(t, filepath.Join(root, name), name)
+			}
+			first, err := observer.Enumerate(context.Background(), rootID, "", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cancelContext := &cancelAfterChecksContext{cancelAfter: test.cancelAfter}
+			if _, err := observer.EnumeratePage(cancelContext, rootID, "", first.NextCursor, 1); !errors.Is(err, context.Canceled) {
+				t.Fatalf("canceled continuation error = %v, want context.Canceled", err)
+			}
+			if _, err := observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1); !errors.Is(err, ErrEnumerationStale) {
+				t.Fatalf("canceled cursor retry error = %v, want ErrEnumerationStale", err)
+			}
+			if test.cancelAfter == 3 && cancelContext.checks < 4 {
+				t.Fatalf("after-child context checks = %d, want post-child check", cancelContext.checks)
+			}
+
+			page, err := observer.Enumerate(context.Background(), rootID, "", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := len(page.Items)
+			for page.NextCursor != "" {
+				page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seen += len(page.Items)
+			}
+			if seen != 4 {
+				t.Fatalf("restart after %s returned %d items, want 4", test.name, seen)
+			}
+		})
+	}
+}
+
+func TestObserveEnumerationCoverageCountIsCumulative(t *testing.T) {
+	for _, total := range []int{1, 2, 3, 4, 5} {
+		t.Run(fmt.Sprintf("files-%d", total), func(t *testing.T) {
+			observer, root, rootID := newTestObserver(t, false)
+			for index := 0; index < total; index++ {
+				writeFile(t, filepath.Join(root, fmt.Sprintf("%02d.mkv", index)), "content")
+			}
+			page, err := observer.Enumerate(context.Background(), rootID, "", 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var seen int64
+			for {
+				seen += int64(len(page.Items))
+				if page.Coverage.ObservedCount != seen {
+					t.Fatalf("coverage count = %d after %d items, want cumulative count", page.Coverage.ObservedCount, seen)
+				}
+				if page.NextCursor == "" {
+					if page.Coverage.ObservedCount != int64(total) {
+						t.Fatalf("terminal coverage count = %d, want %d", page.Coverage.ObservedCount, total)
+					}
+					if page.Coverage.Completeness != domain.CompletenessComplete {
+						t.Fatalf("terminal completeness = %q, want complete", page.Coverage.Completeness)
+					}
+					break
+				}
+				page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 2)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestObserveEnumerationCursorTraversesBeyondPageMaximum(t *testing.T) {
 	root := t.TempDir()
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
@@ -378,6 +554,31 @@ func TestObserveCapabilitiesHonorConfiguredAuthority(t *testing.T) {
 			}
 		})
 	}
+}
+
+type cancelAfterChecksContext struct {
+	cancelAfter int
+	checks      int
+}
+
+func (ctx *cancelAfterChecksContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *cancelAfterChecksContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (ctx *cancelAfterChecksContext) Err() error {
+	ctx.checks++
+	if ctx.checks > ctx.cancelAfter {
+		return context.Canceled
+	}
+	return nil
+}
+
+func (ctx *cancelAfterChecksContext) Value(any) any {
+	return nil
 }
 
 func newTestObserver(t *testing.T, readOnly bool) (*Observer, string, domain.ConfigID) {

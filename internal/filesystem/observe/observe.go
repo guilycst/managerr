@@ -37,17 +37,19 @@ const (
 )
 
 var (
-	ErrRootNotConfigured = errors.New("filesystem root is not configured")
-	ErrRootTarget        = errors.New("filesystem root target is not allowed")
-	ErrPathEscape        = errors.New("filesystem path escapes configured root")
-	ErrSymlink           = errors.New("filesystem symlink is not allowed")
-	ErrSpecialFile       = errors.New("filesystem special file is not allowed")
-	ErrChanged           = errors.New("filesystem object changed during observation")
-	ErrEnumerationLimit  = errors.New("filesystem enumeration limit reached")
-	ErrEnumerationCursor = errors.New("filesystem enumeration cursor is expired or unavailable")
-	ErrAmbiguousMapping  = errors.New("filesystem path mapping is ambiguous")
-	ErrMappingMismatch   = errors.New("filesystem path does not match mapping")
-	ErrDirectory         = errors.New("filesystem directory cannot be hashed")
+	ErrRootNotConfigured      = errors.New("filesystem root is not configured")
+	ErrRootTarget             = errors.New("filesystem root target is not allowed")
+	ErrPathEscape             = errors.New("filesystem path escapes configured root")
+	ErrSymlink                = errors.New("filesystem symlink is not allowed")
+	ErrSpecialFile            = errors.New("filesystem special file is not allowed")
+	ErrChanged                = errors.New("filesystem object changed during observation")
+	ErrEnumerationLimit       = errors.New("filesystem enumeration limit reached")
+	ErrEnumerationCursor      = errors.New("filesystem enumeration cursor is expired or unavailable")
+	ErrEnumerationStale       = fmt.Errorf("%w: cursor is stale", ErrEnumerationCursor)
+	ErrEnumerationCursorStale = ErrEnumerationStale
+	ErrAmbiguousMapping       = errors.New("filesystem path mapping is ambiguous")
+	ErrMappingMismatch        = errors.New("filesystem path does not match mapping")
+	ErrDirectory              = errors.New("filesystem directory cannot be hashed")
 )
 
 // Root is the host path for one configured storage root. Revision is copied
@@ -234,16 +236,24 @@ func (o *Observer) Enumerate(ctx context.Context, rootID domain.ConfigID, relati
 }
 
 // EnumeratePage continues a bounded directory page using an opaque cursor.
-// Cursor state contains directory identity, mtime, one coverage identity and
-// a compact prior-partial marker. The observer retains a capped descriptor
-// stream for each active cursor, so continuation never replays or materializes
-// a directory snapshot. A changed directory is rejected instead of silently
-// mixing two snapshots. Cursors expire after a short idle period and are
-// invalid after process restart.
+// Cursor state contains directory identity, mtime, one coverage identity,
+// cumulative count, generation and a compact prior-partial marker. Each
+// generation is single-use; replayed or concurrent old tokens return a stale
+// cursor error without advancing the stream. The observer retains a capped
+// descriptor stream for each active cursor, so continuation never replays or
+// materializes a directory snapshot. A changed directory is rejected instead
+// of silently mixing two snapshots. Cancellation invalidates a continuation
+// after any read. Cursors expire after a short idle period and are invalid
+// after process restart.
 func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, relativePrefix, cursor string, limit int) (ports.Page[domain.FileManifestEntry], error) {
 	var page ports.Page[domain.FileManifestEntry]
 	started := time.Now().UTC()
 	if err := ctx.Err(); err != nil {
+		if cursor != "" {
+			if cursorValue, decodeErr := decodeCursor(cursor); decodeErr == nil {
+				o.invalidateEnumerationCursor(cursorValue.CursorID.String(), cursorValue.Generation)
+			}
+		}
 		return page, err
 	}
 	if err := validatePrefix(relativePrefix); err != nil {
@@ -282,7 +292,7 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 		var found bool
 		state, found = o.lockEnumerationCursor(cursorID.String())
 		if !found {
-			return page, ErrEnumerationCursor
+			return page, ErrEnumerationStale
 		}
 		// State lock stays held until this call finishes. This serializes two
 		// continuations for one cursor and protects its stream position.
@@ -297,7 +307,12 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 			state.directoryMTime != cursorValue.DirectoryMTime ||
 			state.sourceID != cursorValue.SourceID ||
 			!state.startedAt.Equal(cursorValue.StartedAt) ||
-			state.priorPartial != cursorValue.PriorPartial {
+			state.priorPartial != cursorValue.PriorPartial ||
+			state.generation != cursorValue.Generation ||
+			state.observedCount != cursorValue.ObservedCount {
+			if state.generation != cursorValue.Generation {
+				return page, fmt.Errorf("%w: cursor generation already consumed", ErrEnumerationStale)
+			}
 			dropState = true
 			return page, fmt.Errorf("%w: cursor metadata changed", ErrChanged)
 		}
@@ -360,7 +375,7 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 			rootID: rootID, prefix: relativePrefix,
 			directoryID:    fileIdentity(directoryInfo),
 			directoryMTime: directoryInfo.ModTime().UnixNano(),
-			sourceID:       sourceID, startedAt: started,
+			sourceID:       sourceID, startedAt: started, generation: 1,
 		}
 		stream = state.stream
 	}
@@ -370,13 +385,20 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 	var unsupported []string
 	page.Items, inspected, exhausted, unsupported, err = readEntries(ctx, stream, rootID, relativePrefix, limit)
 	if err != nil {
-		if continuation && ctx.Err() == nil {
+		if continuation {
 			dropState = true
 		}
 		return page, err
 	}
+	if err := ctx.Err(); err != nil {
+		if continuation {
+			dropState = true
+		}
+		return page, err
+	}
+	state.observedCount += int64(len(page.Items))
 	observed := time.Now().UTC()
-	page.Coverage = coverage(root, sourceID, len(page.Items), started, observed)
+	page.Coverage = coverage(root, sourceID, state.observedCount, started, observed)
 	if priorPartial {
 		page.Coverage.Completeness = domain.CompletenessPartial
 		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "unsupported_child_prior")
@@ -395,14 +417,12 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 				return page, fmt.Errorf("create enumeration cursor: %w", err)
 			}
 		}
-		page.NextCursor = encodeCursor(cursorState{
-			CursorID: cursorID, DirectoryID: state.directoryID,
-			DirectoryMTime: state.directoryMTime, Prefix: relativePrefix,
-			SourceID: sourceID, StartedAt: started,
-			PriorPartial: state.priorPartial,
-		})
-		page.Coverage.Completeness = domain.CompletenessPartial
-		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "enumeration_limit")
+	}
+	if err := ctx.Err(); err != nil {
+		if continuation {
+			dropState = true
+		}
+		return page, err
 	}
 	finalInfo, err := directory.Stat()
 	if err != nil {
@@ -416,6 +436,29 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 			dropState = true
 		}
 		return page, fmt.Errorf("%w: enumeration directory changed", ErrChanged)
+	}
+	if err := ctx.Err(); err != nil {
+		if continuation {
+			dropState = true
+		}
+		return page, err
+	}
+	if continuation {
+		// Consume token generation before releasing state lock. A concurrent
+		// replay then observes stale generation even if it acquired the map
+		// before this call removes a terminal cursor.
+		state.generation++
+	}
+	if more {
+		page.NextCursor = encodeCursor(cursorState{
+			CursorID: cursorID, DirectoryID: state.directoryID,
+			DirectoryMTime: state.directoryMTime, Prefix: relativePrefix,
+			SourceID: sourceID, StartedAt: started,
+			PriorPartial: state.priorPartial, Generation: state.generation,
+			ObservedCount: state.observedCount,
+		})
+		page.Coverage.Completeness = domain.CompletenessPartial
+		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "enumeration_limit")
 	}
 	if page.NextCursor == "" {
 		completed := time.Now().UTC()
@@ -566,7 +609,7 @@ func mergeConfiguredCapability(root Root, name string, observedState domain.Capa
 	return capability
 }
 
-func coverage(root Root, source domain.RuntimeID, count int, started, observed time.Time) domain.Coverage {
+func coverage(root Root, source domain.RuntimeID, count int64, started, observed time.Time) domain.Coverage {
 	return domain.Coverage{
 		SourceID: source, RootID: root.ID, Completeness: domain.CompletenessComplete,
 		ObservedCount: int64(count), SnapshotRevision: root.Revision,
@@ -593,39 +636,13 @@ func manifestEntry(rootID domain.ConfigID, relativePath string, info fs.FileInfo
 	}, nil
 }
 
-// UnsupportedChildEvidence is the path-scoped evidence carried by an
-// enumeration coverage reason. The frozen filesystem page contract has no
-// separate unsupported-entry collection, so this compact representation keeps
-// the path and reason available without pretending the child is a manifest.
-type UnsupportedChildEvidence struct {
-	RelativePath string `json:"relativePath"`
-	Reason       string `json:"reason"`
-}
-
-const unsupportedChildReasonPrefix = "unsupported_child:"
-
-// UnsupportedChildReasonCode returns the stable coverage reason encoding for
-// one child that could not be observed. RelativePath is root-relative and is
-// never a host path.
-func UnsupportedChildReasonCode(relativePath, reason string) string {
-	evidence, _ := json.Marshal(UnsupportedChildEvidence{RelativePath: relativePath, Reason: reason})
-	return unsupportedChildReasonPrefix + string(evidence)
-}
-
-// ParseUnsupportedChildReasonCode decodes one reason from Coverage.ReasonCodes.
-// It returns false for unrelated coverage reasons or malformed evidence.
-func ParseUnsupportedChildReasonCode(code string) (UnsupportedChildEvidence, bool) {
-	if !strings.HasPrefix(code, unsupportedChildReasonPrefix) {
-		return UnsupportedChildEvidence{}, false
-	}
-	var evidence UnsupportedChildEvidence
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(code, unsupportedChildReasonPrefix)), &evidence); err != nil {
-		return UnsupportedChildEvidence{}, false
-	}
-	if evidence.RelativePath == "" || evidence.Reason == "" {
-		return UnsupportedChildEvidence{}, false
-	}
-	return evidence, true
+// unsupportedChildReasonCode keeps one unobservable child visible through the
+// frozen coverage contract without pretending it is a manifest entry. The
+// wire type and parser belong to ports so downstream consumers do not import
+// this adapter package.
+func unsupportedChildReasonCode(relativePath, reason string) string {
+	evidence, _ := json.Marshal(ports.UnsupportedChildEvidence{RelativePath: relativePath, Reason: reason})
+	return "unsupported_child:" + string(evidence)
 }
 
 func unsupportedChildReason(err error) string {
@@ -665,7 +682,10 @@ func readEntries(ctx context.Context, directory *directoryCursor, rootID domain.
 		inspected++
 		name := directoryEntry.Name
 		if strings.Contains(name, "/") || strings.Contains(name, "\\") || name == "." || name == ".." {
-			unsupported = append(unsupported, UnsupportedChildReasonCode(path.Join(prefix, name), "invalid_name"))
+			unsupported = append(unsupported, unsupportedChildReasonCode(path.Join(prefix, name), "invalid_name"))
+			if err := ctx.Err(); err != nil {
+				return nil, inspected, exhausted, unsupported, err
+			}
 			continue
 		}
 		relativePath := path.Join(prefix, name)
@@ -677,16 +697,25 @@ func readEntries(ctx context.Context, directory *directoryCursor, rootID domain.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, inspected, exhausted, unsupported, ctxErr
 			}
-			unsupported = append(unsupported, UnsupportedChildReasonCode(relativePath, unsupportedChildReason(err)))
+			unsupported = append(unsupported, unsupportedChildReasonCode(relativePath, unsupportedChildReason(err)))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, inspected, exhausted, unsupported, ctxErr
+			}
 			continue
 		}
 		entry, entryErr := manifestEntry(rootID, relativePath, info, time.Now().UTC())
 		child.Close()
 		if entryErr != nil {
-			unsupported = append(unsupported, UnsupportedChildReasonCode(relativePath, unsupportedChildReason(entryErr)))
+			unsupported = append(unsupported, unsupportedChildReasonCode(relativePath, unsupportedChildReason(entryErr)))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, inspected, exhausted, unsupported, ctxErr
+			}
 			continue
 		}
 		entries = append(entries, entry)
+		if err := ctx.Err(); err != nil {
+			return nil, inspected, exhausted, unsupported, err
+		}
 	}
 	return entries, inspected, exhausted, unsupported, nil
 }
@@ -699,6 +728,8 @@ type cursorState struct {
 	SourceID       domain.RuntimeID `json:"sourceId"`
 	StartedAt      time.Time        `json:"startedAt"`
 	PriorPartial   bool             `json:"priorPartial"`
+	Generation     uint64           `json:"generation"`
+	ObservedCount  int64            `json:"observedCount"`
 }
 
 func encodeCursor(state cursorState) string {
@@ -715,7 +746,7 @@ func decodeCursor(value string) (cursorState, error) {
 		return cursorState{}, fmt.Errorf("invalid enumeration cursor: %w", err)
 	}
 	var state cursorState
-	if err := json.Unmarshal(decoded, &state); err != nil || !state.CursorID.Valid() || state.DirectoryID == "" {
+	if err := json.Unmarshal(decoded, &state); err != nil || !state.CursorID.Valid() || state.DirectoryID == "" || state.Generation == 0 || state.ObservedCount < 0 {
 		return cursorState{}, errors.New("invalid enumeration cursor")
 	}
 	if !state.SourceID.Valid() || state.StartedAt.IsZero() {

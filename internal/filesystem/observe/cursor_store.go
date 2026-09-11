@@ -30,6 +30,8 @@ type enumerationCursorState struct {
 	sourceID       domain.RuntimeID
 	startedAt      time.Time
 	priorPartial   bool
+	generation     uint64
+	observedCount  int64
 	lastUsedNanos  atomic.Int64
 }
 
@@ -117,6 +119,28 @@ func (o *Observer) dropEnumerationCursor(id string, state *enumerationCursorStat
 		return
 	}
 	state.mu.Lock()
+	delete(o.cursors, id)
+	state.closeLocked()
+	state.mu.Unlock()
+	o.cursorMu.Unlock()
+}
+
+// invalidateEnumerationCursor closes one cursor without requiring a full
+// continuation. Generation still must match, so cancellation of an already
+// stale token cannot invalidate a newer valid token for the same stream.
+func (o *Observer) invalidateEnumerationCursor(id string, generation uint64) {
+	o.cursorMu.Lock()
+	state, ok := o.cursors[id]
+	if !ok {
+		o.cursorMu.Unlock()
+		return
+	}
+	state.mu.Lock()
+	if state.generation != generation {
+		state.mu.Unlock()
+		o.cursorMu.Unlock()
+		return
+	}
 	delete(o.cursors, id)
 	state.closeLocked()
 	state.mu.Unlock()

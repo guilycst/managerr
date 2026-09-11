@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/managerr/internal/ports"
 	"golang.org/x/sys/unix"
 )
 
@@ -61,7 +62,7 @@ func TestObserveEnumerationSkipsUnsupportedChildren(t *testing.T) {
 	t.Cleanup(func() { _ = listener.Close() })
 
 	var items []domain.FileManifestEntry
-	var reasons []UnsupportedChildEvidence
+	var reasons []ports.UnsupportedChildEvidence
 	page, err := observer.Enumerate(context.Background(), rootID, "", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +70,7 @@ func TestObserveEnumerationSkipsUnsupportedChildren(t *testing.T) {
 	for {
 		items = append(items, page.Items...)
 		for _, code := range page.Coverage.ReasonCodes {
-			if evidence, ok := ParseUnsupportedChildReasonCode(code); ok {
+			if evidence, ok := ports.ParseUnsupportedChildReasonCode(code); ok {
 				reasons = append(reasons, evidence)
 			}
 		}
@@ -131,9 +132,12 @@ func TestObserveEnumerationBoundsUnsupportedEvidencePerPage(t *testing.T) {
 			t.Fatalf("page emitted %d items with limit 1", len(page.Items))
 		}
 		valid += len(page.Items)
+		if page.Coverage.ObservedCount != int64(valid) {
+			t.Fatalf("coverage count = %d after %d valid items", page.Coverage.ObservedCount, valid)
+		}
 		pageUnsupported := 0
 		for _, code := range page.Coverage.ReasonCodes {
-			if _, ok := ParseUnsupportedChildReasonCode(code); ok {
+			if _, ok := ports.ParseUnsupportedChildReasonCode(code); ok {
 				pageUnsupported++
 			}
 		}
@@ -175,7 +179,7 @@ func TestObserveEnumerationCarriesPriorPartialToFinalPage(t *testing.T) {
 	for {
 		currentUnsupported := false
 		for _, code := range page.Coverage.ReasonCodes {
-			if _, ok := ParseUnsupportedChildReasonCode(code); ok {
+			if _, ok := ports.ParseUnsupportedChildReasonCode(code); ok {
 				currentUnsupported = true
 			}
 			if code == "unsupported_child_prior" {
