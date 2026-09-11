@@ -107,6 +107,9 @@ func (coverage Coverage) Validate() error {
 	if coverage.StartedAt != nil && coverage.CompletedAt != nil && coverage.CompletedAt.Before(*coverage.StartedAt) {
 		return errors.New("coverage completed time precedes start")
 	}
+	if coverage.CompletedAt != nil && coverage.CompletedAt.After(coverage.ObservedAt) {
+		return errors.New("coverage completed time follows observation")
+	}
 	if coverage.ConnectionID != "" && !coverage.ConnectionID.Valid() {
 		return errors.New("coverage has an invalid connection id")
 	}
@@ -272,15 +275,16 @@ const (
 
 // TrackingObservation is one instance-scoped tracking fact.
 type TrackingObservation struct {
-	ConnectionID ConfigID
-	Dimension    TrackingDimension
-	Value        TrackingValue
-	ExternalID   string
-	ProviderID   string
-	ObservedAt   time.Time
-	CoverageID   RuntimeID
-	Coverage     *Coverage
-	Evidence     []string
+	ConnectionID   ConfigID
+	Dimension      TrackingDimension
+	Value          TrackingValue
+	ExternalID     string
+	ProviderID     string
+	ObservedAt     time.Time
+	CoverageID     RuntimeID
+	Coverage       *Coverage
+	CoverageMaxAge time.Duration
+	Evidence       []string
 }
 
 // Validate ensures an observation cannot accidentally lose its instance scope.
@@ -327,6 +331,12 @@ func (observation TrackingObservation) Validate() error {
 		}
 		if observation.Coverage.CompletedAt == nil || observation.Coverage.CompletedAt.After(observation.ObservedAt) {
 			return errors.New("absent tracking requires completed fresh coverage")
+		}
+		if observation.CoverageMaxAge <= 0 {
+			return errors.New("absent tracking requires a positive coverage freshness bound")
+		}
+		if age := observation.ObservedAt.Sub(observation.Coverage.ObservedAt); age < 0 || age > observation.CoverageMaxAge {
+			return errors.New("absent tracking coverage is stale")
 		}
 	}
 	return nil

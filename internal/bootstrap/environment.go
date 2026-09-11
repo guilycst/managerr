@@ -225,6 +225,7 @@ type Bounds struct {
 	ScanInterval          time.Duration
 	FileStabilityInterval time.Duration
 	StableObservations    int
+	CoverageMaxAge        time.Duration
 	TrashRetention        time.Duration
 	JanitorInterval       time.Duration
 }
@@ -240,6 +241,7 @@ func DefaultBounds() Bounds {
 		ScanInterval:          5 * time.Minute,
 		FileStabilityInterval: 30 * time.Second,
 		StableObservations:    2,
+		CoverageMaxAge:        15 * time.Minute,
 		TrashRetention:        30 * 24 * time.Hour,
 		JanitorInterval:       time.Hour,
 	}
@@ -251,7 +253,7 @@ func (bounds Bounds) Validate() error {
 	if bounds.MaxWorkers < 1 || bounds.QueueCapacity < 1 || bounds.MaxManifestEntries < 1 || bounds.MaxManifestBytes < 1 {
 		return errors.New("worker and manifest bounds must be positive")
 	}
-	if bounds.RequestTimeout <= 0 || bounds.ScanInterval < 30*time.Second || bounds.FileStabilityInterval < 30*time.Second || bounds.StableObservations < 2 || bounds.TrashRetention <= 0 || bounds.JanitorInterval <= 0 {
+	if bounds.RequestTimeout <= 0 || bounds.ScanInterval < 30*time.Second || bounds.FileStabilityInterval < 30*time.Second || bounds.StableObservations < 2 || bounds.CoverageMaxAge <= 0 || bounds.TrashRetention <= 0 || bounds.JanitorInterval <= 0 {
 		return errors.New("worker and storage durations do not meet safety minimums")
 	}
 	return nil

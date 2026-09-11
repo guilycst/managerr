@@ -72,12 +72,13 @@ func TestManifestAndTrackingValidation(t *testing.T) {
 		ObservedAt: observedAt.Add(-time.Second),
 	}
 	absent := TrackingObservation{
-		ConnectionID: root,
-		Dimension:    TrackingRegistration,
-		Value:        TrackingAbsent,
-		ObservedAt:   observedAt,
-		CoverageID:   coverageID,
-		Coverage:     &coverage,
+		ConnectionID:   root,
+		Dimension:      TrackingRegistration,
+		Value:          TrackingAbsent,
+		ObservedAt:     observedAt,
+		CoverageID:     coverageID,
+		Coverage:       &coverage,
+		CoverageMaxAge: time.Minute,
 	}
 	if err := absent.Validate(); err != nil {
 		t.Fatal(err)
@@ -102,11 +103,24 @@ func TestManifestAndTrackingValidation(t *testing.T) {
 	if err := absent.Validate(); err == nil {
 		t.Fatal("absent tracking accepted coverage from another connection")
 	}
+	stale := coverage
+	stale.ObservedAt = observedAt.Add(-2 * time.Minute)
+	stale.CompletedAt = func() *time.Time {
+		completed := stale.ObservedAt
+		return &completed
+	}()
+	absent.Coverage = &stale
+	if err := absent.Validate(); err == nil {
+		t.Fatal("absent tracking accepted stale coverage")
+	}
 }
 
 func TestActionTransitions(t *testing.T) {
 	if !CanTransition(ActionQueued, ActionRunning) || !CanTransition(ActionRunning, ActionReconciling) {
 		t.Fatal("expected active action transitions")
+	}
+	if CanTransition(ActionReconciling, ActionRunning) || CanTransition(ActionReconciling, ActionFailed) {
+		t.Fatal("reconciliation must not dispatch or hide an uncertain write")
 	}
 	if CanTransition(ActionSucceeded, ActionRunning) {
 		t.Fatal("terminal action must not be reopened")
