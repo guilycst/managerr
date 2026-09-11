@@ -1,0 +1,2675 @@
+openapi: 3.0.3
+info:
+  title: Managerr API
+  version: 0.0.1
+  description: >-
+    Contract-first API for reviewing downloaded media and reconciling it with
+    configured Arr, download-client, Jellyfin, Seerr and filesystem state.
+servers:
+  - url: /
+tags:
+  - name: health
+  - name: configuration
+  - name: observations
+  - name: plans
+  - name: execution
+  - name: trash
+  - name: audit
+paths:
+  /health/live:
+    get:
+      operationId: getLiveHealth
+      tags: [health]
+      responses:
+        '200':
+          description: Process is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /health/ready:
+    get:
+      operationId: getReadyHealth
+      tags: [health]
+      responses:
+        '200':
+          description: Database, migrations and key are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/Problem503'
+
+  /api/v1/connections:
+    get:
+      operationId: listConnections
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Configured integration connections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionList'
+    post:
+      operationId: createConnection
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectionCreate'
+      responses:
+        '201':
+          description: Managed connection created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connection'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/connections/{connectionId}:
+    parameters:
+      - $ref: '#/components/parameters/ConnectionId'
+    get:
+      operationId: getConnection
+      tags: [configuration]
+      responses:
+        '200':
+          description: Managed connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connection'
+        '404':
+          $ref: '#/components/responses/Problem404'
+    patch:
+      operationId: patchConnection
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectionPatch'
+      responses:
+        '200':
+          description: Updated managed connection.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Connection'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+    delete:
+      operationId: retireConnection
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Connection retired.
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+
+  /api/v1/connection-checks:
+    get:
+      operationId: listConnectionChecks
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Connection checks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionCheckList'
+    post:
+      operationId: createConnectionCheck
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectionCheckCreate'
+      responses:
+        '202':
+          description: Check queued.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncAccepted'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/connection-checks/{connectionCheckId}:
+    parameters:
+      - $ref: '#/components/parameters/ConnectionCheckId'
+    get:
+      operationId: getConnectionCheck
+      tags: [observations]
+      responses:
+        '200':
+          description: Connection check result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionCheck'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/storage-roots:
+    get:
+      operationId: listStorageRoots
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Configured storage roots.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageRootList'
+    post:
+      operationId: createStorageRoot
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageRootCreate'
+      responses:
+        '201':
+          description: Storage root created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageRoot'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/storage-roots/{storageRootId}:
+    parameters:
+      - $ref: '#/components/parameters/StorageRootId'
+    get:
+      operationId: getStorageRoot
+      tags: [configuration]
+      responses:
+        '200':
+          description: Storage root.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageRoot'
+        '404':
+          $ref: '#/components/responses/Problem404'
+    patch:
+      operationId: patchStorageRoot
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorageRootPatch'
+      responses:
+        '200':
+          description: Updated storage root.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageRoot'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+    delete:
+      operationId: retireStorageRoot
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Storage root retired.
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+
+  /api/v1/path-mappings:
+    get:
+      operationId: listPathMappings
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Explicit upstream path mappings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathMappingList'
+    post:
+      operationId: createPathMapping
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PathMappingCreate'
+      responses:
+        '201':
+          description: Path mapping created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathMapping'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/path-mappings/{pathMappingId}:
+    parameters:
+      - $ref: '#/components/parameters/PathMappingId'
+    get:
+      operationId: getPathMapping
+      tags: [configuration]
+      responses:
+        '200':
+          description: Path mapping.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathMapping'
+        '404':
+          $ref: '#/components/responses/Problem404'
+    patch:
+      operationId: patchPathMapping
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PathMappingPatch'
+      responses:
+        '200':
+          description: Updated path mapping.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathMapping'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+    delete:
+      operationId: retirePathMapping
+      tags: [configuration]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Path mapping retired.
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '412':
+          $ref: '#/components/responses/Problem412'
+
+  /api/v1/configuration:
+    get:
+      operationId: getConfiguration
+      tags: [configuration]
+      responses:
+        '200':
+          description: Effective non-secret configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Configuration'
+
+  /api/v1/scans:
+    get:
+      operationId: listScans
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Scan jobs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanList'
+    post:
+      operationId: createScan
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanCreate'
+      responses:
+        '202':
+          description: Scan queued or coalesced.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncAccepted'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+  /api/v1/scans/{scanId}:
+    parameters:
+      - $ref: '#/components/parameters/ScanId'
+    get:
+      operationId: getScan
+      tags: [observations]
+      responses:
+        '200':
+          description: Scan progress and coverage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/scans/{scanId}/cancellations:
+    parameters:
+      - $ref: '#/components/parameters/ScanId'
+    post:
+      operationId: cancelScan
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Cancellation requested.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cancellation'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/discoveries:
+    get:
+      operationId: listDiscoveries
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/RootFilter'
+      responses:
+        '200':
+          description: Observed file groups.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryList'
+  /api/v1/discoveries/{discoveryId}:
+    parameters:
+      - $ref: '#/components/parameters/DiscoveryId'
+    get:
+      operationId: getDiscovery
+      tags: [observations]
+      responses:
+        '200':
+          description: Discovery with provenance and candidates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Discovery'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/media:
+    get:
+      operationId: listMedia
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/MediaKindFilter'
+      responses:
+        '200':
+          description: Aggregated media identities and tracking observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaList'
+  /api/v1/media/{mediaId}:
+    parameters:
+      - $ref: '#/components/parameters/MediaId'
+    get:
+      operationId: getMedia
+      tags: [observations]
+      responses:
+        '200':
+          description: Media identity and all instance observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/downloads:
+    get:
+      operationId: listDownloads
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/ConnectionFilter'
+      responses:
+        '200':
+          description: Download-client observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadList'
+  /api/v1/downloads/{downloadId}:
+    parameters:
+      - $ref: '#/components/parameters/DownloadId'
+    get:
+      operationId: getDownload
+      tags: [observations]
+      responses:
+        '200':
+          description: Download provenance and descriptor links.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Download'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/metadata-candidates:
+    get:
+      operationId: listMetadataCandidates
+      tags: [observations]
+      parameters:
+        - name: connectionId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: kind
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/MediaKind'
+        - name: query
+          in: query
+          required: true
+          minLength: 1
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Suggestions from a selected Arr instance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetadataCandidateList'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/connections/{connectionId}/options:
+    parameters:
+      - $ref: '#/components/parameters/ConnectionId'
+    get:
+      operationId: getConnectionOptions
+      tags: [observations]
+      responses:
+        '200':
+          description: Current typed options for a selected upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionOptions'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/action-plans:
+    get:
+      operationId: listActionPlans
+      tags: [plans]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Immutable action plan revisions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPlanList'
+    post:
+      operationId: createActionPlan
+      tags: [plans]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionPlanCreate'
+      responses:
+        '201':
+          description: Immutable read-only plan created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPlan'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '413':
+          $ref: '#/components/responses/Problem413'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/action-plans/{actionPlanId}:
+    parameters:
+      - $ref: '#/components/parameters/ActionPlanId'
+    get:
+      operationId: getActionPlan
+      tags: [plans]
+      responses:
+        '200':
+          description: Immutable action plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPlan'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/action-plans/{actionPlanId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/ActionPlanId'
+    post:
+      operationId: createActionPlanRevision
+      tags: [plans]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionPlanCreate'
+      responses:
+        '201':
+          description: New immutable plan revision.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionPlan'
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+
+  /api/v1/review-decisions:
+    post:
+      operationId: createReviewDecision
+      tags: [plans]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionCreate'
+      responses:
+        '202':
+          description: Decision recorded and action run queued when approved.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDecision'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/review-decisions/{reviewDecisionId}:
+    parameters:
+      - $ref: '#/components/parameters/ReviewDecisionId'
+    get:
+      operationId: getReviewDecision
+      tags: [plans]
+      responses:
+        '200':
+          description: Recorded review decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDecision'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/action-runs:
+    get:
+      operationId: listActionRuns
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Durable action runs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionRunList'
+  /api/v1/action-runs/{actionRunId}:
+    parameters:
+      - $ref: '#/components/parameters/ActionRunId'
+    get:
+      operationId: getActionRun
+      tags: [execution]
+      responses:
+        '200':
+          description: Action state, effects and unresolved observations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionRun'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/action-runs/{actionRunId}/attempts:
+    parameters:
+      - $ref: '#/components/parameters/ActionRunId'
+    get:
+      operationId: listActionAttempts
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Sanitized attempt journal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttemptList'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/action-runs/{actionRunId}/cancellations:
+    parameters:
+      - $ref: '#/components/parameters/ActionRunId'
+    post:
+      operationId: cancelActionRun
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancellationCreate'
+      responses:
+        '202':
+          description: Durable cancellation request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cancellation'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/action-runs/{actionRunId}/reconciliations:
+    parameters:
+      - $ref: '#/components/parameters/ActionRunId'
+    post:
+      operationId: requestActionReconciliation
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconciliationRequest'
+      responses:
+        '202':
+          description: Read-only reconciliation queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncAccepted'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/action-runs/{actionRunId}/retry-requests:
+    parameters:
+      - $ref: '#/components/parameters/ActionRunId'
+    post:
+      operationId: requestActionRetry
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryRequest'
+      responses:
+        '202':
+          description: Explicit retry request queued after validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncAccepted'
+        '404':
+          $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+
+  /api/v1/workflow-runs:
+    get:
+      operationId: listWorkflowRuns
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ordered workflow runs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunList'
+    post:
+      operationId: createWorkflowRun
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowRunCreate'
+      responses:
+        '202':
+          description: Workflow created and waiting for its approval gates.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRun'
+        '400':
+          $ref: '#/components/responses/Problem400'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '422':
+          $ref: '#/components/responses/Problem422'
+  /api/v1/workflow-runs/{workflowRunId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowRunId'
+    get:
+      operationId: getWorkflowRun
+      tags: [execution]
+      responses:
+        '200':
+          description: Workflow progress and step state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRun'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/workflow-runs/{workflowRunId}/cancellations:
+    parameters:
+      - $ref: '#/components/parameters/WorkflowRunId'
+    post:
+      operationId: cancelWorkflowRun
+      tags: [execution]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancellationCreate'
+      responses:
+        '202':
+          description: Workflow cancellation requested.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cancellation'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/trash:
+    get:
+      operationId: listTrash
+      tags: [trash]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Trash manifests and retention state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrashList'
+  /api/v1/trash/{trashId}:
+    parameters:
+      - $ref: '#/components/parameters/TrashId'
+    get:
+      operationId: getTrash
+      tags: [trash]
+      responses:
+        '200':
+          description: Trash entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrashEntry'
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/descriptors:
+    get:
+      operationId: listDescriptors
+      tags: [observations]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Descriptor metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescriptorList'
+  /api/v1/descriptors/{descriptorId}:
+    parameters:
+      - $ref: '#/components/parameters/DescriptorId'
+    get:
+      operationId: getDescriptor
+      tags: [observations]
+      responses:
+        '200':
+          description: Descriptor metadata without content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Descriptor'
+        '404':
+          $ref: '#/components/responses/Problem404'
+  /api/v1/descriptors/{descriptorId}/content:
+    parameters:
+      - $ref: '#/components/parameters/DescriptorId'
+    get:
+      operationId: getDescriptorContent
+      tags: [observations]
+      responses:
+        '200':
+          description: Original descriptor bytes.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/Problem404'
+
+  /api/v1/audit-events:
+    get:
+      operationId: listAuditEvents
+      tags: [audit]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor-paginated audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+
+components:
+  headers:
+    Location:
+      description: URL of the created resource.
+      schema:
+        type: string
+        format: uri-reference
+    ETag:
+      description: Opaque application revision tag.
+      schema:
+        type: string
+        minLength: 1
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ConnectionId:
+      name: connectionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    ConnectionCheckId:
+      name: connectionCheckId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    StorageRootId:
+      name: storageRootId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    PathMappingId:
+      name: pathMappingId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    ScanId:
+      name: scanId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    DiscoveryId:
+      name: discoveryId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    MediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    DownloadId:
+      name: downloadId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    ActionPlanId:
+      name: actionPlanId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    ReviewDecisionId:
+      name: reviewDecisionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    ActionRunId:
+      name: actionRunId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    WorkflowRunId:
+      name: workflowRunId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    TrashId:
+      name: trashId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    DescriptorId:
+      name: descriptorId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    RootFilter:
+      name: rootId
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Id'
+    MediaKindFilter:
+      name: kind
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/MediaKind'
+    ConnectionFilter:
+      name: connectionId
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Id'
+  responses:
+    Problem400:
+      description: Invalid request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem404:
+      description: Resource not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem409:
+      description: State, plan or idempotency conflict.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem412:
+      description: Required revision precondition failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem413:
+      description: Request or manifest is too large.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem422:
+      description: Requested capability or mapping is unsafe or unsupported.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem429:
+      description: Local capacity limit reached.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem503:
+      description: Dependency or readiness unavailable.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Id:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    MediaKind:
+      type: string
+      enum: [movie, episode, season, anime]
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, observedAt]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, not_ready]
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        reason:
+          type: string
+    SourceMetadata:
+      type: object
+      additionalProperties: false
+      required: [source, revision]
+      properties:
+        source:
+          type: string
+          enum: [static_file, api, default]
+        revision:
+          type: string
+          minLength: 1
+        startupAt:
+          $ref: '#/components/schemas/Timestamp'
+        reloadPolicy:
+          type: string
+          enum: [restart_required]
+    Coverage:
+      type: object
+      additionalProperties: false
+      required: [completeness, observedAt]
+      properties:
+        sourceId:
+          $ref: '#/components/schemas/Id'
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        rootId:
+          $ref: '#/components/schemas/Id'
+        completeness:
+          type: string
+          enum: [complete, partial, unknown]
+        reasonCodes:
+          type: array
+          items:
+            type: string
+        observedCount:
+          type: integer
+          minimum: 0
+        snapshotRevision:
+          type: string
+        startedAt:
+          $ref: '#/components/schemas/Timestamp'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    Page:
+      type: object
+      additionalProperties: false
+      required: [nextCursor, coverage, observedAt]
+      properties:
+        nextCursor:
+          type: string
+          nullable: true
+        coverage:
+          type: array
+          items:
+            $ref: '#/components/schemas/Coverage'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, requestId, retryable]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        code:
+          type: string
+        requestId:
+          type: string
+        resourceId:
+          $ref: '#/components/schemas/Id'
+        fieldErrors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+        retryable:
+          type: boolean
+        nextAction:
+          type: string
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, code]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    CredentialInput:
+      type: object
+      additionalProperties: false
+      required: [username, secret]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        secret:
+          type: string
+          minLength: 1
+          writeOnly: true
+    Connection:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label, endpoint, source, revision, health, credentialState]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        kind:
+          type: string
+          enum: [qbittorrent, nzbget, radarr, sonarr, jellyfin, seerr]
+        label:
+          type: string
+        endpoint:
+          type: string
+          format: uri-reference
+        source:
+          $ref: '#/components/schemas/SourceMetadata'
+        revision:
+          type: string
+        health:
+          type: string
+          enum: [healthy, degraded, unavailable, unknown]
+        observedVersion:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        credentialState:
+          type: string
+          enum: [managed, missing, invalid, static_reference]
+        retiredAt:
+          $ref: '#/components/schemas/Timestamp'
+    ConnectionCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, label, endpoint]
+      properties:
+        kind:
+          type: string
+          enum: [qbittorrent, nzbget, radarr, sonarr, jellyfin, seerr]
+        label:
+          type: string
+          minLength: 1
+        endpoint:
+          type: string
+          format: uri-reference
+        credentials:
+          $ref: '#/components/schemas/CredentialInput'
+    ConnectionPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+        endpoint:
+          type: string
+          format: uri-reference
+        credentials:
+          $ref: '#/components/schemas/CredentialInput'
+    ConnectionList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Connection'
+        page:
+          $ref: '#/components/schemas/Page'
+    ConnectionCheckCreate:
+      type: object
+      additionalProperties: false
+      required: [connectionId]
+      properties:
+        connectionId:
+          $ref: '#/components/schemas/Id'
+    ConnectionCheck:
+      type: object
+      additionalProperties: false
+      required: [id, connectionId, state, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        state:
+          $ref: '#/components/schemas/JobState'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        capabilities:
+          type: array
+          items:
+            type: string
+        sanitizedError:
+          type: string
+    ConnectionCheckList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectionCheck'
+        page:
+          $ref: '#/components/schemas/Page'
+    StoragePurpose:
+      type: string
+      enum: [download, library, descriptor, trash]
+    StorageRoot:
+      type: object
+      additionalProperties: false
+      required: [id, label, purpose, source, revision, capabilities]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        label:
+          type: string
+        purpose:
+          $ref: '#/components/schemas/StoragePurpose'
+        source:
+          $ref: '#/components/schemas/SourceMetadata'
+        revision:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        permission:
+          type: string
+          enum: [read_only, read_write, unavailable, unknown]
+        retiredAt:
+          $ref: '#/components/schemas/Timestamp'
+    StorageRootCreate:
+      type: object
+      additionalProperties: false
+      required: [label, purpose, path]
+      properties:
+        label:
+          type: string
+          minLength: 1
+        purpose:
+          $ref: '#/components/schemas/StoragePurpose'
+        path:
+          type: string
+          minLength: 1
+          description: Host path accepted only at the configuration boundary.
+    StorageRootPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+        watchEnabled:
+          type: boolean
+    StorageRootList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageRoot'
+        page:
+          $ref: '#/components/schemas/Page'
+    PathMapping:
+      type: object
+      additionalProperties: false
+      required: [id, connectionId, sourcePrefix, rootId, destinationPrefix, source, revision]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        sourcePrefix:
+          type: string
+        rootId:
+          $ref: '#/components/schemas/Id'
+        destinationPrefix:
+          type: string
+        source:
+          $ref: '#/components/schemas/SourceMetadata'
+        revision:
+          type: string
+    PathMappingCreate:
+      type: object
+      additionalProperties: false
+      required: [connectionId, sourcePrefix, rootId, destinationPrefix]
+      properties:
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        sourcePrefix:
+          type: string
+        rootId:
+          $ref: '#/components/schemas/Id'
+        destinationPrefix:
+          type: string
+    PathMappingPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        sourcePrefix:
+          type: string
+        destinationPrefix:
+          type: string
+    PathMappingList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PathMapping'
+        page:
+          $ref: '#/components/schemas/Page'
+    Configuration:
+      type: object
+      additionalProperties: false
+      required: [source, connections, storageRoots, pathMappings, keySource]
+      properties:
+        source:
+          $ref: '#/components/schemas/SourceMetadata'
+        connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Connection'
+        storageRoots:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageRoot'
+        pathMappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PathMapping'
+        keySource:
+          type: string
+          enum: [environment, secret_file, generated_persistent]
+        keyPath:
+          type: string
+        restartRequired:
+          type: boolean
+    ScanCreate:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [roots, download_clients, catalogs, all]
+        rootIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Id'
+        connectionIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Id'
+    Scan:
+      type: object
+      additionalProperties: false
+      required: [id, scope, state, coverage, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        scope:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        coverage:
+          type: array
+          items:
+            $ref: '#/components/schemas/Coverage'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        cancellation:
+          $ref: '#/components/schemas/Cancellation'
+    ScanList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scan'
+        page:
+          $ref: '#/components/schemas/Page'
+    FileTarget:
+      type: object
+      additionalProperties: false
+      required: [rootId, relativePath]
+      properties:
+        rootId:
+          $ref: '#/components/schemas/Id'
+        relativePath:
+          type: string
+          minLength: 1
+          pattern: '^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$'
+    FileManifestEntry:
+      type: object
+      additionalProperties: false
+      required: [rootId, relativePath, type, size]
+      properties:
+        rootId:
+          $ref: '#/components/schemas/Id'
+        relativePath:
+          type: string
+          minLength: 1
+          pattern: '^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$'
+        type:
+          type: string
+          enum: [file, directory, subtitle, companion]
+        size:
+          type: integer
+          minimum: 0
+        digest:
+          type: string
+        fileIdentity:
+          type: string
+        role:
+          type: string
+          enum: [video, subtitle, companion]
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    TrackingObservation:
+      type: object
+      additionalProperties: false
+      required: [connectionId, dimension, value, observedAt]
+      properties:
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        dimension:
+          type: string
+          enum: [registration, import, availability, request]
+        value:
+          type: string
+          enum: [present, absent, unknown]
+        externalId:
+          type: string
+        providerId:
+          type: string
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        coverageId:
+          $ref: '#/components/schemas/Id'
+        evidence:
+          type: array
+          items:
+            type: string
+    Provenance:
+      type: object
+      additionalProperties: false
+      properties:
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        clientItemId:
+          type: string
+        hash:
+          type: string
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        descriptorId:
+          $ref: '#/components/schemas/Id'
+        sourcePath:
+          $ref: '#/components/schemas/FileTarget'
+    Discovery:
+      type: object
+      additionalProperties: false
+      required: [id, files, readiness, observedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileManifestEntry'
+        readiness:
+          type: string
+          enum: [ready, downloading, processing, changing, unsupported, unknown]
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/Provenance'
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetadataCandidate'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        coverage:
+          $ref: '#/components/schemas/Coverage'
+    DiscoveryList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Discovery'
+        page:
+          $ref: '#/components/schemas/Page'
+    Media:
+      type: object
+      additionalProperties: false
+      required: [id, kind, providerId, tracking, observedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        providerId:
+          type: string
+        title:
+          type: string
+        tracking:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackingObservation'
+        discoveryIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Id'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+    MediaList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Media'
+        page:
+          $ref: '#/components/schemas/Page'
+    Download:
+      type: object
+      additionalProperties: false
+      required: [id, connectionId, state, observedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        state:
+          type: string
+          enum: [queued, downloading, seeding, complete, processing, failed, unknown]
+        clientItemId:
+          type: string
+        hash:
+          type: string
+        nzbId:
+          type: string
+        deprecatedId:
+          type: string
+        descriptorId:
+          $ref: '#/components/schemas/Id'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        sourcePath:
+          $ref: '#/components/schemas/FileTarget'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        coverage:
+          $ref: '#/components/schemas/Coverage'
+    DownloadList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Download'
+        page:
+          $ref: '#/components/schemas/Page'
+    MetadataCandidate:
+      type: object
+      additionalProperties: false
+      required: [kind, title]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MediaKind'
+        title:
+          type: string
+        providerId:
+          type: string
+        externalId:
+          type: string
+        year:
+          type: integer
+        season:
+          type: integer
+        episodes:
+          type: array
+          items:
+            type: integer
+        score:
+          type: number
+          format: float
+    MetadataCandidateList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetadataCandidate'
+        page:
+          $ref: '#/components/schemas/Page'
+    ConnectionOptions:
+      type: object
+      additionalProperties: false
+      required: [connectionId, observedAt, options]
+      properties:
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        observedAt:
+          $ref: '#/components/schemas/Timestamp'
+        options:
+          type: object
+          additionalProperties: true
+    ActionPlan:
+      type: object
+      additionalProperties: false
+      required: [id, revision, digest, kind, status, action, desiredState, manifest, preconditions, capabilities, requiredApproval]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        revision:
+          type: integer
+          minimum: 1
+        digest:
+          type: string
+        kind:
+          type: string
+        status:
+          type: string
+          enum: [preparing, ready, invalid, expired]
+        action:
+          $ref: '#/components/schemas/ActionInput'
+        desiredState:
+          type: object
+          additionalProperties: true
+        manifest:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileManifestEntry'
+        preconditions:
+          type: array
+          items:
+            type: string
+        connectionRevisions:
+          type: object
+          additionalProperties:
+            type: string
+        mappingRevisions:
+          type: object
+          additionalProperties:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        impacts:
+          type: array
+          items:
+            type: string
+        conflicts:
+          type: array
+          items:
+            type: string
+        blockingIssues:
+          type: array
+          items:
+            type: string
+        estimatedBytes:
+          type: integer
+          minimum: 0
+        requiredApproval:
+          type: string
+          enum: [none, review, irreversible]
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    ActionPlanCreate:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          $ref: '#/components/schemas/ActionInput'
+        expiresInSeconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+    ActionPlanList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionPlan'
+        page:
+          $ref: '#/components/schemas/Page'
+    ReviewDecisionCreate:
+      type: object
+      additionalProperties: false
+      required: [planId, revision, digest, decision]
+      properties:
+        planId:
+          $ref: '#/components/schemas/Id'
+        revision:
+          type: integer
+          minimum: 1
+        digest:
+          type: string
+        decision:
+          type: string
+          enum: [approve, reject]
+        irreversibleAcknowledgement:
+          type: boolean
+          default: false
+        unverifiedLabel:
+          type: string
+          description: Optional caller label, never trusted as actor identity.
+    ReviewDecision:
+      type: object
+      additionalProperties: false
+      required: [id, planId, revision, digest, decision, actor, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        planId:
+          $ref: '#/components/schemas/Id'
+        revision:
+          type: integer
+        digest:
+          type: string
+        decision:
+          type: string
+          enum: [approve, reject]
+        actor:
+          type: string
+          enum: [unauthenticated]
+        unverifiedLabel:
+          type: string
+        resultingActionRunId:
+          $ref: '#/components/schemas/Id'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    JobState:
+      type: string
+      enum: [queued, running, waiting, succeeded, failed, cancelled, deadline_exceeded]
+    ActionInput:
+      oneOf:
+        - $ref: '#/components/schemas/ArrRegistrationInput'
+        - $ref: '#/components/schemas/ArrImportInput'
+        - $ref: '#/components/schemas/FsCopyInput'
+        - $ref: '#/components/schemas/FsHardlinkInput'
+        - $ref: '#/components/schemas/FsMoveInput'
+        - $ref: '#/components/schemas/FsRenameInput'
+        - $ref: '#/components/schemas/ClientStopInput'
+        - $ref: '#/components/schemas/ClientRemoveInput'
+        - $ref: '#/components/schemas/FsTrashInput'
+        - $ref: '#/components/schemas/FsRestoreInput'
+        - $ref: '#/components/schemas/FsDeleteInput'
+        - $ref: '#/components/schemas/DescriptorDeleteInput'
+        - $ref: '#/components/schemas/JellyfinRefreshInput'
+      discriminator:
+        propertyName: kind
+    ArrRegistrationInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, mediaKind, providerId]
+      properties:
+        kind:
+          type: string
+          enum: [arr.registration]
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        mediaKind:
+          $ref: '#/components/schemas/MediaKind'
+        providerId:
+          type: string
+        fields:
+          type: object
+          additionalProperties: false
+          properties:
+            rootFolder:
+              type: string
+            qualityProfileId:
+              type: integer
+            monitored:
+              type: boolean
+            seriesType:
+              type: string
+            seasonFolder:
+              type: boolean
+            seasons:
+              type: array
+              items:
+                type: integer
+    ArrImportInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, registeredExternalId, files, previewRevision]
+      properties:
+        kind:
+          type: string
+          enum: [arr.import]
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        registeredExternalId:
+          type: string
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ImportFile'
+        previewRevision:
+          type: string
+        transfer:
+          type: string
+          enum: [copy, hardlink, move]
+    ImportFile:
+      type: object
+      additionalProperties: false
+      required: [source, movieOrEpisodeId]
+      properties:
+        source:
+          $ref: '#/components/schemas/FileTarget'
+        movieOrEpisodeId:
+          type: integer
+        subtitle:
+          type: boolean
+        language:
+          type: string
+        forced:
+          type: boolean
+        hearingImpaired:
+          type: boolean
+    FileMap:
+      type: object
+      additionalProperties: false
+      required: [source, destination]
+      properties:
+        source:
+          $ref: '#/components/schemas/FileTarget'
+        destination:
+          $ref: '#/components/schemas/FileTarget'
+    FsCopyInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files]
+      properties:
+        kind:
+          type: string
+          enum: [fs.copy]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileMap'
+    FsHardlinkInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files]
+      properties:
+        kind:
+          type: string
+          enum: [fs.hardlink]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileMap'
+    FsMoveInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files]
+      properties:
+        kind:
+          type: string
+          enum: [fs.move]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileMap'
+    FsRenameInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files]
+      properties:
+        kind:
+          type: string
+          enum: [fs.rename]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileMap'
+    ClientStopInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, clientItemIds]
+      properties:
+        kind:
+          type: string
+          enum: [client.stop]
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        clientItemIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    ClientRemoveInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, clientItemIds, retainPayload]
+      properties:
+        kind:
+          type: string
+          enum: [client.remove]
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        clientItemIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        retainPayload:
+          type: boolean
+          enum: [true]
+    FsTrashInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files, retentionDays]
+      properties:
+        kind:
+          type: string
+          enum: [fs.trash]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileTarget'
+        retentionDays:
+          type: integer
+          minimum: 1
+        stoppedClientIds:
+          type: array
+          items:
+            type: string
+    FsRestoreInput:
+      type: object
+      additionalProperties: false
+      required: [kind, trashId, files]
+      properties:
+        kind:
+          type: string
+          enum: [fs.restore]
+        trashId:
+          $ref: '#/components/schemas/Id'
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileMap'
+    FsDeleteInput:
+      type: object
+      additionalProperties: false
+      required: [kind, files, permanent, irreversibleAcknowledgement]
+      properties:
+        kind:
+          type: string
+          enum: [fs.delete]
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FileTarget'
+        permanent:
+          type: boolean
+          enum: [true]
+        irreversibleAcknowledgement:
+          type: boolean
+          enum: [true]
+    DescriptorDeleteInput:
+      type: object
+      additionalProperties: false
+      required: [kind, descriptorIds, irreversibleAcknowledgement]
+      properties:
+        kind:
+          type: string
+          enum: [descriptor.delete]
+        descriptorIds:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Id'
+        irreversibleAcknowledgement:
+          type: boolean
+          enum: [true]
+    JellyfinRefreshInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, scope]
+      properties:
+        kind:
+          type: string
+          enum: [jellyfin.refresh]
+        connectionId:
+          $ref: '#/components/schemas/Id'
+        scope:
+          type: string
+          enum: [library, item]
+        itemId:
+          type: string
+    ActionRun:
+      type: object
+      additionalProperties: false
+      required: [id, planId, revision, state, outcome, attempts, effects, unresolvedEffects]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        planId:
+          $ref: '#/components/schemas/Id'
+        revision:
+          type: integer
+        workflowRunId:
+          $ref: '#/components/schemas/Id'
+        stepId:
+          type: string
+        state:
+          $ref: '#/components/schemas/JobState'
+        outcome:
+          type: string
+          enum: [pending, applied, already_satisfied, failed, cancelled, unknown]
+        attempts:
+          type: integer
+          minimum: 0
+        effects:
+          type: array
+          items:
+            type: string
+        unresolvedEffects:
+          type: array
+          items:
+            type: string
+        nextAttemptAt:
+          $ref: '#/components/schemas/Timestamp'
+        deadlineAt:
+          $ref: '#/components/schemas/Timestamp'
+        cancellation:
+          $ref: '#/components/schemas/Cancellation'
+        lastObservation:
+          type: string
+    ActionRunList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionRun'
+        page:
+          $ref: '#/components/schemas/Page'
+    Attempt:
+      type: object
+      additionalProperties: false
+      required: [id, actionRunId, attempt, state, startedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        actionRunId:
+          $ref: '#/components/schemas/Id'
+        attempt:
+          type: integer
+          minimum: 1
+        state:
+          $ref: '#/components/schemas/JobState'
+        startedAt:
+          $ref: '#/components/schemas/Timestamp'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        retryable:
+          type: boolean
+        sanitizedResult:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+    AttemptList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attempt'
+        page:
+          $ref: '#/components/schemas/Page'
+    CancellationCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    Cancellation:
+      type: object
+      additionalProperties: false
+      required: [id, state, requestedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        state:
+          type: string
+          enum: [requested, acknowledged, effective, already_terminal]
+        reason:
+          type: string
+        requestedAt:
+          $ref: '#/components/schemas/Timestamp'
+        effectiveAt:
+          $ref: '#/components/schemas/Timestamp'
+    ReconciliationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          enum: [all, upstream, filesystem]
+    RetryRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+    WorkflowStep:
+      type: object
+      additionalProperties: false
+      required: [id, actionPlanId, approvalRequired, state]
+      properties:
+        id:
+          type: string
+        actionPlanId:
+          $ref: '#/components/schemas/Id'
+        approvalRequired:
+          type: boolean
+        state:
+          $ref: '#/components/schemas/JobState'
+        actionRunId:
+          $ref: '#/components/schemas/Id'
+    WorkflowRunCreate:
+      type: object
+      additionalProperties: false
+      required: [name, steps]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        recipeVersion:
+          type: string
+        deadlineSeconds:
+          type: integer
+          minimum: 1
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, actionPlanId, approvalRequired]
+            properties:
+              id:
+                type: string
+              actionPlanId:
+                $ref: '#/components/schemas/Id'
+              approvalRequired:
+                type: boolean
+    WorkflowRun:
+      type: object
+      additionalProperties: false
+      required: [id, name, steps, state, currentStep]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        name:
+          type: string
+        recipeVersion:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStep'
+        approvalGates:
+          type: array
+          items:
+            type: string
+        currentStep:
+          type: string
+          nullable: true
+        state:
+          $ref: '#/components/schemas/JobState'
+        aggregateEffectCount:
+          type: integer
+          minimum: 0
+        unresolvedCount:
+          type: integer
+          minimum: 0
+        cancellation:
+          $ref: '#/components/schemas/Cancellation'
+    WorkflowRunList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRun'
+        page:
+          $ref: '#/components/schemas/Page'
+    TrashEntry:
+      type: object
+      additionalProperties: false
+      required: [id, files, originalPaths, expiresAt, state]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileManifestEntry'
+        originalPaths:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileTarget'
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        state:
+          type: string
+          enum: [held, ready, restoring, purging, purged, blocked]
+        clientAssociations:
+          type: array
+          items:
+            type: string
+        holds:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+    TrashList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrashEntry'
+        page:
+          $ref: '#/components/schemas/Page'
+    Descriptor:
+      type: object
+      additionalProperties: false
+      required: [id, type, size, digest, availability, capturedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        type:
+          type: string
+          enum: [torrent, nzb, unknown]
+        size:
+          type: integer
+          minimum: 0
+        digest:
+          type: string
+        availability:
+          type: string
+          enum: [available, unavailable, unknown]
+        capturedAt:
+          $ref: '#/components/schemas/Timestamp'
+        source:
+          type: string
+        retentionUntil:
+          $ref: '#/components/schemas/Timestamp'
+    DescriptorList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Descriptor'
+        page:
+          $ref: '#/components/schemas/Page'
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, type, actor, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        type:
+          type: string
+        actor:
+          type: string
+          enum: [unauthenticated]
+        resourceId:
+          $ref: '#/components/schemas/Id'
+        occurredAt:
+          $ref: '#/components/schemas/Timestamp'
+        summary:
+          type: string
+        effectCount:
+          type: integer
+          minimum: 0
+    AuditEventList:
+      type: object
+      additionalProperties: false
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        page:
+          $ref: '#/components/schemas/Page'
+    AsyncAccepted:
+      type: object
+      additionalProperties: false
+      required: [id, state]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        parentId:
+          $ref: '#/components/schemas/Id'
+        state:
+          $ref: '#/components/schemas/JobState'
+        nextAttemptAt:
+          $ref: '#/components/schemas/Timestamp'

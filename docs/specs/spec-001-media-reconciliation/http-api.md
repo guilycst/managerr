@@ -1,8 +1,9 @@
-# Proposed HTTP API
+# HTTP API contract reference
 
-Future v0.0.1 contract. No routes exist yet. Task C-01 translates this document
-into api/openapi.yaml, then that file owns wire schemas. Contract changes update
-this reference and affected acceptance cases before regenerating consumers.
+The v0.0.1 wire contract lives in [api/openapi.yaml](../../../api/openapi.yaml),
+created by C-01. This document keeps the resource rationale and acceptance
+constraints. Contract changes update both files and affected acceptance cases
+before regenerating consumers.
 
 ## Conventions
 
