@@ -1127,7 +1127,7 @@
       ]
     },
     "X-04": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
       "integratedSha": null,
@@ -1138,14 +1138,21 @@
         "docs/execution/handoffs/X-04.md",
         "b4ad382326df4bd780572aed91fafdb0899a1e99 X-04 restored product",
         "3ca44e16768e567e15069eadc44c68e0962a590c X-04 corrected handoff",
-        "962e95c78aca6d30373cb644b26f6d6818596fbe verified recovery tree"
+        "962e95c78aca6d30373cb644b26f6d6818596fbe verified recovery tree",
+        "02b1f2475af3abefa9e8c823f9fd85f1047ddc34 X-04 review round-one receipt",
+        "docs/execution/handoffs/X-04-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "02b1f2475af3abefa9e8c823f9fd85f1047ddc34",
+        "findings": [
+          "P1: arbitrary upstream version strings claim catalog capabilities are supported",
+          "P1: mutable offset traversals for Jellyfin and Seerr media/requests omit identity 3 yet become complete",
+          "P1: a Jellyfin path-only item with no MediaSources or mapping becomes playable",
+          "P1: duplicate Jellyfin library IDs yield complete empty coverage"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -1164,7 +1171,7 @@
           "A-54",
           "A-55"
         ],
-        "reviewPath": "docs/execution/handoffs/X-04-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/X-04-review-round2.md",
         "handoffPath": "docs/execution/handoffs/X-04.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
@@ -1178,8 +1185,24 @@
         "reviewerReassignedFrom": "/root/f01_reviewer",
         "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review",
         "implementationCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
-        "handoffCommit": "3ca44e16768e567e15069eadc44c68e0962a590c"
-      }
+        "handoffCommit": "3ca44e16768e567e15069eadc44c68e0962a590c",
+        "reviewSourceCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
+        "reviewCommit": "02b1f2475af3abefa9e8c823f9fd85f1047ddc34",
+        "correctionRound": 2,
+        "correctionOwner": "/root/d01_implementer",
+        "correctionBaseSha": "b4ad382326df4bd780572aed91fafdb0899a1e99",
+        "correctionReviewPath": "docs/execution/handoffs/X-04-review-round2.md"
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "02b1f2475af3abefa9e8c823f9fd85f1047ddc34",
+          "status": "changes_requested",
+          "sourceCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
+          "receipt": "docs/execution/handoffs/X-04-review-round1.md"
+        }
+      ]
     },
     "X-05": {
       "status": "planned",
@@ -1409,7 +1432,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-eleven, X-03 round-five, and recovered X-04 round-one reviews while D-01/X-03 corrections continue",
+  "nextAction": "Complete X-04 correction round two, D-01 correction round twelve, and X-03 correction round six",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
