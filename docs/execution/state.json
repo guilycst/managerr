@@ -270,7 +270,7 @@
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "implementationCommit": "cc0d3501e8bc62378596ecca14763cc65b311a46",
+      "implementationCommit": "1ca9e139de8e0854127312b0854dde9d989a78f0",
       "evidence": [
         "docs/execution/handoffs/C-03.md",
         "GOWORK=off go test ./...",
@@ -281,13 +281,14 @@
         "./scripts/generate.sh --check",
         "git diff --check",
         "b1be8aee8b95be19e584c576d376ebfe74b00468 domain validation tightening",
-        "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..cc0d3501e8bc62378596ecca14763cc65b311a46"
+        "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..cc0d3501e8bc62378596ecca14763cc65b311a46",
+        "1ca9e139de8e0854127312b0854dde9d989a78f0 coverage freshness validation"
       ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/c03_reviewer",
-        "commit": "cc0d3501e8bc62378596ecca14763cc65b311a46",
+        "commit": "1ca9e139de8e0854127312b0854dde9d989a78f0",
         "findings": [],
         "round": 2
       },
@@ -297,7 +298,7 @@
           "reviewer": "/root/c03_reviewer",
           "commit": "4b64712419406ca5a243a2fa108969dd3240dd6d",
           "status": "changes_requested",
-          "correctionCommit": "cc0d3501e8bc62378596ecca14763cc65b311a46"
+          "correctionCommit": "1ca9e139de8e0854127312b0854dde9d989a78f0"
         }
       ],
       "dispatch": {
@@ -613,7 +614,7 @@
       "review": null
     }
   },
-  "nextAction": "Independent round-two review of C-03 correction commit cc0d3501e8bc62378596ecca14763cc65b311a46",
+  "nextAction": "Independent round-two review of C-03 correction commit 1ca9e139de8e0854127312b0854dde9d989a78f0",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
