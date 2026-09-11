@@ -1510,7 +1510,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1526,19 +1526,18 @@
         "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b X-10 correction round 3 product",
         "c0cb825e5f559ae02cc4baa7757f1f8c2743e271 X-10 correction round 3 handoff",
         "docs/execution/handoffs/X-10-correction-round3.md",
-        "a01fbbe294a4014483a78a0c64604c2870ce6228 X-10 review round 3"
+        "a01fbbe294a4014483a78a0c64604c2870ce6228 X-10 review round 3",
+        "1a9eb570fa434668c5bfff11b0d2f54180ad1a49 X-10 correction round 4 product",
+        "c38583733f6a194e27640f496c466b2a8063f4f7 X-10 correction round 4 handoff",
+        "docs/execution/handoffs/X-10-correction-round4.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "a01fbbe294a4014483a78a0c64604c2870ce6228",
-        "findings": [
-          "P1 missing OpenAPI-required response members become zero-valued evidence",
-          "P1 canceled authentication waiters block and canceled Login can return success",
-          "P2 case-equivalent duplicate identities survive one inventory response"
-        ],
-        "round": 3
+        "commit": null,
+        "findings": [],
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1557,8 +1556,8 @@
           "oapi-codegen reproducibility",
           "synthetic WebUI httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-10-review-round3.md",
-        "handoffPath": "docs/execution/handoffs/X-10.md",
+        "reviewPath": "docs/execution/handoffs/X-10-review-round4.md",
+        "handoffPath": "docs/execution/handoffs/X-10-correction-round4.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -1566,17 +1565,17 @@
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
-        "reviewSourceCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
+        "reviewSourceCommit": "1a9eb570fa434668c5bfff11b0d2f54180ad1a49",
         "correctionRound": 4,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "correctionReviewPath": "docs/execution/handoffs/X-10-review-round3.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
-        "correctionHandoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
-        "reviewCommit": "a01fbbe294a4014483a78a0c64604c2870ce6228"
+        "correctionImplementationCommit": "1a9eb570fa434668c5bfff11b0d2f54180ad1a49",
+        "correctionHandoffCommit": "c38583733f6a194e27640f496c466b2a8063f4f7",
+        "reviewCommit": "pending"
       },
-      "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
+      "implementationCommit": "1a9eb570fa434668c5bfff11b0d2f54180ad1a49",
       "reviewHistory": [
         {
           "round": 1,
