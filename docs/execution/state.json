@@ -17,7 +17,8 @@
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
     "D-01",
-    "X-03"
+    "X-03",
+    "X-04"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -1052,12 +1053,43 @@
       ]
     },
     "X-04": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/c01_implementer",
+      "baseSha": "bae82056f79660475dc86c68e28953a32d100427",
       "integratedSha": null,
+      "implementationCommit": null,
       "evidence": [],
-      "review": null
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/f01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/adapters/jellyfin/read/",
+          "internal/adapters/seerr/",
+          "tests/fixtures/catalogs/"
+        ],
+        "expectedChecks": [
+          "A-08",
+          "A-09",
+          "A-54",
+          "A-55"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-04-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-04.md",
+        "nextReviewer": "/root/f01_reviewer",
+        "dependencyCommits": {
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        }
+      }
     },
     "X-05": {
       "status": "planned",
@@ -1287,7 +1319,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete D-01 round-nine correction and independent X-03 round-three review",
+  "nextAction": "Implement X-04 Jellyfin/Seerr observations while D-01 and X-03 reviews complete",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
