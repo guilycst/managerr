@@ -297,11 +297,20 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 		// State lock stays held until this call finishes. This serializes two
 		// continuations for one cursor and protects its stream position.
 		defer func() {
+			// Invalidate before releasing state.mu. A same-token caller may
+			// already be queued on this mutex; it must observe cancellation
+			// before it can read or advance the retained directory stream.
+			if dropState {
+				state.invalidated = true
+			}
 			state.mu.Unlock()
 			if dropState {
 				o.dropEnumerationCursor(cursorID.String(), state)
 			}
 		}()
+		if state.invalidated {
+			return page, ErrEnumerationStale
+		}
 		if state.rootID != rootID || state.prefix != relativePrefix ||
 			state.directoryID != cursorValue.DirectoryID ||
 			state.directoryMTime != cursorValue.DirectoryMTime ||

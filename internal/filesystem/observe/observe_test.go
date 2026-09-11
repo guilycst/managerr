@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -360,6 +362,66 @@ func TestObserveEnumerationCancellationInvalidatesCursor(t *testing.T) {
 	}
 }
 
+func TestObserveEnumerationCancellationInvalidatesQueuedContinuation(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	for _, name := range []string{"one.mkv", "two.mkv", "three.mkv", "four.mkv"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+
+	first, err := observer.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursorValue, err := decodeCursor(first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, found := observer.lockEnumerationCursor(cursorValue.CursorID.String())
+	if !found {
+		t.Fatal("first page did not retain a cursor state")
+	}
+
+	cancelContext := newQueuedCancellationContext()
+	type result struct {
+		page ports.Page[domain.FileManifestEntry]
+		err  error
+	}
+	activeResult := make(chan result, 1)
+	go func() {
+		page, callErr := observer.EnumeratePage(cancelContext, rootID, "", first.NextCursor, 1)
+		activeResult <- result{page: page, err: callErr}
+	}()
+	waitForCursorWaiter(t, state)
+	state.mu.Unlock()
+
+	<-cancelContext.readCheck
+	queuedResult := make(chan result, 1)
+	go func() {
+		page, callErr := observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1)
+		queuedResult <- result{page: page, err: callErr}
+	}()
+	waitForCursorWaiter(t, state)
+	close(cancelContext.release)
+
+	active := <-activeResult
+	if !errors.Is(active.err, context.Canceled) {
+		t.Fatalf("active canceled continuation error = %v, want context.Canceled", active.err)
+	}
+	if len(active.page.Items) != 0 || active.page.NextCursor != "" {
+		t.Fatalf("active canceled continuation returned page state = %#v", active.page)
+	}
+	queued := <-queuedResult
+	if !errors.Is(queued.err, ErrEnumerationStale) {
+		t.Fatalf("queued continuation error = %v, want ErrEnumerationStale", queued.err)
+	}
+	if len(queued.page.Items) != 0 || queued.page.NextCursor != "" {
+		t.Fatalf("queued stale continuation returned page state = %#v", queued.page)
+	}
+	if _, err := observer.EnumeratePage(context.Background(), rootID, "", first.NextCursor, 1); !errors.Is(err, ErrEnumerationStale) {
+		t.Fatalf("canceled cursor retry error = %v, want ErrEnumerationStale", err)
+	}
+}
+
 func TestObserveEnumerationCoverageCountIsCumulative(t *testing.T) {
 	for _, total := range []int{1, 2, 3, 4, 5} {
 		t.Run(fmt.Sprintf("files-%d", total), func(t *testing.T) {
@@ -559,6 +621,49 @@ func TestObserveCapabilitiesHonorConfiguredAuthority(t *testing.T) {
 type cancelAfterChecksContext struct {
 	cancelAfter int
 	checks      int
+}
+
+type queuedCancellationContext struct {
+	readCheck chan struct{}
+	release   chan struct{}
+	once      sync.Once
+	checks    atomic.Int32
+}
+
+func newQueuedCancellationContext() *queuedCancellationContext {
+	return &queuedCancellationContext{readCheck: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (ctx *queuedCancellationContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *queuedCancellationContext) Done() <-chan struct{} {
+	return nil
+}
+
+func (ctx *queuedCancellationContext) Err() error {
+	if ctx.checks.Add(1) != 2 {
+		return nil
+	}
+	ctx.once.Do(func() { close(ctx.readCheck) })
+	<-ctx.release
+	return context.Canceled
+}
+
+func (ctx *queuedCancellationContext) Value(any) any {
+	return nil
+}
+
+func waitForCursorWaiter(t *testing.T, state *enumerationCursorState) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for state.waiters.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for continuation to queue on cursor state")
+		}
+		runtime.Gosched()
+	}
 }
 
 func (ctx *cancelAfterChecksContext) Deadline() (time.Time, bool) {

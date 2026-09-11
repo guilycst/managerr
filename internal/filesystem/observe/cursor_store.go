@@ -32,7 +32,11 @@ type enumerationCursorState struct {
 	priorPartial   bool
 	generation     uint64
 	observedCount  int64
-	lastUsedNanos  atomic.Int64
+	invalidated    bool
+	// waiters is an internal contention counter. It is useful for deterministic
+	// cancellation tests and does not participate in cursor validity.
+	waiters       atomic.Int64
+	lastUsedNanos atomic.Int64
 }
 
 func (state *enumerationCursorState) touch() {
@@ -62,7 +66,9 @@ func (o *Observer) lockEnumerationCursor(id string) (*enumerationCursorState, bo
 		o.cursorMu.Unlock()
 		return nil, false
 	}
+	state.waiters.Add(1)
 	state.mu.Lock()
+	state.waiters.Add(-1)
 	if now.Sub(state.lastUsed()) > enumerationCursorTTL {
 		delete(o.cursors, id)
 		state.closeLocked()
@@ -119,6 +125,7 @@ func (o *Observer) dropEnumerationCursor(id string, state *enumerationCursorStat
 		return
 	}
 	state.mu.Lock()
+	state.invalidated = true
 	delete(o.cursors, id)
 	state.closeLocked()
 	state.mu.Unlock()
@@ -141,6 +148,7 @@ func (o *Observer) invalidateEnumerationCursor(id string, generation uint64) {
 		o.cursorMu.Unlock()
 		return
 	}
+	state.invalidated = true
 	delete(o.cursors, id)
 	state.closeLocked()
 	state.mu.Unlock()
