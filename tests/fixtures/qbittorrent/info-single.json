@@ -1,0 +1,20 @@
+[
+  {
+    "added_on": 1760000000,
+    "category": "movies",
+    "completion_on": 1760001000,
+    "content_path": "/downloads/Example Film (2024)",
+    "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "infohash_v1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "infohash_v2": "",
+    "name": "Example Film (2024)",
+    "progress": 1,
+    "ratio": 2.5,
+    "state": "uploading",
+    "tags": "manual",
+    "save_path": "/downloads",
+    "num_seeds": 4,
+    "num_leechs": 1,
+    "has_metadata": true
+  }
+]

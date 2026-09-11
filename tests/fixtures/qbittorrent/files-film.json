@@ -1,0 +1,22 @@
+[
+  {
+    "index": 0,
+    "name": "Example Film (2024).mkv",
+    "size": 1234567890,
+    "progress": 1,
+    "priority": 1,
+    "availability": 1,
+    "seeds": 4,
+    "is_seed": true
+  },
+  {
+    "index": 1,
+    "name": "Example Film (2024).en.srt",
+    "size": 4567,
+    "progress": 1,
+    "priority": 1,
+    "availability": 1,
+    "seeds": 4,
+    "is_seed": true
+  }
+]

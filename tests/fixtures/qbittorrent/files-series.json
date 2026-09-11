@@ -1,0 +1,22 @@
+[
+  {
+    "index": 0,
+    "name": "Season 01/Example Series - S01E01.mkv",
+    "size": 987654321,
+    "progress": 0.5,
+    "priority": 1,
+    "availability": -1,
+    "seeds": 2,
+    "is_seed": false
+  },
+  {
+    "index": 1,
+    "name": "Season 01/Example Series - S01E01.en.srt",
+    "size": 5678,
+    "progress": 0.5,
+    "priority": 0,
+    "availability": -1,
+    "seeds": 2,
+    "is_seed": false
+  }
+]

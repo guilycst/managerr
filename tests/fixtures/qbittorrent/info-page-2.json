@@ -1,0 +1,20 @@
+[
+  {
+    "added_on": 1760000200,
+    "category": "anime",
+    "completion_on": 1760002000,
+    "content_path": "/downloads/Example Pack",
+    "hash": "cccccccccccccccccccccccccccccccccccccccc",
+    "infohash_v1": "cccccccccccccccccccccccccccccccccccccccc",
+    "infohash_v2": "",
+    "name": "Example Pack",
+    "progress": 1,
+    "ratio": 4,
+    "state": "stalledUP",
+    "tags": "manual,anime",
+    "save_path": "/downloads",
+    "num_seeds": 8,
+    "num_leechs": 0,
+    "has_metadata": true
+  }
+]
