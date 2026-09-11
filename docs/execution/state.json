@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "phase": "guardrails",
+  "phase": "implementation",
   "implementationAuthorized": true,
   "targetRelease": "v0.0.1",
   "applicationAuthentication": "excluded_from_v0.0.1",
@@ -15,9 +15,12 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
-  "featureLanesPaused": true,
-  "pauseReason": "Guardrails-first pause requested by user on 2026-09-11",
+  "activeImplementationTasks": [
+    "D-01",
+    "X-01"
+  ],
+  "featureLanesPaused": false,
+  "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
     "status": "passed",
     "startedAt": "2026-09-11",
@@ -137,7 +140,7 @@
         "go mod verify for root, UI, and tools"
       ]
     },
-    "nextAction": "Keep feature lanes paused until the coordinator explicitly resumes them"
+    "nextAction": "Complete the pending D-01 and X-01 review rounds before dispatching dependent feature tasks"
   },
   "openGates": [
     "G-01",
@@ -1066,7 +1069,7 @@
       "review": null
     }
   },
-  "nextAction": "Guardrails passed; keep feature lanes paused until the coordinator explicitly resumes them",
+  "nextAction": "Complete the pending D-01 and X-01 review rounds before dispatching dependent feature tasks",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
