@@ -257,6 +257,44 @@ func TestListQueueHistoryCorrelationAndMapping(t *testing.T) {
 	}
 }
 
+func TestQueueHistoryMergeRetainsHistoryProvenance(t *testing.T) {
+	queue := []map[string]any{{
+		"NZBID": 501, "ID": 501, "Kind": "NZB", "NZBFilename": "/incoming/Merged.nzb", "NZBName": "Merged",
+		"DestDir": "/downloads", "Status": "PP_FINISHED",
+	}}
+	history := []map[string]any{{
+		"NZBID": 501, "ID": 501, "Kind": "NZB", "NZBFilename": "/incoming/Merged.nzb", "NZBName": "Merged",
+		"Name": "Merged", "DestDir": "/downloads", "FinalDir": "/downloads/movies/Merged", "HistoryTime": 1731144400,
+		"Status": "SUCCESS/ALL", "ParStatus": "SUCCESS", "UnpackStatus": "SUCCESS", "ScriptStatus": "SUCCESS", "MoveStatus": "SUCCESS",
+		"Parameters": []map[string]any{{"Name": "drone", "Value": "arr-merged-501"}},
+	}}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-merge", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-merge", "", 1)
+	if err != nil || len(page.Items) != 1 || page.Coverage.Completeness != domain.CompletenessComplete {
+		t.Fatalf("merged page = %#v, %v", page, err)
+	}
+	item := page.Items[0]
+	if item.History == nil || item.Drone != "arr-merged-501" || item.ArrDownloadID != "arr-merged-501" || item.FinalDir != "/downloads/movies/Merged" || item.ContentPath != item.FinalDir || item.MappedPath == nil || item.MappedPath.RelativePath != "managed/movies/Merged" || item.Item.CompletedAt == nil {
+		t.Fatalf("merged provenance = %#v", item)
+	}
+}
+
+func TestDuplicateHistoryIDsRemainPartial(t *testing.T) {
+	history := []map[string]any{
+		{"NZBID": 601, "ID": 601, "Kind": "NZB", "NZBName": "Duplicate", "DestDir": "/downloads", "Status": "SUCCESS/ALL"},
+		{"NZBID": 601, "ID": 601, "Kind": "NZB", "NZBName": "Duplicate", "DestDir": "/downloads", "Status": "SUCCESS/ALL"},
+	}
+	handler := &rpcFixtureHandler{queue: fixture(t, "empty.json"), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-duplicate", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-duplicate", "", 1)
+	if err != nil || len(page.Items) != 1 || page.Coverage.Completeness != domain.CompletenessPartial || !hasReason(page.Coverage, "history_duplicate_id") {
+		t.Fatalf("duplicate history = %#v, %v", page, err)
+	}
+}
+
 func TestVersionAndCapabilities(t *testing.T) {
 	handler := &rpcFixtureHandler{version: fixture(t, "version.json"), status: map[string]int{}, malformed: map[string]bool{}}
 	client, closeServer := newFixtureClient(t, handler, "nzb-main", nil)

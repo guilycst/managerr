@@ -511,6 +511,9 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 			if _, exists := historySeen[key]; exists {
 				addReason(&snapshot.reasons, "history_duplicate_id")
 			}
+			if previous, exists := seen[key]; exists && observationConflicts(snapshot.items[previous], observation) {
+				addReason(&snapshot.reasons, "queue_history_conflict")
+			}
 			historySeen[key] = struct{}{}
 		}
 		appendObservation(&snapshot, seen, observation)
@@ -529,13 +532,74 @@ func appendObservation(snapshot *inventorySnapshot, seen map[string]int, observa
 		return
 	}
 	if previous, ok := seen[key]; ok {
-		if snapshot.items[previous].History == nil && observation.History != nil {
-			snapshot.items[previous].History = observation.History
-		}
+		mergeObservation(&snapshot.items[previous], observation)
 		return
 	}
 	seen[key] = len(snapshot.items)
 	snapshot.items = append(snapshot.items, observation)
+}
+
+func mergeObservation(existing *DownloadObservation, incoming DownloadObservation) {
+	if existing.History == nil && incoming.History != nil {
+		existing.History = incoming.History
+	}
+	if existing.NZBFilename == "" {
+		existing.NZBFilename = incoming.NZBFilename
+	}
+	if existing.NZBName == "" {
+		existing.NZBName = incoming.NZBName
+	}
+	if existing.Kind == "" {
+		existing.Kind = incoming.Kind
+	}
+	if existing.DestDir == "" {
+		existing.DestDir = incoming.DestDir
+	}
+	finalMissing := existing.FinalDir == ""
+	if finalMissing {
+		existing.FinalDir = incoming.FinalDir
+	}
+	if existing.ContentPath == "" || (finalMissing && incoming.FinalDir != "") {
+		existing.ContentPath = incoming.ContentPath
+	}
+	if (existing.MappedPath == nil || (finalMissing && incoming.FinalDir != "")) && incoming.MappedPath != nil {
+		target := *incoming.MappedPath
+		existing.MappedPath = &target
+	}
+	if existing.Drone == "" || (existing.ArrDownloadID == nzbIDString(existing.NZBID) && incoming.Drone != "") {
+		existing.Drone = incoming.Drone
+	}
+	if existing.ArrDownloadID == "" || (existing.ArrDownloadID == nzbIDString(existing.NZBID) && incoming.Drone != "") {
+		existing.ArrDownloadID = incoming.ArrDownloadID
+	}
+	if existing.Item.Name == "" {
+		existing.Item.Name = incoming.Item.Name
+	}
+	if existing.Item.Category == "" {
+		existing.Item.Category = incoming.Item.Category
+	}
+	if existing.Item.CompletedAt == nil && incoming.Item.CompletedAt != nil {
+		when := *incoming.Item.CompletedAt
+		existing.Item.CompletedAt = &when
+	}
+	if existing.Item.Descriptor == nil || (!existing.Item.Descriptor.Available && incoming.Item.Descriptor != nil && incoming.Item.Descriptor.Available) {
+		existing.Item.Descriptor = incoming.Item.Descriptor
+	}
+}
+
+func observationConflicts(existing, incoming DownloadObservation) bool {
+	for _, values := range [][2]string{
+		{existing.NZBFilename, incoming.NZBFilename},
+		{existing.NZBName, incoming.NZBName},
+		{existing.DestDir, incoming.DestDir},
+		{existing.FinalDir, incoming.FinalDir},
+		{existing.Drone, incoming.Drone},
+	} {
+		if values[0] != "" && values[1] != "" && values[0] != values[1] {
+			return true
+		}
+	}
+	return existing.Kind != "" && incoming.Kind != "" && existing.Kind != incoming.Kind
 }
 
 func (observation DownloadObservation) NZBIDKey() string {
