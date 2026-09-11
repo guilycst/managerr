@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -36,6 +37,24 @@ type CredentialReference struct {
 	Value string
 }
 
+const (
+	CredentialFromEnvironment = "env"
+	CredentialFromFile        = "file"
+)
+
+func (reference CredentialReference) Validate() error {
+	if reference.Kind != CredentialFromEnvironment && reference.Kind != CredentialFromFile {
+		return errors.New("credential reference must use env or file")
+	}
+	if strings.TrimSpace(reference.Value) == "" {
+		return errors.New("credential reference value is required")
+	}
+	if reference.Kind == CredentialFromFile && !filepath.IsAbs(reference.Value) {
+		return errors.New("credential file reference must be an absolute path")
+	}
+	return nil
+}
+
 // Connection is the non-secret effective configuration for one upstream.
 type Connection struct {
 	ID          ConfigID
@@ -62,11 +81,19 @@ func (connection Connection) Validate() error {
 		return errors.New("connection label is required")
 	}
 	parsed, err := url.Parse(connection.Endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
 		return errors.New("connection endpoint must be an absolute URL without credentials")
 	}
 	if strings.TrimSpace(connection.Revision) == "" {
 		return errors.New("connection revision is required")
+	}
+	for name, reference := range connection.Credentials {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("connection credential name is required")
+		}
+		if err := reference.Validate(); err != nil {
+			return err
+		}
 	}
 	return connection.Source.Validate()
 }
@@ -95,7 +122,7 @@ func (root StorageRoot) Validate() error {
 	if !root.ID.Valid() {
 		return errors.New("storage root has an invalid id")
 	}
-	if strings.TrimSpace(root.Label) == "" || strings.TrimSpace(root.Path) == "" {
+	if strings.TrimSpace(root.Label) == "" || strings.TrimSpace(root.Path) == "" || !filepath.IsAbs(root.Path) {
 		return errors.New("storage root label and path are required")
 	}
 	switch root.Purpose {
@@ -103,8 +130,8 @@ func (root StorageRoot) Validate() error {
 	default:
 		return errors.New("unsupported storage purpose")
 	}
-	if root.Watch.Enabled && root.Watch.Interval <= 0 {
-		return errors.New("enabled storage watch requires a positive interval")
+	if root.Watch.Enabled && root.Watch.Interval < 30*time.Second {
+		return errors.New("enabled storage watch requires an interval of at least 30 seconds")
 	}
 	return root.Source.Validate()
 }
@@ -165,6 +192,7 @@ func (snapshot ConfigurationSnapshot) Validate() error {
 		}
 		seenRoots[root.ID] = struct{}{}
 	}
+	seenMappings := make(map[ConfigID]struct{}, len(snapshot.PathMappings))
 	for _, mapping := range snapshot.PathMappings {
 		if err := mapping.Validate(); err != nil {
 			return err
@@ -175,6 +203,10 @@ func (snapshot ConfigurationSnapshot) Validate() error {
 		if _, exists := seenRoots[mapping.RootID]; !exists {
 			return errors.New("path mapping references an unknown storage root")
 		}
+		if _, exists := seenMappings[mapping.ID]; exists {
+			return errors.New("configuration contains duplicate path mapping id")
+		}
+		seenMappings[mapping.ID] = struct{}{}
 	}
 	return nil
 }

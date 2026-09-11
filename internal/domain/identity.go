@@ -40,7 +40,10 @@ func NewRuntimeID() (RuntimeID, error) {
 
 // ParseRuntimeID validates and canonicalizes a UUID string.
 func ParseRuntimeID(value string) (RuntimeID, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
+	if strings.TrimSpace(value) != value {
+		return "", errors.New("runtime id must be a UUID")
+	}
+	value = strings.ToLower(value)
 	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
 		return "", errors.New("runtime id must be a UUID")
 	}
@@ -77,7 +80,6 @@ func (id ConfigID) String() string { return string(id) }
 
 // ParseConfigID validates a stable configuration identifier.
 func ParseConfigID(value string) (ConfigID, error) {
-	value = strings.TrimSpace(value)
 	if value == "" || len(value) > 63 {
 		return "", errors.New("config id must contain 1 to 63 characters")
 	}

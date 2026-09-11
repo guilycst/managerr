@@ -19,7 +19,7 @@ func TestRuntimeAndConfigIDs(t *testing.T) {
 			t.Fatalf("valid config id %q rejected: %q, %v", value, id, err)
 		}
 	}
-	for _, value := range []string{"", "-bad", "bad-", "UPPER", "a/b"} {
+	for _, value := range []string{"", "-bad", "bad-", "UPPER", "a/b", " spaced"} {
 		if _, err := ParseConfigID(value); err == nil {
 			t.Fatalf("invalid config id %q accepted", value)
 		}
