@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 
@@ -80,6 +81,7 @@ func TestObserveEnumerationSkipsUnsupportedChildren(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	sort.Slice(items, func(i, j int) bool { return items[i].RelativePath < items[j].RelativePath })
 	if len(items) != 2 || items[0].RelativePath != "a.mkv" || items[1].RelativePath != "e.mkv" {
 		t.Fatalf("supported entries = %#v, want a.mkv and e.mkv", items)
 	}
@@ -98,6 +100,108 @@ func TestObserveEnumerationSkipsUnsupportedChildren(t *testing.T) {
 	}
 	if page.Coverage.Completeness != domain.CompletenessPartial {
 		t.Fatalf("coverage completeness = %q, want partial for unsupported evidence", page.Coverage.Completeness)
+	}
+}
+
+func TestObserveEnumerationBoundsUnsupportedEvidencePerPage(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	outside := filepath.Join(t.TempDir(), "outside.mkv")
+	writeFile(t, outside, "outside")
+	for index := 0; index < 12; index++ {
+		name := filepath.Join(root, "unsupported-"+hex.EncodeToString([]byte{byte(index)}))
+		if err := os.Symlink(outside, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(root, "valid.mkv"), "valid")
+
+	page, err := observer.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := 0
+	var valid int
+	var unsupported int
+	for {
+		pages++
+		if pages > 32 {
+			t.Fatal("bounded enumeration did not finish")
+		}
+		if len(page.Items) > 1 {
+			t.Fatalf("page emitted %d items with limit 1", len(page.Items))
+		}
+		valid += len(page.Items)
+		pageUnsupported := 0
+		for _, code := range page.Coverage.ReasonCodes {
+			if _, ok := ParseUnsupportedChildReasonCode(code); ok {
+				pageUnsupported++
+			}
+		}
+		if pageUnsupported > 1 {
+			t.Fatalf("page carried %d unsupported records with limit 1", pageUnsupported)
+		}
+		unsupported += pageUnsupported
+		if page.NextCursor == "" {
+			break
+		}
+		page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if valid != 1 || unsupported != 12 {
+		t.Fatalf("bounded enumeration returned valid=%d unsupported=%d, want 1 and 12", valid, unsupported)
+	}
+}
+
+func TestObserveEnumerationCarriesPriorPartialToFinalPage(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	outside := filepath.Join(t.TempDir(), "outside.mkv")
+	writeFile(t, outside, "outside")
+	for index := 0; index < 8; index++ {
+		name := filepath.Join(root, "link-"+hex.EncodeToString([]byte{byte(index)}))
+		if err := os.Symlink(outside, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(root, "valid.mkv"), "valid")
+
+	page, err := observer.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawUnsupported := false
+	sawPriorMarker := false
+	for {
+		currentUnsupported := false
+		for _, code := range page.Coverage.ReasonCodes {
+			if _, ok := ParseUnsupportedChildReasonCode(code); ok {
+				currentUnsupported = true
+			}
+			if code == "unsupported_child_prior" {
+				sawPriorMarker = true
+			}
+		}
+		if sawUnsupported && page.NextCursor != "" && !currentUnsupported && !sawPriorMarker {
+			t.Fatal("page after unsupported evidence lost prior-partial marker")
+		}
+		sawUnsupported = sawUnsupported || currentUnsupported
+		if page.NextCursor == "" {
+			if !sawUnsupported {
+				t.Fatal("fixture produced no unsupported evidence")
+			}
+			if page.Coverage.Completeness != domain.CompletenessPartial {
+				t.Fatalf("final coverage = %q, want partial after prior unsupported child", page.Coverage.Completeness)
+			}
+			break
+		}
+		page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !sawPriorMarker {
+		t.Fatal("continuation pages did not expose prior-partial marker")
 	}
 }
 

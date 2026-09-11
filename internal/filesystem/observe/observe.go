@@ -11,7 +11,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,8 +19,8 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
@@ -45,6 +44,7 @@ var (
 	ErrSpecialFile       = errors.New("filesystem special file is not allowed")
 	ErrChanged           = errors.New("filesystem object changed during observation")
 	ErrEnumerationLimit  = errors.New("filesystem enumeration limit reached")
+	ErrEnumerationCursor = errors.New("filesystem enumeration cursor is expired or unavailable")
 	ErrAmbiguousMapping  = errors.New("filesystem path mapping is ambiguous")
 	ErrMappingMismatch   = errors.New("filesystem path does not match mapping")
 	ErrDirectory         = errors.New("filesystem directory cannot be hashed")
@@ -69,8 +69,10 @@ type Options struct {
 
 // Observer implements the read-only filesystem port.
 type Observer struct {
-	roots map[domain.ConfigID]Root
-	opts  Options
+	roots    map[domain.ConfigID]Root
+	opts     Options
+	cursorMu sync.Mutex
+	cursors  map[string]*enumerationCursorState
 }
 
 // FilesystemObserver names the concrete adapter when dependency wiring wants
@@ -98,7 +100,7 @@ func New(roots []Root, options Options) (*Observer, error) {
 		}
 		configured[root.ID] = root
 	}
-	return &Observer{roots: configured, opts: options}, nil
+	return &Observer{roots: configured, opts: options, cursors: make(map[string]*enumerationCursorState)}, nil
 }
 
 // NewFromStorageRoots adapts effective configuration roots to the observer.
@@ -232,10 +234,12 @@ func (o *Observer) Enumerate(ctx context.Context, rootID domain.ConfigID, relati
 }
 
 // EnumeratePage continues a bounded directory page using an opaque cursor.
-// Cursor state contains directory identity, mtime, a digest of the sorted
-// child-name snapshot and the last scanned name. A changed directory is
-// rejected instead of silently mixing two snapshots. Sorting the captured
-// names makes continuation independent of filesystem directory order.
+// Cursor state contains directory identity, mtime, one coverage identity and
+// a compact prior-partial marker. The observer retains a capped descriptor
+// stream for each active cursor, so continuation never replays or materializes
+// a directory snapshot. A changed directory is rejected instead of silently
+// mixing two snapshots. Cursors expire after a short idle period and are
+// invalid after process restart.
 func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, relativePrefix, cursor string, limit int) (ports.Page[domain.FileManifestEntry], error) {
 	var page ports.Page[domain.FileManifestEntry]
 	started := time.Now().UTC()
@@ -257,75 +261,173 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 	if err != nil {
 		return page, err
 	}
-	expected := cursorValue.DirectoryID
-	if cursor != "" && cursorValue.Prefix != relativePrefix {
-		return page, fmt.Errorf("%w: cursor belongs to another directory", ErrChanged)
-	}
-	directory, err := openConstrainedDirectory(root.Path, relativePrefix)
-	if err != nil {
-		if relativePrefix == "" && errors.Is(err, ErrRootTarget) {
-			return page, err
+
+	continuation := cursor != ""
+	var (
+		state         *enumerationCursorState
+		cursorID      domain.RuntimeID
+		directory     *os.File
+		directoryInfo fs.FileInfo
+		sourceID      domain.RuntimeID
+		priorPartial  bool
+		stream        *directoryCursor
+		keepState     bool
+		dropState     bool
+	)
+	if continuation {
+		if cursorValue.Prefix != relativePrefix {
+			return page, fmt.Errorf("%w: cursor belongs to another directory", ErrChanged)
 		}
-		return page, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePrefix}, err)
-	}
-	defer directory.Close()
-	directoryInfo, err := directory.Stat()
-	if err != nil {
-		return page, fmt.Errorf("stat enumeration directory: %w", err)
-	}
-	directoryID := fileIdentity(directoryInfo)
-	if expected != "" && expected != directoryID {
-		return page, fmt.Errorf("%w: enumeration directory identity changed", ErrChanged)
-	}
-	if cursor != "" && cursorValue.DirectoryMTime != directoryInfo.ModTime().UnixNano() {
-		return page, fmt.Errorf("%w: enumeration directory timestamp changed", ErrChanged)
+		cursorID = cursorValue.CursorID
+		var found bool
+		state, found = o.lockEnumerationCursor(cursorID.String())
+		if !found {
+			return page, ErrEnumerationCursor
+		}
+		// State lock stays held until this call finishes. This serializes two
+		// continuations for one cursor and protects its stream position.
+		defer func() {
+			state.mu.Unlock()
+			if dropState {
+				o.dropEnumerationCursor(cursorID.String(), state)
+			}
+		}()
+		if state.rootID != rootID || state.prefix != relativePrefix ||
+			state.directoryID != cursorValue.DirectoryID ||
+			state.directoryMTime != cursorValue.DirectoryMTime ||
+			state.sourceID != cursorValue.SourceID ||
+			!state.startedAt.Equal(cursorValue.StartedAt) ||
+			state.priorPartial != cursorValue.PriorPartial {
+			dropState = true
+			return page, fmt.Errorf("%w: cursor metadata changed", ErrChanged)
+		}
+		directory = state.directory
+		stream = state.stream
+		sourceID = state.sourceID
+		started = state.startedAt
+		priorPartial = state.priorPartial
+		if directory == nil || stream == nil {
+			dropState = true
+			return page, ErrEnumerationCursor
+		}
+		directoryInfo, err = directory.Stat()
+		if err != nil {
+			dropState = true
+			return page, fmt.Errorf("stat enumeration directory: %w", err)
+		}
+		if fileIdentity(directoryInfo) != state.directoryID || directoryInfo.ModTime().UnixNano() != state.directoryMTime {
+			dropState = true
+			return page, fmt.Errorf("%w: enumeration directory changed", ErrChanged)
+		}
+		// Re-open the configured path for each continuation to notice a path
+		// replacement while retaining the original descriptor for no-gap reads.
+		current, currentErr := openConstrainedDirectory(root.Path, relativePrefix)
+		if currentErr != nil {
+			return page, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePrefix}, currentErr)
+		}
+		currentInfo, currentStatErr := current.Stat()
+		current.Close()
+		if currentStatErr != nil {
+			return page, fmt.Errorf("stat enumeration directory: %w", currentStatErr)
+		}
+		if fileIdentity(currentInfo) != state.directoryID || currentInfo.ModTime().UnixNano() != state.directoryMTime {
+			dropState = true
+			return page, fmt.Errorf("%w: enumeration directory changed", ErrChanged)
+		}
+	} else {
+		sourceID, err = domain.NewRuntimeID()
+		if err != nil {
+			return page, fmt.Errorf("create enumeration source: %w", err)
+		}
+		directory, err = openConstrainedDirectory(root.Path, relativePrefix)
+		if err != nil {
+			if relativePrefix == "" && errors.Is(err, ErrRootTarget) {
+				return page, err
+			}
+			return page, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePrefix}, err)
+		}
+		defer func() {
+			if !keepState {
+				_ = directory.Close()
+			}
+		}()
+		directoryInfo, err = directory.Stat()
+		if err != nil {
+			return page, fmt.Errorf("stat enumeration directory: %w", err)
+		}
+		state = &enumerationCursorState{
+			directory: directory, stream: newDirectoryCursor(directory),
+			rootID: rootID, prefix: relativePrefix,
+			directoryID:    fileIdentity(directoryInfo),
+			directoryMTime: directoryInfo.ModTime().UnixNano(),
+			sourceID:       sourceID, startedAt: started,
+		}
+		stream = state.stream
 	}
 
-	names, err := readDirectoryNames(ctx, directory)
-	if err != nil {
-		return page, err
-	}
-	snapshotDigest := namesDigest(names)
-	start := 0
-	if cursor != "" {
-		if cursorValue.SnapshotDigest != snapshotDigest {
-			return page, fmt.Errorf("%w: enumeration directory entries changed", ErrChanged)
-		}
-		start, err = cursorStart(names, cursorValue.LastName)
-		if err != nil {
-			return page, err
-		}
-	}
-	var next int
+	var inspected int
+	var exhausted bool
 	var unsupported []string
-	page.Items, next, unsupported, err = readEntries(ctx, directory, rootID, relativePrefix, names, start, limit)
+	page.Items, inspected, exhausted, unsupported, err = readEntries(ctx, stream, rootID, relativePrefix, limit)
 	if err != nil {
+		if continuation && ctx.Err() == nil {
+			dropState = true
+		}
 		return page, err
 	}
-	page.Coverage = coverage(root, len(page.Items), started, time.Now().UTC())
+	observed := time.Now().UTC()
+	page.Coverage = coverage(root, sourceID, len(page.Items), started, observed)
+	if priorPartial {
+		page.Coverage.Completeness = domain.CompletenessPartial
+		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "unsupported_child_prior")
+	}
 	page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, unsupported...)
 	if len(unsupported) > 0 {
 		page.Coverage.Completeness = domain.CompletenessPartial
 	}
-	if next < len(names) {
+	more := !exhausted && inspected == limit
+	if more {
+		state.priorPartial = priorPartial || len(unsupported) > 0
+		state.touch()
+		if !continuation {
+			cursorID, err = domain.NewRuntimeID()
+			if err != nil {
+				return page, fmt.Errorf("create enumeration cursor: %w", err)
+			}
+		}
 		page.NextCursor = encodeCursor(cursorState{
-			DirectoryID: directoryID, DirectoryMTime: directoryInfo.ModTime().UnixNano(),
-			Prefix: relativePrefix, LastName: names[next-1], SnapshotDigest: snapshotDigest,
+			CursorID: cursorID, DirectoryID: state.directoryID,
+			DirectoryMTime: state.directoryMTime, Prefix: relativePrefix,
+			SourceID: sourceID, StartedAt: started,
+			PriorPartial: state.priorPartial,
 		})
 		page.Coverage.Completeness = domain.CompletenessPartial
 		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "enumeration_limit")
 	}
 	finalInfo, err := directory.Stat()
 	if err != nil {
+		if continuation {
+			dropState = true
+		}
 		return page, fmt.Errorf("stat enumeration directory after read: %w", err)
 	}
 	if fileChanged(directoryInfo, finalInfo) {
+		if continuation {
+			dropState = true
+		}
 		return page, fmt.Errorf("%w: enumeration directory changed", ErrChanged)
 	}
 	if page.NextCursor == "" {
 		completed := time.Now().UTC()
 		page.Coverage.CompletedAt = &completed
 		page.Coverage.ObservedAt = completed
+		if continuation {
+			dropState = true
+		}
+	}
+	if page.NextCursor != "" && !continuation {
+		o.storeEnumerationCursor(cursorID.String(), state)
+		keepState = true
 	}
 	return page, nil
 }
@@ -464,13 +566,7 @@ func mergeConfiguredCapability(root Root, name string, observedState domain.Capa
 	return capability
 }
 
-func coverage(root Root, count int, started, observed time.Time) domain.Coverage {
-	source, err := domain.NewRuntimeID()
-	if err != nil {
-		// crypto/rand failure is extraordinarily unlikely. Empty source ID is
-		// valid for aggregate evidence and keeps observation usable.
-		source = ""
-	}
+func coverage(root Root, source domain.RuntimeID, count int, started, observed time.Time) domain.Coverage {
 	return domain.Coverage{
 		SourceID: source, RootID: root.ID, Completeness: domain.CompletenessComplete,
 		ObservedCount: int64(count), SnapshotRevision: root.Revision,
@@ -549,31 +645,25 @@ func unsupportedChildReason(err error) string {
 	}
 }
 
-func readDirectoryNames(ctx context.Context, directory *os.File) ([]string, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	names, err := directory.Readdirnames(-1)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("read directory: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID, prefix string, names []string, start, limit int) ([]domain.FileManifestEntry, int, []string, error) {
+func readEntries(ctx context.Context, directory *directoryCursor, rootID domain.ConfigID, prefix string, limit int) ([]domain.FileManifestEntry, int, bool, []string, error) {
 	entries := make([]domain.FileManifestEntry, 0, limit)
 	unsupported := make([]string, 0)
-	next := start
-	for next < len(names) && len(entries) < limit {
-		name := names[next]
-		next++
+	inspected := 0
+	exhausted := false
+	for inspected < limit {
 		if err := ctx.Err(); err != nil {
-			return nil, next, unsupported, err
+			return nil, inspected, exhausted, unsupported, err
 		}
+		directoryEntry, err := directory.next(ctx)
+		if errors.Is(err, io.EOF) {
+			exhausted = true
+			break
+		}
+		if err != nil {
+			return nil, inspected, exhausted, unsupported, err
+		}
+		inspected++
+		name := directoryEntry.Name
 		if strings.Contains(name, "/") || strings.Contains(name, "\\") || name == "." || name == ".." {
 			unsupported = append(unsupported, UnsupportedChildReasonCode(path.Join(prefix, name), "invalid_name"))
 			continue
@@ -582,10 +672,10 @@ func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID
 		if prefix == "" {
 			relativePath = name
 		}
-		child, info, err := openConstrainedChild(directory, name)
+		child, info, err := openConstrainedChild(directory.file, name)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, next, unsupported, ctxErr
+				return nil, inspected, exhausted, unsupported, ctxErr
 			}
 			unsupported = append(unsupported, UnsupportedChildReasonCode(relativePath, unsupportedChildReason(err)))
 			continue
@@ -598,23 +688,17 @@ func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID
 		}
 		entries = append(entries, entry)
 	}
-	return entries, next, unsupported, nil
-}
-
-func cursorStart(names []string, lastName string) (int, error) {
-	index := sort.SearchStrings(names, lastName)
-	if index >= len(names) || names[index] != lastName {
-		return 0, fmt.Errorf("%w: enumeration cursor entry changed", ErrChanged)
-	}
-	return index + 1, nil
+	return entries, inspected, exhausted, unsupported, nil
 }
 
 type cursorState struct {
-	DirectoryID    string `json:"directoryId"`
-	DirectoryMTime int64  `json:"directoryMtime"`
-	Prefix         string `json:"prefix"`
-	LastName       string `json:"lastName"`
-	SnapshotDigest string `json:"snapshotDigest"`
+	CursorID       domain.RuntimeID `json:"cursorId"`
+	DirectoryID    string           `json:"directoryId"`
+	DirectoryMTime int64            `json:"directoryMtime"`
+	Prefix         string           `json:"prefix"`
+	SourceID       domain.RuntimeID `json:"sourceId"`
+	StartedAt      time.Time        `json:"startedAt"`
+	PriorPartial   bool             `json:"priorPartial"`
 }
 
 func encodeCursor(state cursorState) string {
@@ -631,21 +715,13 @@ func decodeCursor(value string) (cursorState, error) {
 		return cursorState{}, fmt.Errorf("invalid enumeration cursor: %w", err)
 	}
 	var state cursorState
-	if err := json.Unmarshal(decoded, &state); err != nil || state.DirectoryID == "" || state.LastName == "" || state.SnapshotDigest == "" {
+	if err := json.Unmarshal(decoded, &state); err != nil || !state.CursorID.Valid() || state.DirectoryID == "" {
+		return cursorState{}, errors.New("invalid enumeration cursor")
+	}
+	if !state.SourceID.Valid() || state.StartedAt.IsZero() {
 		return cursorState{}, errors.New("invalid enumeration cursor")
 	}
 	return state, nil
-}
-
-func namesDigest(names []string) string {
-	digest := sha256.New()
-	var encodedLength [binary.MaxVarintLen64]byte
-	for _, name := range names {
-		length := binary.PutUvarint(encodedLength[:], uint64(len(name)))
-		_, _ = digest.Write(encodedLength[:length])
-		_, _ = digest.Write([]byte(name))
-	}
-	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func validateTarget(target domain.FileTarget) error {

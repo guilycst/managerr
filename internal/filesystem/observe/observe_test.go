@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/managerr/internal/ports"
 )
 
 func TestObserveIdentityAndHash(t *testing.T) {
@@ -178,6 +179,43 @@ func TestObserveEnumerationCursorDoesNotDropProbedEntry(t *testing.T) {
 			t.Fatalf("paged entry repeated: %q", entry.RelativePath)
 		}
 		seen[entry.RelativePath] = struct{}{}
+	}
+}
+
+func TestObserveEnumerationPageThroughFilesystemReadPort(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	for _, name := range []string{"one.mkv", "two.mkv", "three.mkv", "four.mkv"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+
+	var readPort ports.FilesystemReadPort = observer
+	page, err := readPort.Enumerate(context.Background(), rootID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.NextCursor == "" {
+		t.Fatal("one-item page unexpectedly complete")
+	}
+	firstSource := page.Coverage.SourceID
+	firstStarted := page.Coverage.StartedAt
+	seen := make(map[string]struct{})
+	for {
+		for _, item := range page.Items {
+			seen[item.RelativePath] = struct{}{}
+		}
+		if page.Coverage.SourceID != firstSource || page.Coverage.StartedAt == nil || firstStarted == nil || !page.Coverage.StartedAt.Equal(*firstStarted) {
+			t.Fatalf("page coverage identity changed: first=%#v current=%#v", firstSource, page.Coverage)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		page, err = readPort.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("interface pagination returned %d unique entries, want 4: %#v", len(seen), seen)
 	}
 }
 
