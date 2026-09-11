@@ -1,7 +1,7 @@
 // Package observe provides read-only, root-confined filesystem observations.
 //
 // Paths accepted by this package are always relative to a configured root and
-// use slash separators. Unix implementations resolve every path component
+// use slash separators. Linux and Darwin implementations resolve every path component
 // through directory descriptors with O_NOFOLLOW. This keeps an observation
 // bound to the configured root even when another process replaces a directory
 // while it is being walked.
