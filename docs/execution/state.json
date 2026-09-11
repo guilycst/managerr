@@ -1510,7 +1510,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1522,21 +1522,18 @@
         "aa9195b94d62d8a1c53825d638f111592f593617 X-10 correction round 2 product",
         "43c5731c77249892f9c920719901e961ea45b630 X-10 correction round 2 handoff",
         "docs/execution/handoffs/X-10-correction-round2.md",
-        "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3 X-10 review round 2"
+        "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3 X-10 review round 2",
+        "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b X-10 correction round 3 product",
+        "c0cb825e5f559ae02cc4baa7757f1f8c2743e271 X-10 correction round 3 handoff",
+        "docs/execution/handoffs/X-10-correction-round3.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3",
-        "findings": [
-          "P1 undocumented 2xx statuses accepted as canonical success",
-          "P1 duplicate/case-folded/invalid-UTF-8 JSON identity evidence accepted",
-          "P1 empty inventory hash returned as a scoped torrent record",
-          "P2 negative injected HTTP timeout removes the transport deadline",
-          "P2 case-equivalent hash identities bypass duplicate rejection"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1555,26 +1552,26 @@
           "oapi-codegen reproducibility",
           "synthetic WebUI httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-10-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-10-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-10.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
-        "implementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
-        "handoffCommit": "43c5731c77249892f9c920719901e961ea45b630",
-        "reviewSourceCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
+        "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
+        "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
+        "reviewSourceCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "correctionRound": 3,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "aa9195b94d62d8a1c53825d638f111592f593617",
         "correctionReviewPath": "docs/execution/handoffs/X-10-review-round2.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
-        "correctionHandoffCommit": "43c5731c77249892f9c920719901e961ea45b630",
+        "correctionImplementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
+        "correctionHandoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewCommit": "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3"
       },
-      "implementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
+      "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
       "reviewHistory": [
         {
           "round": 1,
@@ -1696,7 +1693,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 3 and X-11 correction round 3 are in progress; do not dispatch C-05 until both independent reviews approve.",
+  "nextAction": "X-10 correction round 3 and X-11 correction round 3 are in independent review; do not dispatch C-05 until both approvals are recorded.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
