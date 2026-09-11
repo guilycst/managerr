@@ -16,7 +16,6 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "U-00",
     "D-01"
   ],
   "openGates": [
@@ -600,10 +599,10 @@
       "review": null
     },
     "U-00": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/u00_implementer",
       "baseSha": "5108e8b86000a8f916852f4614a9e4e10c868016",
-      "integratedSha": null,
+      "integratedSha": "508d88ef7e11d115d004cd48dae8bb9b2bb7608c",
       "implementationCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
       "evidence": [
         "docs/execution/handoffs/U-00.md",
@@ -617,10 +616,10 @@
         "54d2feba360616f8f96c43ae73caadf802b28722 corrected local-runtime and annotated-tag provenance statements"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/u00_reviewer",
-        "commit": "54d2feba360616f8f96c43ae73caadf802b28722",
+        "commit": "508d88ef7e11d115d004cd48dae8bb9b2bb7608c",
         "findings": [],
         "round": 2
       },
@@ -640,7 +639,7 @@
           "A-51"
         ],
         "reviewPath": "docs/execution/handoffs/U-00-review-round2.md",
-        "nextReviewer": "/root/u00_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-02": "d317df98fae68e99325829351b5fd79c52ba2733"
         }
@@ -654,6 +653,15 @@
           "sourceCommit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
           "correctionCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
           "receipt": "docs/execution/handoffs/U-00-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/u00_reviewer",
+          "commit": "508d88ef7e11d115d004cd48dae8bb9b2bb7608c",
+          "status": "approved",
+          "sourceCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
+          "correctionCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
+          "receipt": "docs/execution/handoffs/U-00-review-round2.md"
         }
       ]
     },
