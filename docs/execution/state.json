@@ -13,7 +13,7 @@
   "interviewRecord": "docs/product/interview.md",
   "taskDefinitions": "docs/execution/tasks.json",
   "resumeDocument": "docs/execution/RESUME.md",
-  "contractsStatus": "c03_domain_bootstrap_changes_requested",
+  "contractsStatus": "c03_domain_bootstrap_in_review",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
     "C-03"
@@ -266,11 +266,11 @@
       ]
     },
     "C-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "implementationCommit": "b1be8aee8b95be19e584c576d376ebfe74b00468",
+      "implementationCommit": "cc0d3501e8bc62378596ecca14763cc65b311a46",
       "evidence": [
         "docs/execution/handoffs/C-03.md",
         "GOWORK=off go test ./...",
@@ -280,20 +280,16 @@
         "GOWORK=off go generate ./internal/bootstrap",
         "./scripts/generate.sh --check",
         "git diff --check",
-        "b1be8aee8b95be19e584c576d376ebfe74b00468 domain validation tightening"
+        "b1be8aee8b95be19e584c576d376ebfe74b00468 domain validation tightening",
+        "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..cc0d3501e8bc62378596ecca14763cc65b311a46"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/c03_reviewer",
-        "commit": "4b64712419406ca5a243a2fa108969dd3240dd6d",
-        "findings": [
-          "P1 absent tracking lacks complete scoped coverage proof",
-          "P1 reconciling action can transition directly to running or failed",
-          "P1 filesystem mutation maps omit approved manifest identity/type/digest",
-          "P2 candidate-range diff check fails on generated environment trailing blank line"
-        ],
-        "round": 1
+        "commit": "cc0d3501e8bc62378596ecca14763cc65b311a46",
+        "findings": [],
+        "round": 2
       },
       "reviewHistory": [
         {
@@ -301,7 +297,7 @@
           "reviewer": "/root/c03_reviewer",
           "commit": "4b64712419406ca5a243a2fa108969dd3240dd6d",
           "status": "changes_requested",
-          "correctionCommit": null
+          "correctionCommit": "cc0d3501e8bc62378596ecca14763cc65b311a46"
         }
       ],
       "dispatch": {
@@ -617,7 +613,7 @@
       "review": null
     }
   },
-  "nextAction": "Coordinator fixes C-03 review findings, then dispatches round-two independent review",
+  "nextAction": "Independent round-two review of C-03 correction commit cc0d3501e8bc62378596ecca14763cc65b311a46",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
