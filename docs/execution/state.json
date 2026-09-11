@@ -141,7 +141,7 @@
         "go mod verify for root, UI, and tools"
       ]
     },
-    "nextAction": "Implement the D-01 and X-01 review corrections while X-02 and X-03 continue"
+    "nextAction": "Complete the D-01 correction and X-02/X-03 implementations, then queue their independent reviews"
   },
   "openGates": [
     "G-01",
@@ -1145,7 +1145,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement the D-01 and X-01 review corrections while X-02 and X-03 continue",
+  "nextAction": "Complete the D-01 correction and X-02/X-03 implementations, then queue their independent reviews",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
