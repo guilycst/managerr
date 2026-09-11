@@ -4,6 +4,7 @@ package ports
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -16,6 +17,32 @@ type Page[T any] struct {
 	Items      []T
 	NextCursor string
 	Coverage   domain.Coverage
+}
+
+// UnsupportedChildEvidence is path-scoped evidence carried by a filesystem
+// coverage reason. It keeps an unobservable child visible without treating it
+// as a discovered manifest entry.
+type UnsupportedChildEvidence struct {
+	RelativePath string `json:"relativePath"`
+	Reason       string `json:"reason"`
+}
+
+const unsupportedChildReasonPrefix = "unsupported_child:"
+
+// ParseUnsupportedChildReasonCode decodes the stable filesystem coverage
+// reason emitted by adapters. Unrelated or malformed reasons return false.
+func ParseUnsupportedChildReasonCode(code string) (UnsupportedChildEvidence, bool) {
+	if !strings.HasPrefix(code, unsupportedChildReasonPrefix) {
+		return UnsupportedChildEvidence{}, false
+	}
+	var evidence UnsupportedChildEvidence
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(code, unsupportedChildReasonPrefix)), &evidence); err != nil {
+		return UnsupportedChildEvidence{}, false
+	}
+	if evidence.RelativePath == "" || evidence.Reason == "" {
+		return UnsupportedChildEvidence{}, false
+	}
+	return evidence, true
 }
 
 // DownloadItem is a client-scoped observation. Categories and tags remain

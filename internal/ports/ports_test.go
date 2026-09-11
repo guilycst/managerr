@@ -1,12 +1,30 @@
 package ports
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
 )
+
+func TestParseUnsupportedChildReasonCode(t *testing.T) {
+	payload, err := json.Marshal(UnsupportedChildEvidence{RelativePath: "Season 1/subtitle.ass", Reason: "permission_denied"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, ok := ParseUnsupportedChildReasonCode("unsupported_child:" + string(payload))
+	if !ok || evidence.RelativePath != "Season 1/subtitle.ass" || evidence.Reason != "permission_denied" {
+		t.Fatalf("evidence = %#v, ok = %v", evidence, ok)
+	}
+	if _, ok := ParseUnsupportedChildReasonCode("unsupported_child:{"); ok {
+		t.Fatal("malformed reason was accepted")
+	}
+	if _, ok := ParseUnsupportedChildReasonCode("enumeration_limit"); ok {
+		t.Fatal("unrelated reason was accepted")
+	}
+}
 
 func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 	root, err := domain.ParseConfigID("downloads")

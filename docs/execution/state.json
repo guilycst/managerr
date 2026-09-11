@@ -378,7 +378,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "e28ff3f7e6978a94e6357aa2c998a70b1fc286c6",
       "integratedSha": null,
@@ -386,6 +386,7 @@
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
+        "docs/execution/handoffs/D-01-review-round2.md",
         "internal/storage/store_test.go",
         "./scripts/generate.sh --check",
         "GOWORK=off go mod verify"
@@ -417,13 +418,14 @@
           "reviewer": "/root/d01_reviewer",
           "commit": "2656a9bb9de4389b5170e17c6a420d0884eeffd3",
           "status": "changes_requested",
-          "correctionCommit": null
+          "correctionCommit": null,
+          "receipt": "docs/execution/handoffs/D-01-review-round2.md"
         },
         {
           "round": 3,
           "reviewer": "/root/d01_reviewer",
           "commit": null,
-          "status": "pending",
+          "status": "in_progress",
           "correctionCommit": null
         }
       ],
@@ -475,7 +477,7 @@
       "review": null
     },
     "F-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
@@ -484,16 +486,23 @@
         "docs/execution/handoffs/F-01.md",
         "docs/execution/handoffs/F-01-review-round1.md",
         "docs/execution/handoffs/F-01-review-round2.md",
+        "docs/execution/handoffs/F-01-review-round3.md",
         "docs/execution/handoffs/C-03.md",
         "internal/filesystem/observe/observe_test.go",
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "e291734795741ed1c86af05f3d8cd6b5e2c39ee6",
+        "findings": [
+          "P1: cursor tokens can be replayed and advance the mutable stream, silently skipping pages",
+          "P1: cancellation after partial consumption advances the cursor and loses the page",
+          "P1: terminal coverage reports only the final page count instead of the cumulative observed count",
+          "P1: unsupported-child evidence parsing is adapter-owned and unavailable through ports/domain",
+          "P2: golang.org/x/sys remains indirect despite direct production use"
+        ],
         "round": 3
       },
       "reviewHistory": [
@@ -513,6 +522,14 @@
         },
         {
           "round": 3,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "e291734795741ed1c86af05f3d8cd6b5e2c39ee6",
+          "status": "changes_requested",
+          "correctionCommit": null,
+          "receipt": "docs/execution/handoffs/F-01-review-round3.md"
+        },
+        {
+          "round": 4,
           "reviewer": "/root/f01_reviewer",
           "commit": null,
           "status": "pending",
