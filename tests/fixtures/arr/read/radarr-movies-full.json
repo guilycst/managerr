@@ -7,6 +7,7 @@
     "monitored": true,
     "movieFile": {
       "id": 501,
+      "movieId": 101,
       "path": "/downloads/movies/Synthetic Film (2024).mkv",
       "size": 123456789
     }

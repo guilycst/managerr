@@ -1217,16 +1217,19 @@ func (client *Client) ObserveImport(ctx context.Context, connectionID domain.Con
 			if err := decodeJSON(rawEpisode, &episode); err != nil {
 				return result, malformed(fmt.Sprintf("arr.episode.observe.%d", index))
 			}
+			if !rawValuePresent(episode.SeriesID) {
+				return result, observationIncomplete("arr.episode.observe", "series_identity_missing")
+			}
 			seriesID := scalarString(episode.SeriesID)
 			if seriesID == "" {
-				return result, observationIncomplete("arr.episode.observe", "series_identity_missing")
+				return result, observationIncomplete("arr.episode.observe", "series_identity_malformed")
 			}
 			if seriesID != externalID {
 				return result, observationIncomplete("arr.episode.observe", "series_identity_mismatch")
 			}
 		}
 		var reasons []string
-		files, reasons = client.episodeFiles(raw)
+		files, reasons = client.episodeFilesFor(raw, externalID)
 		if len(reasons) > 0 {
 			return result, observationIncomplete("arr.episode.observe", reasons[0])
 		}
@@ -1320,14 +1323,29 @@ func (client *Client) decodeRecord(ctx context.Context, raw json.RawMessage) (po
 	if totalEpisodes > len(rawEpisodes) {
 		reasons = append(reasons, "episode_files_incomplete")
 	}
-	files, fileReasons := client.episodeFiles(rawEpisodes)
+	files, fileReasons := client.episodeFilesFor(rawEpisodes, id)
 	record.Files = files
 	reasons = append(reasons, fileReasons...)
 	return record, id, reasons, nil
 }
 
 func (client *Client) movieFile(movieID json.RawMessage, dto movieFileDTO) (ports.MediaFile, string) {
-	file := ports.MediaFile{ExternalID: scalarString(dto.ID), Size: dto.Size, MovieID: scalarString(movieID)}
+	expectedMovieID := scalarString(movieID)
+	file := ports.MediaFile{ExternalID: scalarString(dto.ID), Size: dto.Size, MovieID: expectedMovieID}
+	if expectedMovieID == "" {
+		return file, "movie_identity_missing"
+	}
+	if !rawValuePresent(dto.MovieID) {
+		return file, "movie_file_movie_identity_missing"
+	}
+	actualMovieID := scalarString(dto.MovieID)
+	if actualMovieID == "" {
+		return file, "movie_file_movie_identity_malformed"
+	}
+	if actualMovieID != expectedMovieID {
+		return file, "movie_file_movie_identity_mismatch"
+	}
+	file.MovieID = actualMovieID
 	if file.ExternalID == "" {
 		return file, "movie_file_identity_missing"
 	}
@@ -1346,6 +1364,10 @@ func (client *Client) movieFile(movieID json.RawMessage, dto movieFileDTO) (port
 }
 
 func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.MediaFile, []string) {
+	return client.episodeFilesFor(rawEpisodes, "")
+}
+
+func (client *Client) episodeFilesFor(rawEpisodes []json.RawMessage, expectedSeriesID string) ([]ports.MediaFile, []string) {
 	files := make([]ports.MediaFile, 0)
 	reasons := make([]string, 0)
 	index := make(map[string]int)
@@ -1355,6 +1377,19 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 		var episode episodeDTO
 		if err := decodeJSON(raw, &episode); err != nil {
 			reasons = append(reasons, "episode_malformed")
+			continue
+		}
+		seriesID := scalarString(episode.SeriesID)
+		if !rawValuePresent(episode.SeriesID) {
+			reasons = append(reasons, "episode_series_identity_missing")
+			continue
+		}
+		if seriesID == "" {
+			reasons = append(reasons, "episode_series_identity_malformed")
+			continue
+		}
+		if expectedSeriesID != "" && seriesID != expectedSeriesID {
+			reasons = append(reasons, "episode_series_identity_mismatch")
 			continue
 		}
 		fileDTO := episode.EpisodeFile
@@ -1400,6 +1435,10 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 		}
 		if previousFileID, exists := episodeIndex[episodeID]; exists && previousFileID != fileID {
 			reasons = append(reasons, "episode_identity_conflict")
+			continue
+		}
+		if _, exists := episodeIndex[episodeID]; exists {
+			reasons = append(reasons, "episode_identity_duplicate")
 			continue
 		}
 		position, exists := index[fileID]
@@ -1567,7 +1606,11 @@ func (client *Client) mapPreviewResponseDetailed(body []byte, files []ports.Impo
 		}
 		nestedSeriesMismatch := false
 		for _, episode := range candidate.Episodes {
-			if nestedID := scalarString(episode.SeriesID); nestedID != "" && nestedID != seriesID {
+			if !rawValuePresent(episode.SeriesID) {
+				continue
+			}
+			nestedID := scalarString(episode.SeriesID)
+			if nestedID == "" || nestedID != seriesID {
 				nestedSeriesMismatch = true
 				break
 			}
@@ -1617,7 +1660,7 @@ func (client *Client) reprocessFileFromRadarr(candidate RadarrManualImportResour
 		return ReprocessFile{}, "movie_missing", "native preview returned no movie association"
 	}
 	quality, code, reason := nativeObjectForKind(candidate.Quality, "quality", client.config.Kind)
-	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
+	if code != "" && !(nativeSubtitlePath("", requested.Source.RelativePath) && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
 	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
@@ -1663,7 +1706,7 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 		return ReprocessFile{}, "series_missing", "native preview returned no series association"
 	}
 	quality, code, reason := nativeObjectForKind(candidate.Quality, "quality", client.config.Kind)
-	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
+	if code != "" && !(nativeSubtitlePath("", requested.Source.RelativePath) && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
 	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
@@ -1923,7 +1966,7 @@ func validateCustomFormatForKind(object map[string]json.RawMessage, kind domain.
 			if err != nil || len(value) == 0 {
 				return errors.New("custom format specification is invalid")
 			}
-			if err := validateCustomFormatSpecification(value, depth+1); err != nil {
+			if err := validateCustomFormatSpecificationForKind(value, depth+1, kind); err != nil {
 				return err
 			}
 		}
@@ -1932,6 +1975,10 @@ func validateCustomFormatForKind(object map[string]json.RawMessage, kind domain.
 }
 
 func validateCustomFormatSpecification(object map[string]json.RawMessage, depth int) error {
+	return validateCustomFormatSpecificationForKind(object, depth, domain.ConnectionRadarr)
+}
+
+func validateCustomFormatSpecificationForKind(object map[string]json.RawMessage, depth int, kind domain.ConnectionKind) error {
 	if depth > 4 {
 		return errors.New("custom format specification nesting is too deep")
 	}
@@ -1960,7 +2007,7 @@ func validateCustomFormatSpecification(object map[string]json.RawMessage, depth 
 		}
 	}
 	if raw, ok := object["fields"]; ok {
-		if err := validateCustomFormatFields(raw); err != nil {
+		if err := validateCustomFormatFieldsForKind(raw, kind); err != nil {
 			return err
 		}
 	}
@@ -1978,7 +2025,7 @@ func validateCustomFormatSpecification(object map[string]json.RawMessage, depth 
 			if err != nil || len(value) == 0 {
 				return errors.New("custom format preset is invalid")
 			}
-			if err := validateCustomFormatSpecification(value, depth+1); err != nil {
+			if err := validateCustomFormatSpecificationForKind(value, depth+1, kind); err != nil {
 				return err
 			}
 		}
@@ -1987,6 +2034,10 @@ func validateCustomFormatSpecification(object map[string]json.RawMessage, depth 
 }
 
 func validateCustomFormatFields(raw json.RawMessage) error {
+	return validateCustomFormatFieldsForKind(raw, domain.ConnectionRadarr)
+}
+
+func validateCustomFormatFieldsForKind(raw json.RawMessage, kind domain.ConnectionKind) error {
 	trimmed := bytes.TrimSpace(raw)
 	if bytes.Equal(trimmed, []byte("null")) {
 		return nil
@@ -2000,7 +2051,7 @@ func validateCustomFormatFields(raw json.RawMessage) error {
 		if err != nil || len(field) == 0 {
 			return errors.New("custom format field is invalid")
 		}
-		if err := validateCustomFormatField(field); err != nil {
+		if err := validateCustomFormatFieldForKind(field, kind); err != nil {
 			return err
 		}
 	}
@@ -2008,6 +2059,10 @@ func validateCustomFormatFields(raw json.RawMessage) error {
 }
 
 func validateCustomFormatField(object map[string]json.RawMessage) error {
+	return validateCustomFormatFieldForKind(object, domain.ConnectionRadarr)
+}
+
+func validateCustomFormatFieldForKind(object map[string]json.RawMessage, kind domain.ConnectionKind) error {
 	if err := rejectUnknownNativeFields(object, map[string]struct{}{
 		"order": {}, "name": {}, "label": {}, "unit": {}, "helpText": {}, "helpTextWarning": {},
 		"helpLink": {}, "value": {}, "type": {}, "advanced": {}, "selectOptions": {},
@@ -2054,7 +2109,11 @@ func validateCustomFormatField(object map[string]json.RawMessage) error {
 			if err != nil || len(option) == 0 {
 				return errors.New("custom format select option is invalid")
 			}
-			if err := rejectUnknownNativeFields(option, map[string]struct{}{"value": {}, "name": {}, "order": {}, "hint": {}, "dividerAfter": {}}); err != nil {
+			optionFields := map[string]struct{}{"value": {}, "name": {}, "order": {}, "hint": {}}
+			if kind == domain.ConnectionRadarr {
+				optionFields["dividerAfter"] = struct{}{}
+			}
+			if err := rejectUnknownNativeFields(option, optionFields); err != nil {
 				return err
 			}
 			if raw, ok := option["value"]; ok {
@@ -2696,7 +2755,10 @@ func validateReprocessRequestForKind(request ReprocessPreviewRequest, maxFiles i
 		if file.SeasonNumber != nil && *file.SeasonNumber < 0 {
 			return invalidInput("arr.manual_import.reprocess.season_number")
 		}
-		if len(bytes.TrimSpace(file.Quality)) == 0 && !file.Subtitle {
+		if !validReprocessFileRole(file) {
+			return invalidInput("arr.manual_import.reprocess.subtitle")
+		}
+		if len(bytes.TrimSpace(file.Quality)) == 0 && !nativeSubtitlePath("", file.Source.RelativePath) {
 			return invalidInput("arr.manual_import.reprocess.quality")
 		}
 		if len(bytes.TrimSpace(file.Quality)) > 0 {
@@ -2714,6 +2776,29 @@ func validateReprocessRequestForKind(request ReprocessPreviewRequest, maxFiles i
 		return err
 	}
 	return nil
+}
+
+// validReprocessFileRole binds the subtitle quality exception to the exact
+// root-relative source role. A caller-controlled Subtitle flag cannot relabel
+// a video path, and retained native role evidence must agree with that source
+// path before a no-quality subtitle request can reach Arr.
+func validReprocessFileRole(file ReprocessFile) bool {
+	sourceRole := nativeSubtitlePath("", file.Source.RelativePath)
+	if file.Subtitle != sourceRole {
+		return false
+	}
+	nativePath := strings.TrimSpace(file.NativePath)
+	nativeRelativePath := strings.TrimSpace(file.NativeRelativePath)
+	if nativePath == "" && nativeRelativePath == "" {
+		return true
+	}
+	if nativePath != "" && nativeSubtitlePath(nativePath, "") != sourceRole {
+		return false
+	}
+	if nativeRelativePath != "" && nativeSubtitlePath("", nativeRelativePath) != sourceRole {
+		return false
+	}
+	return file.NativeSubtitle == sourceRole
 }
 
 func rejectDuplicateImportIdentities(files []ports.ImportFile) error {
@@ -2962,6 +3047,7 @@ type movieDTO struct {
 
 type movieFileDTO struct {
 	ID           json.RawMessage `json:"id"`
+	MovieID      json.RawMessage `json:"movieId"`
 	Path         string          `json:"path"`
 	RelativePath string          `json:"relativePath"`
 	Size         int64           `json:"size"`
