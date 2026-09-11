@@ -17,7 +17,7 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
-//go:generate go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc -output ../../docs/generated/environment.md -types=Environment
+//go:generate sh -c "go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc -output ../../docs/generated/environment.md -types=Environment && python3 -c \"from pathlib import Path; p = Path('../../docs/generated/environment.md'); p.write_text(p.read_text().rstrip(chr(10)) + chr(10))\""
 
 // Environment is the process bootstrap contract. UI values are optional for
 // the API binary and are required by ValidateUI when starting the BFF.

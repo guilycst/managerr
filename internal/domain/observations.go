@@ -279,6 +279,7 @@ type TrackingObservation struct {
 	ProviderID   string
 	ObservedAt   time.Time
 	CoverageID   RuntimeID
+	Coverage     *Coverage
 	Evidence     []string
 }
 
@@ -302,6 +303,31 @@ func (observation TrackingObservation) Validate() error {
 	}
 	if observation.CoverageID != "" && !observation.CoverageID.Valid() {
 		return errors.New("tracking observation has an invalid coverage id")
+	}
+	if observation.Coverage != nil {
+		if err := observation.Coverage.Validate(); err != nil {
+			return fmt.Errorf("tracking observation coverage: %w", err)
+		}
+		if observation.CoverageID == "" || observation.Coverage.SourceID != observation.CoverageID {
+			return errors.New("tracking observation coverage id does not match its coverage")
+		}
+		if observation.Coverage.ConnectionID != observation.ConnectionID {
+			return errors.New("tracking observation coverage is scoped to another connection")
+		}
+		if observation.Coverage.ObservedAt.After(observation.ObservedAt) {
+			return errors.New("tracking observation coverage is newer than the observation")
+		}
+	}
+	if observation.Value == TrackingAbsent {
+		if observation.Coverage == nil || observation.CoverageID == "" {
+			return errors.New("absent tracking requires a complete coverage proof")
+		}
+		if observation.Coverage.Completeness != CompletenessComplete {
+			return errors.New("absent tracking requires complete coverage")
+		}
+		if observation.Coverage.CompletedAt == nil || observation.Coverage.CompletedAt.After(observation.ObservedAt) {
+			return errors.New("absent tracking requires completed fresh coverage")
+		}
 	}
 	return nil
 }

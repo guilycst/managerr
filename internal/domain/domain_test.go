@@ -55,6 +55,53 @@ func TestManifestAndTrackingValidation(t *testing.T) {
 	if err := observation.Validate(); err != nil {
 		t.Fatal(err)
 	}
+
+	coverageID, err := NewRuntimeID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Now()
+	coverage := Coverage{
+		SourceID:     coverageID,
+		ConnectionID: root,
+		Completeness: CompletenessComplete,
+		CompletedAt: func() *time.Time {
+			completed := observedAt.Add(-time.Second)
+			return &completed
+		}(),
+		ObservedAt: observedAt.Add(-time.Second),
+	}
+	absent := TrackingObservation{
+		ConnectionID: root,
+		Dimension:    TrackingRegistration,
+		Value:        TrackingAbsent,
+		ObservedAt:   observedAt,
+		CoverageID:   coverageID,
+		Coverage:     &coverage,
+	}
+	if err := absent.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	partial := coverage
+	partial.Completeness = CompletenessPartial
+	absent.Coverage = &partial
+	if err := absent.Validate(); err == nil {
+		t.Fatal("absent tracking accepted partial coverage")
+	}
+	absent.Coverage = nil
+	if err := absent.Validate(); err == nil {
+		t.Fatal("absent tracking accepted missing coverage")
+	}
+	otherRoot, err := ParseConfigID("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongScope := coverage
+	wrongScope.ConnectionID = otherRoot
+	absent.Coverage = &wrongScope
+	if err := absent.Validate(); err == nil {
+		t.Fatal("absent tracking accepted coverage from another connection")
+	}
 }
 
 func TestActionTransitions(t *testing.T) {

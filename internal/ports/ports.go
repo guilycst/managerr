@@ -4,6 +4,8 @@ package ports
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
@@ -273,12 +275,33 @@ type FilesystemReadPort interface {
 }
 
 type FileMap struct {
-	Source      domain.FileTarget
+	Source      domain.FileManifestEntry
 	Destination domain.FileTarget
+}
+
+func (mapping FileMap) Validate() error {
+	if err := mapping.Source.Validate(); err != nil {
+		return err
+	}
+	return mapping.Destination.Validate()
 }
 
 type FilesystemCopyRequest struct {
 	Files []FileMap
+}
+
+func (request FilesystemCopyRequest) Validate() error {
+	return validateFileMaps(request.Files, true)
+}
+
+// FilesystemHardlinkRequest has its own type so a directory cannot be passed
+// to Hardlink while still sharing the exact manifest contract with copy/move.
+type FilesystemHardlinkRequest struct {
+	Files []FileMap
+}
+
+func (request FilesystemHardlinkRequest) Validate() error {
+	return validateFileMaps(request.Files, false)
 }
 
 type FilesystemTrashRequest struct {
@@ -286,12 +309,27 @@ type FilesystemTrashRequest struct {
 	Retention time.Duration
 }
 
+func (request FilesystemTrashRequest) Validate() error {
+	if request.Retention <= 0 {
+		return fmt.Errorf("trash retention must be positive")
+	}
+	return validateManifest(request.Files)
+}
+
 type FilesystemRestoreRequest struct {
 	Files []FileMap
 }
 
+func (request FilesystemRestoreRequest) Validate() error {
+	return validateFileMaps(request.Files, true)
+}
+
 type FilesystemDeleteRequest struct {
 	Files []domain.FileManifestEntry
+}
+
+func (request FilesystemDeleteRequest) Validate() error {
+	return validateManifest(request.Files)
 }
 
 type FilesystemEffect struct {
@@ -305,12 +343,73 @@ type FilesystemEffect struct {
 // accepts an exact map or manifest, never an arbitrary command or glob.
 type FilesystemActionPort interface {
 	Copy(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
-	Hardlink(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
+	Hardlink(ctx context.Context, request FilesystemHardlinkRequest) (FilesystemEffect, error)
 	Move(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
 	Rename(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
 	Trash(ctx context.Context, request FilesystemTrashRequest) (FilesystemEffect, error)
 	Restore(ctx context.Context, request FilesystemRestoreRequest) (FilesystemEffect, error)
 	Delete(ctx context.Context, request FilesystemDeleteRequest) (FilesystemEffect, error)
+}
+
+func validateManifest(entries []domain.FileManifestEntry) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("filesystem manifest cannot be empty")
+	}
+	for index, entry := range entries {
+		if err := entry.Validate(); err != nil {
+			return fmt.Errorf("manifest entry %d: %w", index, err)
+		}
+	}
+	for left := 0; left < len(entries); left++ {
+		for right := left + 1; right < len(entries); right++ {
+			if manifestEntriesOverlap(entries[left], entries[right]) {
+				return fmt.Errorf("manifest entries %q and %q overlap", entries[left].RelativePath, entries[right].RelativePath)
+			}
+		}
+	}
+	return nil
+}
+
+func validateFileMaps(mappings []FileMap, allowDirectories bool) error {
+	if len(mappings) == 0 {
+		return fmt.Errorf("filesystem map cannot be empty")
+	}
+	for index, mapping := range mappings {
+		if err := mapping.Validate(); err != nil {
+			return fmt.Errorf("file map %d: %w", index, err)
+		}
+		if !allowDirectories && mapping.Source.Type == domain.ManifestDirectory {
+			return fmt.Errorf("file map %d: hardlink does not support directories", index)
+		}
+	}
+	for left := 0; left < len(mappings); left++ {
+		for right := left + 1; right < len(mappings); right++ {
+			if manifestEntriesOverlap(mappings[left].Source, mappings[right].Source) {
+				return fmt.Errorf("file maps %d and %d source manifests overlap", left, right)
+			}
+			if targetsOverlap(mappings[left].Destination, mappings[right].Destination) {
+				return fmt.Errorf("file maps %d and %d destinations overlap", left, right)
+			}
+		}
+	}
+	return nil
+}
+
+func manifestEntriesOverlap(left, right domain.FileManifestEntry) bool {
+	if left.RootID != right.RootID {
+		return false
+	}
+	if left.RelativePath == right.RelativePath {
+		return true
+	}
+	return left.Type == domain.ManifestDirectory && strings.HasPrefix(right.RelativePath, left.RelativePath+"/") || right.Type == domain.ManifestDirectory && strings.HasPrefix(left.RelativePath, right.RelativePath+"/")
+}
+
+func targetsOverlap(left, right domain.FileTarget) bool {
+	if left.RootID != right.RootID {
+		return false
+	}
+	return left.RelativePath == right.RelativePath || strings.HasPrefix(left.RelativePath, right.RelativePath+"/") || strings.HasPrefix(right.RelativePath, left.RelativePath+"/")
 }
 
 // ConfigurationRepositoryPort exposes the effective startup snapshot. YAML

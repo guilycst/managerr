@@ -96,8 +96,7 @@ var actionTransitions = map[ActionState]map[ActionState]struct{}{
 		ActionQueued: {}, ActionRunning: {}, ActionNeedsReview: {}, ActionCancelled: {}, ActionDeadlineExceeded: {},
 	},
 	ActionReconciling: {
-		ActionQueued: {}, ActionRunning: {}, ActionSucceeded: {}, ActionNeedsReview: {},
-		ActionFailed: {}, ActionCancelled: {}, ActionDeadlineExceeded: {},
+		ActionQueued: {}, ActionSucceeded: {}, ActionNeedsReview: {}, ActionCancelled: {}, ActionDeadlineExceeded: {},
 	},
 	ActionNeedsReview: {
 		ActionQueued: {}, ActionRunning: {}, ActionCancelled: {}, ActionDeadlineExceeded: {},

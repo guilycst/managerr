@@ -82,6 +82,9 @@ generate_envdoc() {
       go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc \
       -output "$target" -types=Environment
   )
+  awk '{ lines[NR] = $0 } END { n = NR; for (; n > 0 && lines[n] == ""; n--) {} for (i = 1; i <= n; i++) print lines[i] }' \
+    "$target" >"$target.tmp"
+  mv "$target.tmp" "$target"
 
   if [ "$mode" = check ]; then
     if [ ! -f "$output" ]; then

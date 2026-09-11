@@ -14,4 +14,3 @@ the API binary and are required by ValidateUI when starting the BFF.
  - `MANAGERR_UI_API_URL` - API URL used by the BFF. Required when ValidateUI is called.
  - `MANAGERR_UI_LISTEN_ADDR` (default: `:8081`) - BFF listener address.
  - `MANAGERR_UI_PUBLIC_ORIGIN` - Absolute public origin used for BFF metadata and origin checks. Required by ValidateUI.
-
