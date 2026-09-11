@@ -68,8 +68,9 @@ generate_oapi \
 
 if [ -f "$repo_dir/sqlc.yaml" ]; then
   (
-    cd "$repo_dir"
-    GOWORK=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate
+    cd "$tools_dir"
+    GOWORK=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate \
+      -f "$repo_dir/sqlc.yaml"
   )
 fi
 
