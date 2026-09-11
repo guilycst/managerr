@@ -657,6 +657,8 @@ SET state = CASE
                               WHERE effect.action_run_id = janitor.approval_action_run_id
                                 AND effect.effect_kind = 'fs.delete'
                                 AND effect.state = 'applied'
+                                AND effect.target_kind = 'trash_entry'
+                                AND effect.target_id = janitor.trash_entry_id
                           )
                       )
                   )
@@ -686,7 +688,6 @@ SET state = CASE
                   AND NOT EXISTS (
                       SELECT 1 FROM action_effects AS effect
                       WHERE effect.action_run_id = janitor.approval_action_run_id
-                        AND effect.effect_kind = 'fs.delete'
                         AND effect.state = 'applied'
                   )
                      THEN 'already_satisfied'
@@ -730,6 +731,8 @@ SET state = CASE
                               WHERE effect.action_run_id = janitor.approval_action_run_id
                                 AND effect.effect_kind = 'fs.delete'
                                 AND effect.state = 'applied'
+                                AND effect.target_kind = 'trash_entry'
+                                AND effect.target_id = janitor.trash_entry_id
                           )
                       )
                   )
@@ -759,7 +762,6 @@ SET state = CASE
                   AND NOT EXISTS (
                       SELECT 1 FROM action_effects AS effect
                       WHERE effect.action_run_id = janitor.approval_action_run_id
-                        AND effect.effect_kind = 'fs.delete'
                         AND effect.state = 'applied'
                   )
                      THEN 'already_satisfied'
@@ -810,7 +812,10 @@ SET state = CASE
                           AND EXISTS (
                               SELECT 1 FROM action_effects AS effect
                               WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.effect_kind = 'fs.delete'
                                 AND effect.state = 'applied'
+                                AND effect.target_kind = 'trash_entry'
+                                AND effect.target_id = janitor.trash_entry_id
                           )
                       )
                   )
@@ -881,7 +886,10 @@ SET state = CASE
                           AND EXISTS (
                               SELECT 1 FROM action_effects AS effect
                               WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.effect_kind = 'fs.delete'
                                 AND effect.state = 'applied'
+                                AND effect.target_kind = 'trash_entry'
+                                AND effect.target_id = janitor.trash_entry_id
                           )
                       )
                   )
@@ -1000,6 +1008,9 @@ UPDATE action_runs SET
     version = version + CASE WHEN cancellation_requested_at IS NULL THEN 1 ELSE 0 END,
     updated_at = CASE WHEN cancellation_requested_at IS NULL THEN sqlc.arg(updated_at) ELSE updated_at END
 WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded')
+  AND sqlc.arg(requested_at) IS NOT NULL
+  AND length(trim(sqlc.arg(requested_at))) > 0
+  AND julianday(sqlc.arg(requested_at)) IS NOT NULL
 RETURNING *;
 
 -- name: CreateActionAttempt :one

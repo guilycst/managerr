@@ -6,10 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/guilycst/mastarr/internal/storage/sqlc"
 )
+
+const round12ApprovedEntryTarget = "$approved-entry"
+
+type round12EffectSpec struct {
+	targetKind string
+	targetID   string
+	effectKind string
+	state      string
+}
 
 func TestRound11CancellationAfterTerminalJanitorFinalizesExactGeneration(t *testing.T) {
 	for _, tc := range []struct {
@@ -129,11 +139,11 @@ func TestRound11CancellationAfterTerminalJanitorFinalizesExactGeneration(t *test
 
 func TestRound11TerminalOutcomeRequiresStrictEvidence(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		outcome       string
-		actionState   string
-		expectedRaw   string
-		effectApplied bool
+		name        string
+		outcome     string
+		actionState string
+		expectedRaw string
+		effects     []round12EffectSpec
 	}{
 		{
 			name:        "applied-positive-camel",
@@ -154,11 +164,69 @@ func TestRound11TerminalOutcomeRequiresStrictEvidence(t *testing.T) {
 			expectedRaw: `{"outcome":"applied","deletedObjects":2,"deleted_objects":2}`,
 		},
 		{
-			name:          "applied-durable-effect-row",
-			outcome:       `{"outcome":"applied"}`,
-			actionState:   "succeeded",
-			expectedRaw:   `{"outcome":"applied"}`,
-			effectApplied: true,
+			name:        "applied-durable-effect-row",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "succeeded",
+			expectedRaw: `{"outcome":"applied"}`,
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.delete", state: "applied",
+			}},
+		},
+		{
+			name:        "applied-durable-effect-with-unrelated-effect",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "succeeded",
+			expectedRaw: `{"outcome":"applied"}`,
+			effects: []round12EffectSpec{
+				{targetKind: "trash_entry", targetID: round12ApprovedEntryTarget, effectKind: "fs.delete", state: "applied"},
+				{targetKind: "trash_entry", targetID: round12ApprovedEntryTarget, effectKind: "fs.copy", state: "applied"},
+			},
+		},
+		{
+			name:        "applied-durable-effect-wrong-kind",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.copy", state: "applied",
+			}},
+		},
+		{
+			name:        "applied-durable-effect-wrong-target-id",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: "other-entry",
+				effectKind: "fs.delete", state: "applied",
+			}},
+		},
+		{
+			name:        "applied-durable-effect-wrong-target-kind",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_item", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.delete", state: "applied",
+			}},
+		},
+		{
+			name:        "applied-durable-effect-failed",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.delete", state: "failed",
+			}},
+		},
+		{
+			name:        "applied-durable-effect-unknown",
+			outcome:     `{"outcome":"applied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.delete", state: "unknown",
+			}},
 		},
 		{
 			name:        "already-satisfied-absent-count",
@@ -171,6 +239,42 @@ func TestRound11TerminalOutcomeRequiresStrictEvidence(t *testing.T) {
 			outcome:     `{"outcome":"already_satisfied","deletedObjects":0,"deleted_objects":0}`,
 			actionState: "succeeded",
 			expectedRaw: `{"outcome":"already_satisfied","deletedObjects":0,"deleted_objects":0}`,
+		},
+		{
+			name:        "already-satisfied-unrelated-applied-effect",
+			outcome:     `{"outcome":"already_satisfied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.copy", state: "applied",
+			}},
+		},
+		{
+			name:        "already-satisfied-wrong-target-delete-effect",
+			outcome:     `{"outcome":"already_satisfied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: "other-entry",
+				effectKind: "fs.delete", state: "applied",
+			}},
+		},
+		{
+			name:        "already-satisfied-exact-delete-effect",
+			outcome:     `{"outcome":"already_satisfied"}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{{
+				targetKind: "trash_entry", targetID: round12ApprovedEntryTarget,
+				effectKind: "fs.delete", state: "applied",
+			}},
+		},
+		{
+			name:        "already-satisfied-mixed-unrelated-effects",
+			outcome:     `{"outcome":"already_satisfied","deletedObjects":0}`,
+			actionState: "needs_review",
+			effects: []round12EffectSpec{
+				{targetKind: "trash_entry", targetID: "other-entry", effectKind: "fs.delete", state: "failed"},
+				{targetKind: "trash_item", targetID: round12ApprovedEntryTarget, effectKind: "fs.copy", state: "applied"},
+			},
 		},
 		{name: "applied-zero-camel", outcome: `{"outcome":"applied","deletedObjects":0}`, actionState: "needs_review"},
 		{name: "applied-zero-snake", outcome: `{"outcome":"applied","deleted_objects":0}`, actionState: "needs_review"},
@@ -194,13 +298,17 @@ func TestRound11TerminalOutcomeRequiresStrictEvidence(t *testing.T) {
 				filepath.Join(t.TempDir(), "strict-outcome.sqlite"), "round11-outcome-"+tc.name)
 			defer store.Close()
 			ctx := context.Background()
-			if tc.effectApplied {
+			for ordinal, effect := range tc.effects {
+				targetID := effect.targetID
+				if targetID == round12ApprovedEntryTarget {
+					targetID = fixture.entryID
+				}
 				if _, err := store.Queries().CreateActionEffect(ctx, &sqlc.CreateActionEffectParams{
-					ID: "round11-effect-" + tc.name, ActionRunID: fixture.actionRunID, Ordinal: 0,
-					TargetKind: "trash_entry", TargetID: fixture.entryID, EffectKind: "fs.delete", State: "applied", EvidenceJson: `{}`,
+					ID: "round12-effect-" + tc.name + "-" + strconv.Itoa(ordinal), ActionRunID: fixture.actionRunID, Ordinal: int64(ordinal),
+					TargetKind: effect.targetKind, TargetID: targetID, EffectKind: effect.effectKind, State: effect.state, EvidenceJson: `{}`,
 					ObservedAt: "2026-09-11T00:01:11Z",
 				}); err != nil {
-					t.Fatalf("create durable effect: %v", err)
+					t.Fatalf("create durable effect %d: %v", ordinal, err)
 				}
 			}
 			if _, err := store.Queries().UpdateJanitorRecord(ctx, &sqlc.UpdateJanitorRecordParams{
@@ -231,6 +339,16 @@ func TestRound11TerminalOutcomeRequiresStrictEvidence(t *testing.T) {
 				}
 				if payload.Outcome != "unknown" {
 					t.Fatalf("invalid evidence outcome = %q, want unknown", payload.Outcome)
+				}
+			} else {
+				var payload struct {
+					Outcome string `json:"outcome"`
+				}
+				if err := json.Unmarshal([]byte(finalized.OutcomeJson), &payload); err != nil {
+					t.Fatalf("valid outcome JSON = %q: %v", finalized.OutcomeJson, err)
+				}
+				if payload.Outcome != "applied" && payload.Outcome != "already_satisfied" {
+					t.Fatalf("successful evidence outcome = %q, want applied/already_satisfied", payload.Outcome)
 				}
 			}
 		})
@@ -272,5 +390,124 @@ func TestRound11MalformedTerminalOutcomeBecomesUnknown(t *testing.T) {
 	}
 	if payload.Outcome != "unknown" {
 		t.Fatalf("malformed outcome = %q, want unknown", payload.Outcome)
+	}
+}
+
+func TestRound12CancellationRejectsMissingOrInvalidRequestedAt(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		requestedAt sql.NullString
+	}{
+		{name: "null", requestedAt: sql.NullString{}},
+		{name: "blank", requestedAt: sql.NullString{String: "   ", Valid: true}},
+		{name: "invalid", requestedAt: sql.NullString{String: "not-a-timestamp", Valid: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, fixture := seedRound7ApprovedPurge(t,
+				filepath.Join(t.TempDir(), "invalid-cancellation.sqlite"), "round12-invalid-cancel-"+tc.name)
+			defer store.Close()
+			ctx := context.Background()
+
+			beforeAction, err := store.Queries().GetActionRun(ctx, fixture.actionRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeJanitor, err := store.Queries().GetJanitorRecord(ctx, &sqlc.GetJanitorRecordParams{TrashEntryID: fixture.entryID, Operation: "purge"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeEntry, err := store.Queries().GetTrashEntry(ctx, fixture.entryID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = store.Queries().RequestActionCancellation(ctx, &sqlc.RequestActionCancellationParams{
+				RequestedAt: tc.requestedAt,
+				UpdatedAt:   "2026-09-11T00:01:13Z",
+				ID:          fixture.actionRunID,
+			})
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("invalid cancellation = %v, want sql.ErrNoRows", err)
+			}
+
+			afterAction, err := store.Queries().GetActionRun(ctx, fixture.actionRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if afterAction.Version != beforeAction.Version || afterAction.UpdatedAt != beforeAction.UpdatedAt || afterAction.CancellationRequestedAt.Valid != beforeAction.CancellationRequestedAt.Valid {
+				t.Fatalf("invalid cancellation changed action generation/marker: before=%+v after=%+v", beforeAction, afterAction)
+			}
+			if afterAction.CancellationRequestedAt.Valid && afterAction.CancellationRequestedAt.String != beforeAction.CancellationRequestedAt.String {
+				t.Fatalf("invalid cancellation changed marker: before=%+v after=%+v", beforeAction.CancellationRequestedAt, afterAction.CancellationRequestedAt)
+			}
+
+			afterJanitor, err := store.Queries().GetJanitorRecord(ctx, &sqlc.GetJanitorRecordParams{TrashEntryID: fixture.entryID, Operation: "purge"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if afterJanitor.Version != beforeJanitor.Version || afterJanitor.UpdatedAt != beforeJanitor.UpdatedAt || afterJanitor.State != beforeJanitor.State {
+				t.Fatalf("invalid cancellation changed janitor: before=%+v after=%+v", beforeJanitor, afterJanitor)
+			}
+			afterEntry, err := store.Queries().GetTrashEntry(ctx, fixture.entryID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if afterEntry.Version != beforeEntry.Version || afterEntry.UpdatedAt != beforeEntry.UpdatedAt || afterEntry.State != beforeEntry.State {
+				t.Fatalf("invalid cancellation changed trash entry: before=%+v after=%+v", beforeEntry, afterEntry)
+			}
+		})
+	}
+}
+
+func TestRound12CancellationRejectsInvalidRequestedAtForUnboundAction(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "invalid-unbound-cancellation.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	createdAt := "2026-09-11T00:00:00Z"
+	planID := "round12-unbound-plan"
+	digest := "round12-unbound-digest"
+	actionID := "round12-unbound-action"
+	if _, err := store.Queries().CreateActionPlan(ctx, &sqlc.CreateActionPlanParams{
+		ID: planID, Kind: "fs.copy", State: "ready", CurrentRevision: 1, CurrentDigest: digest,
+		CreatedAt: createdAt, UpdatedAt: createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionPlanRevision(ctx, &sqlc.CreateActionPlanRevisionParams{
+		PlanID: planID, Revision: 1, Digest: digest, State: "ready", InputJson: `{}`, PreconditionsJson: `{}`,
+		CapabilitiesJson: `[]`, ManifestJson: `[]`, CreatedAt: createdAt, ExpiresAt: "2026-09-20T00:00:00Z",
+		ReadyAt: sql.NullString{String: createdAt, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionRun(ctx, &sqlc.CreateActionRunParams{
+		ID: actionID, PlanID: planID, PlanRevision: 1, PlanDigest: digest, State: "running", DesiredStateJson: `{}`,
+		DeadlineAt: sql.NullString{String: "2026-09-20T00:00:00Z", Valid: true},
+		ClaimedBy:  sql.NullString{String: "round12-worker", Valid: true}, LeaseUntil: sql.NullString{String: "2026-09-11T00:05:00Z", Valid: true},
+		Version: 1, OutcomeJson: `{}`, CreatedAt: createdAt, UpdatedAt: createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, requestedAt := range []sql.NullString{
+		{},
+		{String: " ", Valid: true},
+		{String: "not-a-timestamp", Valid: true},
+	} {
+		if _, err := store.Queries().RequestActionCancellation(ctx, &sqlc.RequestActionCancellationParams{
+			RequestedAt: requestedAt, UpdatedAt: "2026-09-11T00:01:00Z", ID: actionID,
+		}); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("unbound invalid cancellation %v = %v, want sql.ErrNoRows", requestedAt, err)
+		}
+	}
+	action, err := store.Queries().GetActionRun(ctx, actionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action.Version != 1 || action.CancellationRequestedAt.Valid || action.UpdatedAt != createdAt || !action.ClaimedBy.Valid || !action.LeaseUntil.Valid {
+		t.Fatalf("invalid unbound cancellation changed action = %+v", action)
 	}
 }
