@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
 )
@@ -179,6 +181,55 @@ func TestObserveEnumerationCursorDoesNotDropProbedEntry(t *testing.T) {
 	}
 }
 
+func TestObserveEnumerationCursorTraversesBeyondPageMaximum(t *testing.T) {
+	root := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	rootID := domain.ConfigID("downloads")
+	observer, err := New([]Root{{ID: rootID, Path: root}}, Options{EnumerationLimit: 2, EnumerationMax: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"01.mkv", "02.mkv", "03.mkv", "04.mkv", "05.mkv"} {
+		writeFile(t, filepath.Join(root, name), name)
+	}
+
+	for _, firstLimit := range []int{1, 2} {
+		var all []domain.FileManifestEntry
+		page, err := observer.Enumerate(context.Background(), rootID, "", firstLimit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, page.Items...)
+		for page.NextCursor != "" {
+			page, err = observer.EnumeratePage(context.Background(), rootID, "", page.NextCursor, 3-firstLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all = append(all, page.Items...)
+		}
+		if len(all) != 5 {
+			t.Fatalf("first limit %d returned %d entries: %#v", firstLimit, len(all), all)
+		}
+		paths := make([]string, 0, len(all))
+		seen := make(map[string]struct{}, len(all))
+		for _, entry := range all {
+			if _, exists := seen[entry.RelativePath]; exists {
+				t.Fatalf("first limit %d repeated entry %q", firstLimit, entry.RelativePath)
+			}
+			seen[entry.RelativePath] = struct{}{}
+			paths = append(paths, entry.RelativePath)
+		}
+		sort.Strings(paths)
+		for index, expected := range []string{"01.mkv", "02.mkv", "03.mkv", "04.mkv", "05.mkv"} {
+			if paths[index] != expected {
+				t.Fatalf("first limit %d paths = %#v, want ordered synthetic files", firstLimit, paths)
+			}
+		}
+	}
+}
+
 func TestObserveCapabilitiesExposeReadOnlyAndMissingAsEvidence(t *testing.T) {
 	observer, root, rootID := newTestObserver(t, true)
 	caps, err := observer.Capabilities(context.Background(), rootID)
@@ -211,6 +262,83 @@ func TestObserveCapabilitiesExposeReadOnlyAndMissingAsEvidence(t *testing.T) {
 		if capability.State != domain.CapabilityUnknown {
 			t.Fatalf("missing root capability %q = %q", capability.Name, capability.State)
 		}
+	}
+}
+
+func TestObserveCapabilitiesHonorConfiguredAuthority(t *testing.T) {
+	type capabilityExpectation struct {
+		name  string
+		state domain.CapabilityState
+	}
+	tests := []struct {
+		name       string
+		readOnly   bool
+		configured []domain.Capability
+		want       []capabilityExpectation
+	}{
+		{
+			name: "writable source destination operations remain unknown",
+			want: []capabilityExpectation{
+				{name: "fs.copy", state: domain.CapabilitySupported},
+				{name: "fs.hardlink", state: domain.CapabilityUnknown},
+				{name: "fs.move", state: domain.CapabilityUnknown},
+				{name: "fs.rename", state: domain.CapabilityUnknown},
+			},
+		},
+		{
+			name: "configured unsupported and unknown are retained",
+			configured: []domain.Capability{
+				{Name: "fs.copy", State: domain.CapabilityUnsupported, Reason: "mount forbids copy", ObservedAt: time.Now()},
+				{Name: "fs.delete", State: domain.CapabilityUnknown, Reason: "not verified", ObservedAt: time.Now()},
+			},
+			want: []capabilityExpectation{
+				{name: "fs.copy", state: domain.CapabilityUnsupported},
+				{name: "fs.delete", state: domain.CapabilityUnknown},
+			},
+		},
+		{
+			name:     "read only forbids every mutation",
+			readOnly: true,
+			configured: []domain.Capability{
+				{Name: "fs.hardlink", State: domain.CapabilitySupported, ObservedAt: time.Now()},
+				{Name: "fs.move", State: domain.CapabilityUnknown, ObservedAt: time.Now()},
+			},
+			want: []capabilityExpectation{
+				{name: "fs.copy", state: domain.CapabilityUnsupported},
+				{name: "fs.hardlink", state: domain.CapabilityUnsupported},
+				{name: "fs.move", state: domain.CapabilityUnsupported},
+				{name: "fs.rename", state: domain.CapabilityUnsupported},
+				{name: "fs.trash", state: domain.CapabilityUnsupported},
+				{name: "fs.restore", state: domain.CapabilityUnsupported},
+				{name: "fs.delete", state: domain.CapabilityUnsupported},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if resolved, err := filepath.EvalSymlinks(root); err == nil {
+				root = resolved
+			}
+			rootID := domain.ConfigID("downloads")
+			observer, err := New([]Root{{ID: rootID, Path: root, ReadOnly: test.readOnly, Capabilities: test.configured}}, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps, err := observer.Capabilities(context.Background(), rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			states := make(map[string]domain.CapabilityState, len(caps))
+			for _, capability := range caps {
+				states[capability.Name] = capability.State
+			}
+			for _, want := range test.want {
+				if states[want.name] != want.state {
+					t.Fatalf("capability %q = %q, want %q; all=%#v", want.name, states[want.name], want.state, states)
+				}
+			}
+		})
 	}
 }
 

@@ -125,6 +125,9 @@ func openChild(directory *os.File, name string, directoryOnly bool) (*os.File, e
 	if directoryOnly && fileType != unix.S_IFDIR {
 		return nil, fmt.Errorf("%w: path component is not a directory", ErrSpecialFile)
 	}
+	if !directoryOnly && fileType != unix.S_IFREG && fileType != unix.S_IFDIR {
+		return nil, ErrSpecialFile
+	}
 	flags := openReadOnly
 	if directoryOnly {
 		flags |= unix.O_DIRECTORY

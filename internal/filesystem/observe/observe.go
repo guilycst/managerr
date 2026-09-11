@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -230,8 +232,10 @@ func (o *Observer) Enumerate(ctx context.Context, rootID domain.ConfigID, relati
 }
 
 // EnumeratePage continues a bounded directory page using an opaque cursor.
-// Cursor state contains directory identity and mtime; a changed directory is
-// rejected instead of silently mixing two snapshots.
+// Cursor state contains directory identity, mtime, a digest of the sorted
+// child-name snapshot and the last scanned name. A changed directory is
+// rejected instead of silently mixing two snapshots. Sorting the captured
+// names makes continuation independent of filesystem directory order.
 func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, relativePrefix, cursor string, limit int) (ports.Page[domain.FileManifestEntry], error) {
 	var page ports.Page[domain.FileManifestEntry]
 	started := time.Now().UTC()
@@ -253,12 +257,9 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 	if err != nil {
 		return page, err
 	}
-	offset, expected := cursorValue.Offset, cursorValue.DirectoryID
+	expected := cursorValue.DirectoryID
 	if cursor != "" && cursorValue.Prefix != relativePrefix {
 		return page, fmt.Errorf("%w: cursor belongs to another directory", ErrChanged)
-	}
-	if offset > o.opts.EnumerationMax {
-		return page, fmt.Errorf("%w: cursor offset exceeds maximum", ErrEnumerationLimit)
 	}
 	directory, err := openConstrainedDirectory(root.Path, relativePrefix)
 	if err != nil {
@@ -276,28 +277,43 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 	if expected != "" && expected != directoryID {
 		return page, fmt.Errorf("%w: enumeration directory identity changed", ErrChanged)
 	}
-	if offset > 0 && cursorMTime(cursor) != directoryInfo.ModTime().UnixNano() {
+	if cursor != "" && cursorValue.DirectoryMTime != directoryInfo.ModTime().UnixNano() {
 		return page, fmt.Errorf("%w: enumeration directory timestamp changed", ErrChanged)
 	}
 
-	if offset > 0 {
-		if err := discardNames(ctx, directory, offset); err != nil {
+	names, err := readDirectoryNames(ctx, directory)
+	if err != nil {
+		return page, err
+	}
+	snapshotDigest := namesDigest(names)
+	start := 0
+	if cursor != "" {
+		if cursorValue.SnapshotDigest != snapshotDigest {
+			return page, fmt.Errorf("%w: enumeration directory entries changed", ErrChanged)
+		}
+		start, err = cursorStart(names, cursorValue.LastName)
+		if err != nil {
 			return page, err
 		}
 	}
-	var more bool
-	page.Items, more, err = readEntries(ctx, directory, rootID, relativePrefix, limit)
+	var next int
+	var unsupported []string
+	page.Items, next, unsupported, err = readEntries(ctx, directory, rootID, relativePrefix, names, start, limit)
 	if err != nil {
 		return page, err
 	}
 	page.Coverage = coverage(root, len(page.Items), started, time.Now().UTC())
-	if more {
+	page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, unsupported...)
+	if len(unsupported) > 0 {
+		page.Coverage.Completeness = domain.CompletenessPartial
+	}
+	if next < len(names) {
 		page.NextCursor = encodeCursor(cursorState{
-			Offset: offset + len(page.Items), DirectoryID: directoryID,
-			DirectoryMTime: directoryInfo.ModTime().UnixNano(), Prefix: relativePrefix,
+			DirectoryID: directoryID, DirectoryMTime: directoryInfo.ModTime().UnixNano(),
+			Prefix: relativePrefix, LastName: names[next-1], SnapshotDigest: snapshotDigest,
 		})
 		page.Coverage.Completeness = domain.CompletenessPartial
-		page.Coverage.ReasonCodes = []string{"enumeration_limit"}
+		page.Coverage.ReasonCodes = append(page.Coverage.ReasonCodes, "enumeration_limit")
 	}
 	finalInfo, err := directory.Stat()
 	if err != nil {
@@ -338,22 +354,30 @@ func (o *Observer) Capabilities(ctx context.Context, rootID domain.ConfigID) ([]
 	names := []string{
 		"fs.enumerate", "fs.stat", "fs.hash", "fs.copy", "fs.hardlink",
 		"fs.move", "fs.rename", "fs.trash", "fs.restore", "fs.delete",
+		"fs.no_follow",
 	}
 	result := make([]domain.Capability, 0, len(names)+1)
 	rootFile, openErr := openConstrainedDirectory(root.Path, "")
 	if openErr != nil {
-		reason := capabilityReason(openErr)
+		defaultReason := capabilityReason(openErr)
 		for _, name := range names {
-			result = append(result, domain.Capability{Name: name, State: domain.CapabilityUnknown, Reason: reason, ObservedAt: now})
+			state := domain.CapabilityUnknown
+			reason := defaultReason
+			if name == "fs.no_follow" {
+				state, reason = noFollowCapability(), ""
+			}
+			result = append(result, mergeConfiguredCapability(root, name, state, reason, now))
 		}
-		result = append(result, domain.Capability{Name: "fs.no_follow", State: noFollowCapability(), ObservedAt: now})
 		return result, nil
 	}
 	defer rootFile.Close()
 	writable := !root.ReadOnly && writableDirectory(rootFile)
 	readState := domain.CapabilitySupported
 	writeState := domain.CapabilityUnsupported
-	writeReason := "root is read-only or not writable"
+	writeReason := "root is read-only"
+	if !root.ReadOnly {
+		writeReason = "root is not writable to effective process credentials"
+	}
 	if writable {
 		writeState = domain.CapabilitySupported
 		writeReason = ""
@@ -361,16 +385,83 @@ func (o *Observer) Capabilities(ctx context.Context, rootID domain.ConfigID) ([]
 	for _, name := range names {
 		state := readState
 		reason := ""
-		if strings.HasPrefix(name, "fs.") && name != "fs.enumerate" && name != "fs.stat" && name != "fs.hash" {
+		switch {
+		case name == "fs.no_follow":
+			state = noFollowCapability()
+		case isMutationCapability(name):
 			state, reason = writeState, writeReason
 		}
-		if name == "fs.hardlink" || name == "fs.move" || name == "fs.rename" {
+		if isSourceDestinationCapability(name) && state != domain.CapabilityUnsupported {
 			state, reason = domain.CapabilityUnknown, "selected source and destination filesystem support requires action-time evidence"
 		}
-		result = append(result, domain.Capability{Name: name, State: state, Reason: reason, ObservedAt: now})
+		result = append(result, mergeConfiguredCapability(root, name, state, reason, now))
 	}
-	result = append(result, domain.Capability{Name: "fs.no_follow", State: noFollowCapability(), ObservedAt: now})
 	return result, nil
+}
+
+func isMutationCapability(name string) bool {
+	switch name {
+	case "fs.copy", "fs.hardlink", "fs.move", "fs.rename", "fs.trash", "fs.restore", "fs.delete":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSourceDestinationCapability(name string) bool {
+	switch name {
+	case "fs.hardlink", "fs.move", "fs.rename":
+		return true
+	default:
+		return false
+	}
+}
+
+// mergeConfiguredCapability applies the authority supplied with a root after
+// checking current physical evidence. A physical prohibition is stronger than
+// stale configuration, while configured unsupported/unknown states cannot be
+// promoted by a permission probe.
+func mergeConfiguredCapability(root Root, name string, observedState domain.CapabilityState, observedReason string, now time.Time) domain.Capability {
+	capability := domain.Capability{Name: name, State: observedState, Reason: observedReason, ObservedAt: now}
+	var configured *domain.Capability
+	for index := range root.Capabilities {
+		if root.Capabilities[index].Name == name {
+			configured = &root.Capabilities[index]
+			break
+		}
+	}
+	if configured == nil {
+		return capability
+	}
+	capability.Version = configured.Version
+	capability.Evidence = append([]string(nil), configured.Evidence...)
+	switch {
+	case observedState == domain.CapabilityUnsupported:
+		capability.State = domain.CapabilityUnsupported
+		if configured.State == domain.CapabilityUnsupported && configured.Reason != "" {
+			capability.Reason = configured.Reason
+		}
+	case configured.State == domain.CapabilityUnsupported:
+		capability.State = domain.CapabilityUnsupported
+		capability.Reason = configured.Reason
+		if capability.Reason == "" {
+			capability.Reason = "configured unsupported"
+		}
+	case observedState == domain.CapabilityUnknown:
+		capability.State = domain.CapabilityUnknown
+		if configured.State == domain.CapabilityUnknown && configured.Reason != "" {
+			capability.Reason = configured.Reason
+		}
+	case configured.State == domain.CapabilityUnknown:
+		capability.State = domain.CapabilityUnknown
+		capability.Reason = configured.Reason
+		if capability.Reason == "" {
+			capability.Reason = "configured capability is unverified"
+		}
+	case configured.State == domain.CapabilitySupported && configured.Reason != "":
+		capability.Reason = configured.Reason
+	}
+	return capability
 }
 
 func coverage(root Root, count int, started, observed time.Time) domain.Coverage {
@@ -406,22 +497,86 @@ func manifestEntry(rootID domain.ConfigID, relativePath string, info fs.FileInfo
 	}, nil
 }
 
-func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID, prefix string, limit int) ([]domain.FileManifestEntry, bool, error) {
-	names, err := directory.Readdirnames(limit + 1)
+// UnsupportedChildEvidence is the path-scoped evidence carried by an
+// enumeration coverage reason. The frozen filesystem page contract has no
+// separate unsupported-entry collection, so this compact representation keeps
+// the path and reason available without pretending the child is a manifest.
+type UnsupportedChildEvidence struct {
+	RelativePath string `json:"relativePath"`
+	Reason       string `json:"reason"`
+}
+
+const unsupportedChildReasonPrefix = "unsupported_child:"
+
+// UnsupportedChildReasonCode returns the stable coverage reason encoding for
+// one child that could not be observed. RelativePath is root-relative and is
+// never a host path.
+func UnsupportedChildReasonCode(relativePath, reason string) string {
+	evidence, _ := json.Marshal(UnsupportedChildEvidence{RelativePath: relativePath, Reason: reason})
+	return unsupportedChildReasonPrefix + string(evidence)
+}
+
+// ParseUnsupportedChildReasonCode decodes one reason from Coverage.ReasonCodes.
+// It returns false for unrelated coverage reasons or malformed evidence.
+func ParseUnsupportedChildReasonCode(code string) (UnsupportedChildEvidence, bool) {
+	if !strings.HasPrefix(code, unsupportedChildReasonPrefix) {
+		return UnsupportedChildEvidence{}, false
+	}
+	var evidence UnsupportedChildEvidence
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(code, unsupportedChildReasonPrefix)), &evidence); err != nil {
+		return UnsupportedChildEvidence{}, false
+	}
+	if evidence.RelativePath == "" || evidence.Reason == "" {
+		return UnsupportedChildEvidence{}, false
+	}
+	return evidence, true
+}
+
+func unsupportedChildReason(err error) string {
+	switch {
+	case errors.Is(err, ErrSymlink):
+		return "symlink"
+	case errors.Is(err, ErrSpecialFile):
+		return "special_file"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission_denied"
+	case errors.Is(err, fs.ErrNotExist):
+		return "disappeared"
+	case errors.Is(err, ErrPathEscape):
+		return "invalid_name"
+	default:
+		return "observation_failed"
+	}
+}
+
+func readDirectoryNames(ctx context.Context, directory *os.File) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	names, err := directory.Readdirnames(-1)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, false, fmt.Errorf("read directory: %w", err)
+		return nil, fmt.Errorf("read directory: %w", err)
 	}
-	more := len(names) > limit
-	if len(names) > limit {
-		names = names[:limit]
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	entries := make([]domain.FileManifestEntry, 0, len(names))
-	for _, name := range names {
+	sort.Strings(names)
+	return names, nil
+}
+
+func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID, prefix string, names []string, start, limit int) ([]domain.FileManifestEntry, int, []string, error) {
+	entries := make([]domain.FileManifestEntry, 0, limit)
+	unsupported := make([]string, 0)
+	next := start
+	for next < len(names) && len(entries) < limit {
+		name := names[next]
+		next++
 		if err := ctx.Err(); err != nil {
-			return nil, false, err
+			return nil, next, unsupported, err
 		}
 		if strings.Contains(name, "/") || strings.Contains(name, "\\") || name == "." || name == ".." {
-			return nil, false, fmt.Errorf("%w: directory entry %q", ErrPathEscape, name)
+			unsupported = append(unsupported, UnsupportedChildReasonCode(path.Join(prefix, name), "invalid_name"))
+			continue
 		}
 		relativePath := path.Join(prefix, name)
 		if prefix == "" {
@@ -429,47 +584,37 @@ func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID
 		}
 		child, info, err := openConstrainedChild(directory, name)
 		if err != nil {
-			return nil, false, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePath}, err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, next, unsupported, ctxErr
+			}
+			unsupported = append(unsupported, UnsupportedChildReasonCode(relativePath, unsupportedChildReason(err)))
+			continue
 		}
 		entry, entryErr := manifestEntry(rootID, relativePath, info, time.Now().UTC())
 		child.Close()
 		if entryErr != nil {
-			return nil, false, entryErr
+			unsupported = append(unsupported, UnsupportedChildReasonCode(relativePath, unsupportedChildReason(entryErr)))
+			continue
 		}
 		entries = append(entries, entry)
 	}
-	return entries, more, nil
+	return entries, next, unsupported, nil
 }
 
-func discardNames(ctx context.Context, directory *os.File, count int) error {
-	for count > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		chunk := count
-		if chunk > 256 {
-			chunk = 256
-		}
-		names, err := directory.Readdirnames(chunk)
-		count -= len(names)
-		if err != nil {
-			if errors.Is(err, io.EOF) && count == 0 {
-				return nil
-			}
-			return fmt.Errorf("advance enumeration cursor: %w", err)
-		}
-		if len(names) == 0 {
-			return fmt.Errorf("advance enumeration cursor: %w", io.EOF)
-		}
+func cursorStart(names []string, lastName string) (int, error) {
+	index := sort.SearchStrings(names, lastName)
+	if index >= len(names) || names[index] != lastName {
+		return 0, fmt.Errorf("%w: enumeration cursor entry changed", ErrChanged)
 	}
-	return nil
+	return index + 1, nil
 }
 
 type cursorState struct {
-	Offset         int    `json:"offset"`
 	DirectoryID    string `json:"directoryId"`
 	DirectoryMTime int64  `json:"directoryMtime"`
 	Prefix         string `json:"prefix"`
+	LastName       string `json:"lastName"`
+	SnapshotDigest string `json:"snapshotDigest"`
 }
 
 func encodeCursor(state cursorState) string {
@@ -486,22 +631,21 @@ func decodeCursor(value string) (cursorState, error) {
 		return cursorState{}, fmt.Errorf("invalid enumeration cursor: %w", err)
 	}
 	var state cursorState
-	if err := json.Unmarshal(decoded, &state); err != nil || state.Offset < 0 || state.DirectoryID == "" {
+	if err := json.Unmarshal(decoded, &state); err != nil || state.DirectoryID == "" || state.LastName == "" || state.SnapshotDigest == "" {
 		return cursorState{}, errors.New("invalid enumeration cursor")
 	}
 	return state, nil
 }
 
-func cursorMTime(value string) int64 {
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return 0
+func namesDigest(names []string) string {
+	digest := sha256.New()
+	var encodedLength [binary.MaxVarintLen64]byte
+	for _, name := range names {
+		length := binary.PutUvarint(encodedLength[:], uint64(len(name)))
+		_, _ = digest.Write(encodedLength[:length])
+		_, _ = digest.Write([]byte(name))
 	}
-	var state cursorState
-	if json.Unmarshal(decoded, &state) != nil {
-		return 0
-	}
-	return state.DirectoryMTime
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func validateTarget(target domain.FileTarget) error {

@@ -73,6 +73,9 @@ func openChecked(name string, directoryOnly bool) (*os.File, error) {
 	if directoryOnly && !info.IsDir() {
 		return nil, fmt.Errorf("%w: path component is not a directory", ErrSpecialFile)
 	}
+	if !directoryOnly && !info.IsDir() && !info.Mode().IsRegular() {
+		return nil, ErrSpecialFile
+	}
 	file, err := os.Open(name)
 	if err != nil {
 		return nil, classifyOtherOpenError(err)
