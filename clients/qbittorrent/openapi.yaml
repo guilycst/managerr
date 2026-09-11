@@ -531,7 +531,12 @@ components:
         eta: {type: integer, format: int64}
         f_l_piece_prio: {type: boolean}
         force_start: {type: boolean}
-        hash: {type: string}
+        hash:
+          description: Retained qBittorrent v1 or v2 identity; exactly 40 or 64 hexadecimal characters.
+          type: string
+          minLength: 40
+          maxLength: 64
+          pattern: '^([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$'
         isPrivate: {type: boolean}
         last_activity: {type: integer, format: int64}
         magnet_uri: {type: string}

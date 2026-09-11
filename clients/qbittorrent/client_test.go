@@ -1,6 +1,7 @@
 package qbittorrent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -593,6 +594,17 @@ func TestHashValidationAndAggregateBound(t *testing.T) {
 	if _, err := listQuery(TorrentListOptions{Hashes: []string{valid40, valid40}}); err == nil || !IsCode(err, ErrorInvalidInput) {
 		t.Fatalf("duplicate hash error = %v, want invalid input", err)
 	}
+	upper40 := strings.ToUpper(valid40)
+	if _, err := listQuery(TorrentListOptions{Hashes: []string{valid40, upper40}}); err == nil || !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("case-equivalent v1 hash error = %v, want invalid input", err)
+	}
+	upper64 := strings.ToUpper(valid64)
+	if _, err := listQuery(TorrentListOptions{Hashes: []string{valid64, upper64}}); err == nil || !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("case-equivalent v2 hash error = %v, want invalid input", err)
+	}
+	if query, err := listQuery(TorrentListOptions{Hashes: []string{upper40}}); err != nil || query.Get("hashes") != upper40 {
+		t.Fatalf("accepted hash spelling = %q, error %v; want original spelling %q", query.Get("hashes"), err, upper40)
+	}
 
 	exact := make([]string, 32)
 	for i := 0; i < 31; i++ {
@@ -926,6 +938,325 @@ func TestEndpointPathFormsAndRequestURI(t *testing.T) {
 			t.Errorf("New(%q) succeeded, want ambiguous endpoint rejection", endpoint)
 		}
 	}
+}
+
+func TestOnlyDocumentedHTTP200ResponsesBecomeEvidence(t *testing.T) {
+	properties := fixture(t, "torrent-properties.json")
+	files := fixture(t, "torrent-files.json")
+	for _, test := range []struct {
+		name   string
+		path   string
+		status int
+		body   []byte
+		read   func(*Client) error
+	}{
+		{
+			name:   "login 201",
+			path:   apiLogin,
+			status: http.StatusCreated,
+			body:   []byte("Ok."),
+			read: func(client *Client) error {
+				return client.Login(context.Background())
+			},
+		},
+		{
+			name:   "version 202",
+			path:   apiAppVersion,
+			status: http.StatusAccepted,
+			body:   []byte("v5.0.0"),
+			read: func(client *Client) error {
+				_, err := client.ApplicationVersion(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "inventory 204",
+			path:   apiTorrentInfo,
+			status: http.StatusNoContent,
+			body:   []byte(`[]`),
+			read: func(client *Client) error {
+				_, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+				return err
+			},
+		},
+		{
+			name:   "inventory 206",
+			path:   apiTorrentInfo,
+			status: http.StatusPartialContent,
+			body:   []byte(`[]`),
+			read: func(client *Client) error {
+				_, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+				return err
+			},
+		},
+		{
+			name:   "properties 204",
+			path:   apiProperties,
+			status: http.StatusNoContent,
+			body:   properties,
+			read: func(client *Client) error {
+				_, err := client.GetTorrentProperties(context.Background(), testHash)
+				return err
+			},
+		},
+		{
+			name:   "properties 206",
+			path:   apiProperties,
+			status: http.StatusPartialContent,
+			body:   properties,
+			read: func(client *Client) error {
+				_, err := client.GetTorrentProperties(context.Background(), testHash)
+				return err
+			},
+		},
+		{
+			name:   "files 204",
+			path:   apiFiles,
+			status: http.StatusNoContent,
+			body:   files,
+			read: func(client *Client) error {
+				_, err := client.GetTorrentFiles(context.Background(), testHash)
+				return err
+			},
+		},
+		{
+			name:   "files 206",
+			path:   apiFiles,
+			status: http.StatusPartialContent,
+			body:   files,
+			read: func(client *Client) error {
+				_, err := client.GetTorrentFiles(context.Background(), testHash)
+				return err
+			},
+		},
+		{
+			name:   "categories 204",
+			path:   apiCategories,
+			status: http.StatusNoContent,
+			body:   []byte(`{}`),
+			read: func(client *Client) error {
+				_, err := client.Categories(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "categories 206",
+			path:   apiCategories,
+			status: http.StatusPartialContent,
+			body:   []byte(`{}`),
+			read: func(client *Client) error {
+				_, err := client.Categories(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "tags 204",
+			path:   apiTags,
+			status: http.StatusNoContent,
+			body:   []byte(`[]`),
+			read: func(client *Client) error {
+				_, err := client.Tags(context.Background())
+				return err
+			},
+		},
+		{
+			name:   "tags 206",
+			path:   apiTags,
+			status: http.StatusPartialContent,
+			body:   []byte(`[]`),
+			read: func(client *Client) error {
+				_, err := client.Tags(context.Background())
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					if test.path == apiLogin {
+						w.WriteHeader(test.status)
+						_, _ = w.Write(test.body)
+						return
+					}
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == test.path {
+					w.WriteHeader(test.status)
+					_, _ = w.Write(test.body)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			err = test.read(client)
+			var upstream UpstreamError
+			if !errors.As(err, &upstream) || upstream.Code != ErrorUnsupported || upstream.Status != test.status || upstream.Retryable {
+				t.Fatalf("error = %#v, want unsupported status %d", err, test.status)
+			}
+		})
+	}
+}
+
+func TestStrictJSONMembersAndUTF8(t *testing.T) {
+	valid40 := testHash
+	valid64 := strings.Repeat("a", 64)
+	strictCases := []struct {
+		name     string
+		path     string
+		body     []byte
+		wantSize int
+	}{
+		{name: "duplicate inventory member", path: apiTorrentInfo, body: []byte(`[{"hash":"` + valid40 + `","hash":"` + valid64 + `"}]`)},
+		{name: "mixed-case inventory member", path: apiTorrentInfo, body: []byte(`[{"HASH":"` + valid40 + `"}]`)},
+		{name: "raw invalid UTF-8 in hash", path: apiTorrentInfo, body: append([]byte(`[{"hash":"`), append([]byte{0xff}, []byte(`"}]`)...)...)},
+		{name: "raw invalid UTF-8 in path", path: apiTorrentInfo, body: append([]byte(`[{"hash":"`+valid40+`","content_path":"`), append([]byte{0xff}, []byte(`"}]`)...)...)},
+		{name: "duplicate nested category member", path: apiCategories, body: []byte(`{"synthetic":{"name":"one","name":"two","savePath":"/synthetic"}}`)},
+		{name: "valid Unicode value", path: apiTorrentInfo, body: []byte(`[{"hash":"` + valid40 + `","name":"媒体"}]`), wantSize: 1},
+		{name: "repeated member names across records", path: apiTorrentInfo, body: []byte(`[{"hash":"` + valid40 + `"},{"hash":"` + valid64 + `"}]`), wantSize: 2},
+	}
+	for _, test := range strictCases {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == test.path {
+					_, _ = w.Write(test.body)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if test.path == apiCategories {
+				categories, categoryErr := client.Categories(context.Background())
+				if test.wantSize > 0 {
+					t.Fatalf("unexpected valid category case: %#v, error %v", categories, categoryErr)
+				}
+				if categoryErr == nil || !IsCode(categoryErr, ErrorUnknown) {
+					t.Fatalf("Categories error = %v, want malformed unknown", categoryErr)
+				}
+				return
+			}
+			torrents, listErr := client.ListTorrents(context.Background(), TorrentListOptions{})
+			if test.wantSize > 0 {
+				if listErr != nil || len(torrents) != test.wantSize {
+					t.Fatalf("ListTorrents = %#v, error %v; want %d records", torrents, listErr, test.wantSize)
+				}
+				return
+			}
+			if listErr == nil || !IsCode(listErr, ErrorUnknown) {
+				t.Fatalf("ListTorrents error = %v, want malformed unknown", listErr)
+			}
+		})
+	}
+}
+
+func TestInventoryHashesRequireSupportedIdentities(t *testing.T) {
+	valid64 := strings.Repeat("a", 64)
+	base := fixture(t, "torrent-info.json")
+	baseRecord := strings.TrimSpace(string(base))
+	baseRecord = strings.TrimPrefix(baseRecord, "[")
+	baseRecord = strings.TrimSuffix(baseRecord, "]")
+	for _, test := range []struct {
+		name     string
+		body     []byte
+		wantSize int
+	}{
+		{name: "valid v1", body: base, wantSize: 1},
+		{name: "valid v2", body: inventoryWithHash(base, valid64), wantSize: 1},
+		{name: "valid uppercase v1", body: inventoryWithHash(base, strings.ToUpper(testHash)), wantSize: 1},
+		{name: "empty", body: inventoryWithHash(base, "")},
+		{name: "delimiter", body: inventoryWithHash(base, testHash+"|tail")},
+		{name: "whitespace", body: inventoryWithHash(base, testHash+" ")},
+		{name: "control escape", body: inventoryWithHash(base, `\u0000`+testHash)},
+		{name: "overbound", body: inventoryWithHash(base, strings.Repeat("a", 65))},
+		{name: "wrong length", body: inventoryWithHash(base, strings.Repeat("a", 39))},
+		{name: "non-hex", body: inventoryWithHash(base, strings.Repeat("g", 40))},
+		{name: "missing", body: []byte(strings.Replace(string(base), `    "hash": "`+testHash+`",`+"\n", "", 1))},
+		{name: "one invalid record rejects whole response", body: []byte("[" + baseRecord + "," + strings.Replace(baseRecord, `"hash": "`+testHash+`"`, `"hash": ""`, 1) + "]")},
+		{name: "raw invalid UTF-8", body: inventoryWithRawInvalidHash(base)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == apiTorrentInfo {
+					_, _ = w.Write(test.body)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			torrents, listErr := client.ListTorrents(context.Background(), TorrentListOptions{})
+			if test.wantSize > 0 {
+				if listErr != nil || len(torrents) != test.wantSize || torrents[0].Hash == "" {
+					t.Fatalf("ListTorrents = %#v, error %v; want %d valid records", torrents, listErr, test.wantSize)
+				}
+				return
+			}
+			if listErr == nil || !IsCode(listErr, ErrorUnknown) || len(torrents) != 0 {
+				t.Fatalf("ListTorrents = %#v, error %v; want whole-observation rejection", torrents, listErr)
+			}
+		})
+	}
+}
+
+func TestNonpositiveInjectedTimeoutUsesSafeDefault(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration
+	}{
+		{name: "negative", timeout: -time.Second, want: defaultHTTPTimeout},
+		{name: "zero", timeout: 0, want: defaultHTTPTimeout},
+		{name: "positive", timeout: 25 * time.Millisecond, want: 25 * time.Millisecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := New(Config{
+				Endpoint:   "http://synthetic.invalid",
+				Username:   testUsername,
+				Password:   testPassword,
+				HTTPClient: &http.Client{Timeout: test.timeout},
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if client.http.Timeout != test.want {
+				t.Fatalf("effective timeout = %s, want %s", client.http.Timeout, test.want)
+			}
+		})
+	}
+}
+
+func inventoryWithHash(base []byte, hash string) []byte {
+	needle := `"hash": "` + testHash + `"`
+	return []byte(strings.Replace(string(base), needle, `"hash": "`+hash+`"`, 1))
+}
+
+func inventoryWithRawInvalidHash(base []byte) []byte {
+	needle := []byte(`"hash": "` + testHash + `"`)
+	replacement := append([]byte(`"hash": "`), 0xff)
+	replacement = append(replacement, []byte(`"`)...)
+	return bytes.Replace(base, needle, replacement, 1)
 }
 
 func errString(err error) string {

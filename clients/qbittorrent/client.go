@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -296,7 +297,7 @@ func New(config Config) (*Client, error) {
 		baseClient = config.HTTPClient
 	}
 	clientCopy := *baseClient
-	if clientCopy.Timeout == 0 {
+	if clientCopy.Timeout <= 0 {
 		clientCopy.Timeout = defaultHTTPTimeout
 	}
 	jar, err := cookiejar.New(nil)
@@ -376,6 +377,11 @@ func (c *Client) ListTorrents(ctx context.Context, options TorrentListOptions) (
 	}
 	if len(records) > c.config.MaxItems {
 		return nil, bounded("qbit.torrents.info", c.config.MaxItems)
+	}
+	for i := range records {
+		if !validInventoryHash(records[i].Hash) {
+			return nil, malformed("qbit.torrents.info")
+		}
 	}
 	result := make([]Torrent, len(records))
 	for i := range records {
@@ -524,7 +530,7 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
 	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
-	if status != 0 && (status < http.StatusOK || status >= http.StatusMultipleChoices) {
+	if status != 0 && status != http.StatusOK {
 		return statusError("qbit.auth.login", status)
 	}
 	if err != nil {
@@ -568,7 +574,7 @@ func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string
 		}
 		return nil, statusError(operation, status)
 	}
-	if status != 0 && (status < http.StatusOK || status >= http.StatusMultipleChoices) {
+	if status != 0 && status != http.StatusOK {
 		return nil, statusError(operation, status)
 	}
 	if err != nil {
@@ -690,10 +696,11 @@ func listQuery(options TorrentListOptions) (url.Values, error) {
 			if err := validateHash(hash); err != nil {
 				return nil, err
 			}
-			if _, exists := seen[hash]; exists {
+			identity := canonicalHashIdentity(hash)
+			if _, exists := seen[identity]; exists {
 				return nil, invalidInput("qbit.torrents.info")
 			}
-			seen[hash] = struct{}{}
+			seen[identity] = struct{}{}
 			if i > 0 {
 				joinedBytes++
 			}
@@ -713,6 +720,35 @@ func validateHash(hash string) error {
 		return invalidInput("qbit.torrents.hash")
 	}
 	return nil
+}
+
+func validInventoryHash(hash string) bool {
+	if !validBoundedText(hash, maxHashChars, true) || strings.Contains(hash, "|") || strings.IndexFunc(hash, unicode.IsSpace) >= 0 {
+		return false
+	}
+	if len(hash) != 40 && len(hash) != 64 {
+		return false
+	}
+	return isHexIdentity(hash)
+}
+
+func canonicalHashIdentity(hash string) string {
+	if (len(hash) == 40 || len(hash) == 64) && isHexIdentity(hash) {
+		return strings.ToLower(hash)
+	}
+	return hash
+}
+
+func isHexIdentity(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateQueryText(value string, maxChars int) error {
@@ -820,6 +856,12 @@ func decodeJSON(data []byte, target any) error {
 	if len(bytes.TrimSpace(data)) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return errors.New("empty JSON response")
 	}
+	if !utf8.Valid(data) {
+		return errors.New("JSON response is not valid UTF-8")
+	}
+	if err := validateJSONMembers(data, reflect.TypeOf(target)); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -830,6 +872,150 @@ func decodeJSON(data []byte, target any) error {
 		return errors.New("trailing JSON response data")
 	}
 	return nil
+}
+
+// validateJSONMembers applies the exact, case-sensitive object-member rules
+// that encoding/json does not provide. It rejects duplicate names within one
+// object while keeping separate objects in an array independent. Map keys are
+// dynamic by contract; fixed struct fields use their JSON tags as the only
+// accepted spelling.
+func validateJSONMembers(data []byte, targetType reflect.Type) error {
+	scanner := jsonMemberScanner{decoder: json.NewDecoder(bytes.NewReader(data))}
+	if err := scanner.value(targetType); err != nil {
+		return err
+	}
+	if _, err := scanner.decoder.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON response data")
+		}
+		return err
+	}
+	return nil
+}
+
+type jsonMemberScanner struct {
+	decoder *json.Decoder
+}
+
+func (s *jsonMemberScanner) value(valueType reflect.Type) error {
+	token, err := s.decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch delimiter := token.(type) {
+	case json.Delim:
+		switch delimiter {
+		case '{':
+			return s.object(valueType)
+		case '[':
+			return s.array(valueType)
+		default:
+			return errors.New("unexpected JSON delimiter")
+		}
+	default:
+		return nil
+	}
+}
+
+func (s *jsonMemberScanner) object(valueType reflect.Type) error {
+	valueType = indirectJSONType(valueType)
+	fields := jsonStructFields(valueType)
+	mapElement := jsonMapElementType(valueType)
+	seen := make(map[string]struct{})
+	for s.decoder.More() {
+		token, err := s.decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := token.(string)
+		if !ok {
+			return errors.New("JSON object member name is invalid")
+		}
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate JSON object member")
+		}
+		seen[key] = struct{}{}
+
+		fieldType, known := fields[key]
+		if fields != nil && !known {
+			for fieldName := range fields {
+				if strings.EqualFold(fieldName, key) {
+					return errors.New("JSON object member spelling is not exact")
+				}
+			}
+		}
+		if !known {
+			fieldType = mapElement
+		}
+		if err := s.value(fieldType); err != nil {
+			return err
+		}
+	}
+	end, err := s.decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := end.(json.Delim); !ok || delimiter != '}' {
+		return errors.New("JSON object is not closed")
+	}
+	return nil
+}
+
+func (s *jsonMemberScanner) array(valueType reflect.Type) error {
+	valueType = indirectJSONType(valueType)
+	var elementType reflect.Type
+	if valueType != nil && (valueType.Kind() == reflect.Array || valueType.Kind() == reflect.Slice) {
+		elementType = valueType.Elem()
+	}
+	for s.decoder.More() {
+		if err := s.value(elementType); err != nil {
+			return err
+		}
+	}
+	end, err := s.decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := end.(json.Delim); !ok || delimiter != ']' {
+		return errors.New("JSON array is not closed")
+	}
+	return nil
+}
+
+func indirectJSONType(valueType reflect.Type) reflect.Type {
+	for valueType != nil && valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+	return valueType
+}
+
+func jsonStructFields(valueType reflect.Type) map[string]reflect.Type {
+	if valueType == nil || valueType.Kind() != reflect.Struct {
+		return nil
+	}
+	fields := make(map[string]reflect.Type)
+	for index := 0; index < valueType.NumField(); index++ {
+		field := valueType.Field(index)
+		if field.PkgPath != "" {
+			continue
+		}
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		fields[name] = field.Type
+	}
+	return fields
+}
+
+func jsonMapElementType(valueType reflect.Type) reflect.Type {
+	if valueType == nil || valueType.Kind() != reflect.Map || valueType.Key().Kind() != reflect.String {
+		return nil
+	}
+	return valueType.Elem()
 }
 
 func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
@@ -864,6 +1050,8 @@ func statusError(operation string, status int) UpstreamError {
 	case status == http.StatusConflict:
 		code = ErrorConflict
 	case status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented || status == http.StatusHTTPVersionNotSupported:
+		code = ErrorUnsupported
+	case status >= http.StatusOK && status < http.StatusMultipleChoices:
 		code = ErrorUnsupported
 	case status == http.StatusTooManyRequests:
 		code = ErrorRateLimited

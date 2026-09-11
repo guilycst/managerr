@@ -34,16 +34,24 @@ never copied to an error; failures are classified by the typed `UpstreamError` c
 `unavailable`, `rate_limited`, `unauthorized`, `invalid_input`, `conflict`,
 `unsupported` and `unknown`.
 
-JSON responses are decoded with unknown-field rejection and trailing-data
+Only the documented HTTP 200 response is accepted for login and each read;
+other 2xx statuses are typed as unsupported before body decoding. JSON
+responses are decoded with exact case-sensitive field names, duplicate-member
+rejection, raw UTF-8 validation, unknown-field rejection and trailing-data
 checks. The default response bound is 8 MiB, with at most 10,000 inventory
 records, 100,000 files, or 10,000 category/tag values. Bounds reject an
 over-limit response instead of silently truncating evidence. qBittorrent Unix
 timestamps and its `-1` unknown sentinels are preserved in the normalized
-values. Inventory filter and sort values are limited to 64 characters, category
+values. Every inventory record must carry one 40-character v1 or 64-character
+v2 hexadecimal hash; one malformed identity rejects the complete observation.
+Inventory filter and sort values are limited to 64 characters, category
 and tag values to 512 characters. Hash list members are at most 128 characters,
 cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and
 the decoded joined value including separators is capped at 4096 bytes. Both
-40-character and 64-character hash identities are accepted.
+40-character and 64-character hash identities are accepted; duplicate hex
+identities are compared case-insensitively while the original spelling is sent
+upstream. Injected HTTP clients with zero or negative timeouts use the safe
+15-second default, while positive timeouts are preserved.
 
 Application versions must be one whitespace-free `vMAJOR.MINOR.PATCH` token;
 WebAPI versions must be one whitespace-free `MAJOR.MINOR` or
@@ -51,8 +59,9 @@ WebAPI versions must be one whitespace-free `MAJOR.MINOR` or
 prerelease/build suffixes such as `-alpha1`, `beta1`, `-rc1` and `+git`; empty,
 multiline, control, HTML and trailing-token responses are rejected. File piece
 ranges are inclusive, nonnegative `[start, end]` pairs with `start <= end`; no
-sentinel is accepted. Version-route 404/405/501 responses are typed as
-`unsupported`, while a torrent resource 404 remains `unavailable`.
+sentinel is accepted. Version-route 404/405/501 and undocumented successful
+status responses are typed as `unsupported`, while a torrent resource 404
+remains `unavailable`.
 
 The configured endpoint may contain a literal reverse-proxy path prefix, but
 dot segments, percent-encoded path bytes, backslashes and repeated separators
