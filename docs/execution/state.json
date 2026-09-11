@@ -13,9 +13,11 @@
   "interviewRecord": "docs/product/interview.md",
   "taskDefinitions": "docs/execution/tasks.json",
   "resumeDocument": "docs/execution/RESUME.md",
-  "contractsStatus": "c02_modules_ready_c03_ready",
+  "contractsStatus": "c03_domain_bootstrap_in_progress",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "C-03"
+  ],
   "openGates": [
     "G-01",
     "G-02",
@@ -264,12 +266,33 @@
       ]
     },
     "C-03": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/c03_implementer",
+      "baseSha": "852ccf1035689b96c62f502b074444533c5f89ce",
       "integratedSha": null,
       "evidence": [],
-      "review": null
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/domain/",
+          "internal/ports/",
+          "internal/bootstrap/",
+          "docs/generated/environment.md"
+        ],
+        "expectedChecks": [
+          "A-09",
+          "A-38",
+          "A-40",
+          "A-45",
+          "A-60"
+        ],
+        "reviewPath": "docs/execution/handoffs/C-03-review.md",
+        "nextReviewer": "/root/c03_reviewer"
+      }
     },
     "D-01": {
       "status": "planned",
@@ -544,7 +567,7 @@
       "review": null
     }
   },
-  "nextAction": "Dispatch C-03 domain and bootstrap lane",
+  "nextAction": "Await C-03 implementation handoff, then dispatch independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
