@@ -1510,7 +1510,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1521,14 +1521,21 @@
         "8aa5867ebc587d0e61700ed94f15ef2dc8200237 X-10 review round 1",
         "aa9195b94d62d8a1c53825d638f111592f593617 X-10 correction round 2 product",
         "43c5731c77249892f9c920719901e961ea45b630 X-10 correction round 2 handoff",
-        "docs/execution/handoffs/X-10-correction-round2.md"
+        "docs/execution/handoffs/X-10-correction-round2.md",
+        "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3 X-10 review round 2"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3",
+        "findings": [
+          "P1 undocumented 2xx statuses accepted as canonical success",
+          "P1 duplicate/case-folded/invalid-UTF-8 JSON identity evidence accepted",
+          "P1 empty inventory hash returned as a scoped torrent record",
+          "P2 negative injected HTTP timeout removes the transport deadline",
+          "P2 case-equivalent hash identities bypass duplicate rejection"
+        ],
         "round": 2
       },
       "dispatch": {
@@ -1558,13 +1565,14 @@
         "implementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
         "handoffCommit": "43c5731c77249892f9c920719901e961ea45b630",
         "reviewSourceCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round1.md",
+        "correctionBaseSha": "aa9195b94d62d8a1c53825d638f111592f593617",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round2.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
-        "correctionHandoffCommit": "43c5731c77249892f9c920719901e961ea45b630"
+        "correctionHandoffCommit": "43c5731c77249892f9c920719901e961ea45b630",
+        "reviewCommit": "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3"
       },
       "implementationCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
       "reviewHistory": [
@@ -1575,6 +1583,14 @@
           "status": "changes_requested",
           "sourceCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
           "receipt": "docs/execution/handoffs/X-10-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "cb7ca6cad52b3aaeec86e4d8339ee8bfb83832e3",
+          "status": "changes_requested",
+          "sourceCommit": "aa9195b94d62d8a1c53825d638f111592f593617",
+          "receipt": "docs/execution/handoffs/X-10-review-round2.md"
         }
       ]
     },
@@ -1667,7 +1683,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 and X-11 correction round 2 are in independent review; after both approvals, dispatch C-05 generation/CI wiring.",
+  "nextAction": "X-10 correction round 3 is in progress; X-11 correction round 2 remains in independent review. Record both approvals before C-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
