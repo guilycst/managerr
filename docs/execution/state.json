@@ -122,7 +122,12 @@
           "A-56",
           "A-60"
         ],
-        "reviewPath": "docs/execution/handoffs/C-01-review.md"
+        "reviewPath": "docs/execution/handoffs/C-01-review.md",
+        "previousAttempt": {
+          "owner": "/root/c01_implementer",
+          "status": "interrupted",
+          "reason": "bounded implementation window exceeded without files or handoff"
+        }
       }
     },
     "C-02": {
