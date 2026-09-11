@@ -506,7 +506,7 @@
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
+      "implementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -519,7 +519,8 @@
         "c688f2cc5fcd59515943fb6e5c4baca361dca3b6 D-01 round-five product",
         "8c2d76cc4927af04a0d6837d0be8e12fbb97518c D-01 round-five handoff",
         "./scripts/generate.sh --check",
-        "GOWORK=off go mod verify"
+        "GOWORK=off go mod verify",
+        "5829da918aecad00346075b9f1cb29612f196e0d D-01 round-six correction product"
       ],
       "review": {
         "status": "changes_requested",
@@ -599,7 +600,9 @@
         "correctionRound": 6,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "6eda9b03f1fe6c6128e0e650226a31d08dcbb658",
-        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round6.md"
+        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round6.md",
+        "implementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d",
+        "correctionImplementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d"
       }
     },
     "D-02": {
@@ -821,11 +824,10 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "correctionRound": 2,
+        "correctionRound": 3,
         "reviewFindingsCommit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
         "implementationCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
         "handoffCommit": "f219bdf58dd8d0c82a2f279f0f67084734e43c70",
-        "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
         "correctionReviewPath": "docs/execution/handoffs/X-01-review-round3.md",
@@ -838,18 +840,29 @@
       "owner": "/root/f01_implementer",
       "baseSha": "63d60b946cfa6b0504aeccd191ee36351ae20ce7",
       "integratedSha": null,
-      "implementationCommit": "85e77b10dd43f19bf051dde9906a8fa925dc8e13",
+      "implementationCommit": "84861c964407b6307e56bc70b109fae50ac278fd",
       "evidence": [
         "docs/execution/handoffs/X-02.md",
         "85e77b10dd43f19bf051dde9906a8fa925dc8e13 X-02 product",
-        "9ad53a772bc919f3c2f42be064f6f678de0a61cb X-02 handoff"
+        "9ad53a772bc919f3c2f42be064f6f678de0a61cb X-02 handoff",
+        "84861c964407b6307e56bc70b109fae50ac278fd X-02 evidence correction product",
+        "b5e6907cca3ace1891255c3aa64002c3ec3600e4 X-02 evidence correction handoff",
+        "c68bccdbdc1a9e49cc79e26e317b480caa697315 X-02 review receipt",
+        "docs/execution/handoffs/X-02-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "c68bccdbdc1a9e49cc79e26e317b480caa697315",
+        "findings": [
+          "P1: reject valid NZBGet JSON-RPC 1.1 responses by requiring a 2.0-only envelope",
+          "P1: stale DestDir mapping and wrong item reason survive an unmapped FinalDir merge",
+          "P1: traversal-bearing paths are accepted at the path boundary",
+          "P1: numeric drone values are coerced into Arr IDs",
+          "P1: ID-only aliases produce a false mismatch",
+          "P1: detailed observations expose plaintext secret-bearing parameters, URLs or post-info"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -869,20 +882,41 @@
         "reviewPath": "docs/execution/handoffs/X-02-review-round1.md",
         "handoffPath": "docs/execution/handoffs/X-02.md",
         "nextReviewer": "/root/f01_reviewer",
-        "handoffCommit": "9ad53a772bc919f3c2f42be064f6f678de0a61cb",
-        "implementationCommit": "85e77b10dd43f19bf051dde9906a8fa925dc8e13",
+        "handoffCommit": "b5e6907cca3ace1891255c3aa64002c3ec3600e4",
+        "implementationCommit": "84861c964407b6307e56bc70b109fae50ac278fd",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        },
+        "initialImplementationCommit": "85e77b10dd43f19bf051dde9906a8fa925dc8e13",
+        "initialHandoffCommit": "9ad53a772bc919f3c2f42be064f6f678de0a61cb",
+        "correctionRound": 3,
+        "correctionOwner": "/root/f01_implementer",
+        "correctionBaseSha": "84861c964407b6307e56bc70b109fae50ac278fd",
+        "correctionReviewPath": "docs/execution/handoffs/X-02-review-round2.md",
+        "reviewCommit": "c68bccdbdc1a9e49cc79e26e317b480caa697315"
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "c68bccdbdc1a9e49cc79e26e317b480caa697315",
+          "status": "changes_requested",
+          "sourceCommit": "84861c964407b6307e56bc70b109fae50ac278fd",
+          "receipt": "docs/execution/handoffs/X-02-review-round1.md"
         }
-      }
+      ]
     },
     "X-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "71cb511a5f03727f56d4c534be7c47e8e56b9595",
       "integratedSha": null,
-      "implementationCommit": null,
-      "evidence": [],
+      "implementationCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
+      "evidence": [
+        "docs/execution/handoffs/X-03.md",
+        "f12fe75568b263c285fe673598e8b97f7333634c X-03 product",
+        "93197292c5c186faa180edc64ecf3c522ffdeb7b X-03 handoff"
+      ],
       "review": {
         "status": "pending",
         "decision": "pending",
@@ -912,7 +946,10 @@
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
-        }
+        },
+        "implementationCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
+        "handoffCommit": "93197292c5c186faa180edc64ecf3c522ffdeb7b",
+        "reviewSourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c"
       }
     },
     "X-04": {
@@ -1151,7 +1188,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete the D-01 correction and X-02/X-03 implementations, then queue their independent reviews",
+  "nextAction": "Finish D-01 and X-03 reviews, then run the X-02 correction against its six findings",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
