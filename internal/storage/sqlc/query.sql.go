@@ -28,7 +28,7 @@ WHERE action_runs.id = ?4
       WHERE approval.approval_action_run_id = action_runs.id
         AND approval.operation = 'purge'
         AND approval.approval_plan_id IS NOT NULL
-        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling', 'succeeded', 'failed', 'held', 'cancelled')
   )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
@@ -2087,6 +2087,123 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, arg *CreateWorkflowSte
 	return &i, err
 }
 
+const finalizeApprovedPurgeAction = `-- name: FinalizeApprovedPurgeAction :one
+UPDATE action_runs
+SET state = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = ?1)
+        WHEN 'succeeded' THEN 'succeeded'
+        WHEN 'failed' THEN 'failed'
+        WHEN 'cancelled' THEN 'cancelled'
+        ELSE 'needs_review'
+    END,
+    next_attempt_at = NULL,
+    claimed_by = NULL,
+    lease_until = NULL,
+    outcome_json = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = ?1)
+        WHEN 'succeeded' THEN json_object('outcome', 'already_satisfied', 'source', 'approved_purge_janitor')
+        WHEN 'failed' THEN json_object('reason', 'approved_purge_janitor_failed')
+        WHEN 'cancelled' THEN json_object('reason', 'approved_purge_janitor_cancelled')
+        ELSE json_object('reason', 'approved_purge_janitor_held')
+    END,
+    version = version + 1,
+    updated_at = ?2
+WHERE action_runs.id = ?3
+  AND action_runs.version = ?4
+  AND action_runs.state = 'reconciling'
+  AND EXISTS (
+      SELECT 1
+      FROM janitor_records AS janitor
+      JOIN action_plan_revisions AS revision
+        ON revision.plan_id = janitor.approval_plan_id
+       AND revision.revision = janitor.approval_plan_revision
+       AND revision.digest = janitor.approval_plan_digest
+      JOIN action_plans AS plan
+        ON plan.id = revision.plan_id
+      JOIN early_purge_plan_targets AS target
+        ON target.plan_id = revision.plan_id
+       AND target.revision = revision.revision
+       AND target.plan_digest = revision.digest
+      JOIN review_decisions AS decision
+        ON decision.id = janitor.approval_decision_id
+      JOIN trash_entries AS entry
+        ON entry.id = janitor.trash_entry_id
+      WHERE janitor.id = ?1
+        AND janitor.operation = 'purge'
+        AND janitor.state IN ('succeeded', 'failed', 'held', 'cancelled')
+        AND janitor.approval_plan_id = action_runs.plan_id
+        AND janitor.approval_plan_revision = action_runs.plan_revision
+        AND janitor.approval_plan_digest = action_runs.plan_digest
+        AND janitor.approval_action_run_id = action_runs.id
+        AND janitor.approved_entry_version = target.trash_entry_version
+        AND janitor.approval_action_run_version IS NOT NULL
+        AND janitor.version = action_runs.version + 1
+        AND plan.state = 'ready'
+        AND plan.kind = 'fs.delete'
+        AND revision.state = 'ready'
+        AND decision.plan_id = revision.plan_id
+        AND decision.plan_revision = revision.revision
+        AND decision.plan_digest = revision.digest
+        AND decision.decision = 'approve'
+        AND target.intent_kind = 'fs.delete'
+        AND target.trash_entry_id = janitor.trash_entry_id
+        AND target.trash_entry_version = janitor.approved_entry_version
+        AND target.manifest_json IS NOT NULL
+        AND json_valid(target.manifest_json)
+        AND json_type(target.manifest_json) = 'array'
+        AND json_array_length(target.manifest_json) > 0
+        AND json_valid(revision.manifest_json)
+        AND json(target.manifest_json) = json(revision.manifest_json)
+        AND json_valid(entry.manifest_json)
+        AND json(target.manifest_json) = json(entry.manifest_json)
+        AND entry.version = janitor.version
+        AND entry.active_operation IS NULL
+        AND entry.state = CASE janitor.state
+            WHEN 'succeeded' THEN 'purged'
+            WHEN 'held' THEN 'held'
+            ELSE 'failed'
+        END
+  )
+RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+`
+
+type FinalizeApprovedPurgeActionParams struct {
+	JanitorID        string `json:"janitor_id"`
+	Now              string `json:"now"`
+	ActionRunID      string `json:"action_run_id"`
+	ActionRunVersion int64  `json:"action_run_version"`
+}
+
+// Completes the read-only journal after its exact janitor operation has
+// reached a terminal state. This path never dispatches an external mutation;
+// generic action recovery and claiming remain fenced until this CAS commits.
+func (q *Queries) FinalizeApprovedPurgeAction(ctx context.Context, arg *FinalizeApprovedPurgeActionParams) (*ActionRun, error) {
+	row := q.db.QueryRowContext(ctx, finalizeApprovedPurgeAction,
+		arg.JanitorID,
+		arg.Now,
+		arg.ActionRunID,
+		arg.ActionRunVersion,
+	)
+	var i ActionRun
+	err := row.Scan(
+		&i.ID,
+		&i.PlanID,
+		&i.PlanRevision,
+		&i.PlanDigest,
+		&i.State,
+		&i.DesiredStateJson,
+		&i.NextAttemptAt,
+		&i.DeadlineAt,
+		&i.CancellationRequestedAt,
+		&i.ClaimedBy,
+		&i.LeaseUntil,
+		&i.Version,
+		&i.OutcomeJson,
+		&i.UnresolvedCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
 const finalizeCancelledActionAttempts = `-- name: FinalizeCancelledActionAttempts :many
 UPDATE action_attempts SET
     state = 'cancelled', finished_at = ?1
@@ -3265,7 +3382,7 @@ WHERE action_runs.state IN ('queued', 'waiting_dependency', 'reconciling')
       WHERE approval.approval_action_run_id = action_runs.id
         AND approval.operation = 'purge'
         AND approval.approval_plan_id IS NOT NULL
-        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling', 'succeeded', 'failed', 'held', 'cancelled')
   )
 ORDER BY COALESCE(action_runs.next_attempt_at, action_runs.created_at), action_runs.created_at, action_runs.id
 LIMIT ?2
@@ -4050,7 +4167,7 @@ WHERE (state = 'running'
       WHERE approval.approval_action_run_id = action_runs.id
         AND approval.operation = 'purge'
         AND approval.approval_plan_id IS NOT NULL
-        AND approval.state = 'running'
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling', 'succeeded', 'failed', 'held', 'cancelled')
   )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
@@ -4208,7 +4325,7 @@ WHERE (state = 'running'
       WHERE approval.approval_action_run_id = action_runs.id
         AND approval.operation = 'purge'
         AND approval.approval_plan_id IS NOT NULL
-        AND approval.state = 'running'
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling', 'succeeded', 'failed', 'held', 'cancelled')
   )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `

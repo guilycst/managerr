@@ -58,6 +58,10 @@ type Querier interface {
 	CreateTrashItem(ctx context.Context, arg *CreateTrashItemParams) (*TrashItem, error)
 	CreateWorkflowRun(ctx context.Context, arg *CreateWorkflowRunParams) (*WorkflowRun, error)
 	CreateWorkflowStep(ctx context.Context, arg *CreateWorkflowStepParams) (*WorkflowStep, error)
+	// Completes the read-only journal after its exact janitor operation has
+	// reached a terminal state. This path never dispatches an external mutation;
+	// generic action recovery and claiming remain fenced until this CAS commits.
+	FinalizeApprovedPurgeAction(ctx context.Context, arg *FinalizeApprovedPurgeActionParams) (*ActionRun, error)
 	FinalizeCancelledActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error)
 	// Cancellation is terminal for undispatched queue work. A running or
 	// reconciling row remains visible until its possible effect is reconciled.

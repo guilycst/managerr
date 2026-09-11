@@ -55,8 +55,9 @@ DROP TRIGGER IF EXISTS action_runs_approval_reconciliation_cancellation_sync;
 DROP TRIGGER IF EXISTS janitor_records_approved_recovery_action;
 DROP TRIGGER IF EXISTS janitor_records_approved_reconciliation_claim;
 
--- Restore the round-seven reconciliation trigger. Active approval-bound work
--- was held above, so this route is retained for historical shape only.
+-- Restore the round-eight reconciliation trigger, including its action fence.
+-- Active approval-bound work was held above; new v8 claims still need the
+-- coupled action/janitor/trash generation guarantee.
 CREATE TRIGGER janitor_records_approved_reconciliation_claim
 BEFORE UPDATE OF state, claimed_by, lease_until,
     approval_plan_id, approval_plan_revision, approval_plan_digest,
@@ -121,6 +122,7 @@ BEGIN
           AND action.plan_revision = revision.revision
           AND action.plan_digest = revision.digest
           AND action.state = 'reconciling'
+          AND action.version = OLD.version
           AND action.version > OLD.approval_action_run_version + 1
           AND action.claimed_by IS NULL
           AND action.lease_until IS NULL
@@ -144,6 +146,24 @@ BEGIN
           AND (OLD.next_attempt_at IS NULL OR julianday(OLD.next_attempt_at) <= julianday(NEW.updated_at))
           AND (OLD.claimed_by IS NULL OR OLD.lease_until IS NULL OR julianday(OLD.lease_until) <= julianday(NEW.updated_at))
     ) THEN RAISE(ABORT, 'approved purge reconciliation requires an exact live binding') END;
+
+    UPDATE action_runs
+    SET claimed_by = NEW.claimed_by,
+        lease_until = NEW.lease_until,
+        version = version + 1,
+        updated_at = NEW.updated_at
+    WHERE id = NEW.approval_action_run_id
+      AND plan_id = NEW.approval_plan_id
+      AND plan_revision = NEW.approval_plan_revision
+      AND plan_digest = NEW.approval_plan_digest
+      AND state = 'reconciling'
+      AND version = OLD.version
+      AND claimed_by IS NULL
+      AND lease_until IS NULL
+      AND cancellation_requested_at IS NULL
+      AND (deadline_at IS NULL OR julianday(deadline_at) > julianday(NEW.updated_at))
+      AND (next_attempt_at IS NULL OR julianday(next_attempt_at) <= julianday(NEW.updated_at));
+    SELECT CASE WHEN changes() = 0 THEN RAISE(ABORT, 'approved purge action fence was lost') END;
 END;
 
 PRAGMA legacy_alter_table = OFF;
