@@ -11,6 +11,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -37,6 +38,8 @@ const (
 	defaultMaxResponse   = 16 << 20
 	maxCursorBytes       = 64 << 10
 	maxCursorSeenIDs     = 2_048
+	identityBloomBytes   = 32 << 10
+	identityBloomHashes  = 4
 	maxHistoryReasonCode = 256
 )
 
@@ -308,15 +311,21 @@ func (client *Client) List(ctx context.Context, connectionID domain.ConfigID, cu
 			addReason(&state.Reasons, "catalog_overlap")
 			continue
 		}
+		if identityFilterContains(state.SeenFilter, externalID) {
+			// Once the cursor has more than the compact exact-ID prefix, the
+			// bounded filter remains the cross-page identity evidence. A filter
+			// hit is deliberately conservative: it cannot establish a new
+			// record, so coverage stays partial rather than claiming absence.
+			addReason(&state.Reasons, "catalog_overlap")
+			continue
+		}
 		if _, exists := pageSeen[externalID]; exists {
 			addReason(&state.Reasons, "catalog_duplicate")
 			continue
 		}
 		pageSeen[externalID] = struct{}{}
 		seen[externalID] = struct{}{}
-		if len(state.SeenIDs) < maxCursorSeenIDs {
-			state.SeenIDs = append(state.SeenIDs, externalID)
-		}
+		rememberIdentity(&state, externalID)
 		records = append(records, record)
 	}
 	state.Page++
@@ -521,12 +530,25 @@ func (client *Client) History(ctx context.Context, connectionID domain.ConfigID,
 	if state.SnapshotRevision == "" {
 		state.SnapshotRevision = digest(body)
 	}
+	historySeen := make(map[string]struct{}, len(state.SeenIDs))
+	for _, id := range state.SeenIDs {
+		historySeen[id] = struct{}{}
+	}
 	entries := make([]HistoryEntry, 0, len(rawRecords))
 	for index, raw := range rawRecords {
 		entry, decodeErr := decodeHistoryEntry(raw)
 		if decodeErr != nil {
 			return result, malformed(fmt.Sprintf("arr.history.record.%d", index))
 		}
+		if _, exists := historySeen[entry.ID]; exists || identityFilterContains(state.SeenFilter, entry.ID) {
+			// Repeated rows are pagination drift, not a second event. Keep the
+			// accepted count unique and carry explicit partial evidence through
+			// the terminal coverage object.
+			addReason(&state.Reasons, "history_overlap")
+			continue
+		}
+		historySeen[entry.ID] = struct{}{}
+		rememberIdentity(&state, entry.ID)
 		entries = append(entries, entry)
 	}
 	state.Page++
@@ -596,6 +618,97 @@ func (client *Client) PreviewImportWithDownloadID(ctx context.Context, connectio
 	return client.previewImport(ctx, connectionID, request.Request, strings.TrimSpace(request.DownloadID))
 }
 
+// NativeReprocessPreview is the product-specific bridge between the native
+// manual-import GET and the typed reprocessing POST. Preview contains the
+// common, read-only evidence; Request contains one lossless ReprocessFile per
+// accepted native candidate. A caller may review or edit Request before
+// passing it to ReprocessPreview.
+type NativeReprocessPreview struct {
+	Preview ports.ImportPreview
+	Request ReprocessPreviewRequest
+}
+
+// PreviewImportForReprocess performs the same read-only native GET as
+// PreviewImport, while retaining every bounded field needed to construct the
+// exact Radarr or Sonarr reprocess DTO. Rejections remain visible in Preview;
+// no POST is made by this method.
+func (client *Client) PreviewImportForReprocess(ctx context.Context, connectionID domain.ConfigID, request NativePreviewRequest) (NativeReprocessPreview, error) {
+	var result NativeReprocessPreview
+	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
+		return result, err
+	}
+	if err := validateImportRequest(request.Request, client.config.MaxFiles); err != nil {
+		return result, err
+	}
+	downloadID := strings.TrimSpace(request.DownloadID)
+	groups := groupImportFiles(request.Request.Files)
+	result.Preview = ports.ImportPreview{Files: make([]ports.ImportFile, 0, len(request.Request.Files)), Rejections: make([]ports.ImportRejection, 0)}
+	result.Request = ReprocessPreviewRequest{
+		RegisteredExternalID: request.Request.RegisteredExternalID,
+		Files:                make([]ReprocessFile, 0, len(request.Request.Files)),
+		Transfer:             request.Request.Transfer,
+	}
+	var rawEvidence [][]byte
+	for _, group := range groups {
+		query, err := client.previewQuery(request.Request.RegisteredExternalID, downloadID, group)
+		if err != nil {
+			return NativeReprocessPreview{}, err
+		}
+		body, err := client.get(ctx, "arr.manual_import.preview", apiManualImport, query)
+		if err != nil {
+			return NativeReprocessPreview{}, err
+		}
+		rawEvidence = append(rawEvidence, body)
+		var expectedDownloads map[string]string
+		if downloadID != "" {
+			expectedDownloads = make(map[string]string, len(group))
+			for _, file := range group {
+				expectedDownloads[sourceKey(file.Source)] = downloadID
+			}
+		}
+		accepted, detailed, rejected, err := client.mapPreviewResponseForReprocess(body, group, query.Get("folder"), request.Request.RegisteredExternalID, nil, expectedDownloads)
+		if err != nil {
+			return NativeReprocessPreview{}, err
+		}
+		result.Preview.Files = append(result.Preview.Files, accepted...)
+		result.Preview.Rejections = append(result.Preview.Rejections, rejected...)
+		result.Request.Files = append(result.Request.Files, detailed...)
+	}
+	// The reprocess revision includes every retained native field in addition
+	// to the raw response digest. A common ImportPreview revision cannot bind
+	// quality, episode numbering, release metadata or native subtitle evidence.
+	result.Preview.Revision = client.reprocessRevision(result.Request, bytes.Join(rawEvidence, []byte{0}))
+	result.Preview.ObservedAt = time.Now().UTC()
+	return result, nil
+}
+
+// ReprocessRequestFromNativePreview maps one already-fetched native GET body
+// into a typed reprocess request and its common preview evidence. It is useful
+// to callers that persist the native response themselves; the mapping applies
+// the same exact path, association, rejection and nested-field checks as
+// PreviewImportForReprocess and performs no network request.
+func (client *Client) ReprocessRequestFromNativePreview(request ports.ImportPreviewRequest, body []byte) (ReprocessPreviewRequest, ports.ImportPreview, error) {
+	if err := validateImportRequest(request, client.config.MaxFiles); err != nil {
+		return ReprocessPreviewRequest{}, ports.ImportPreview{}, err
+	}
+	accepted, detailed, rejected, err := client.mapPreviewResponseForReprocess(body, request.Files, "", request.RegisteredExternalID, nil, nil)
+	if err != nil {
+		return ReprocessPreviewRequest{}, ports.ImportPreview{}, err
+	}
+	reprocess := ReprocessPreviewRequest{
+		RegisteredExternalID: request.RegisteredExternalID,
+		Files:                detailed,
+		Transfer:             request.Transfer,
+	}
+	preview := ports.ImportPreview{
+		Revision:   client.reprocessRevision(reprocess, body),
+		Files:      accepted,
+		Rejections: rejected,
+		ObservedAt: time.Now().UTC(),
+	}
+	return reprocess, preview, nil
+}
+
 func (client *Client) previewImport(ctx context.Context, connectionID domain.ConfigID, request ports.ImportPreviewRequest, downloadID string) (ports.ImportPreview, error) {
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return ports.ImportPreview{}, err
@@ -658,6 +771,21 @@ type ReprocessFile struct {
 	CustomFormatScore int
 	IndexerFlags      int
 	ReleaseType       string
+	// Native identity/path fields make the mapping from a GET candidate
+	// auditable. Source is the canonical root-relative target used by the POST;
+	// these fields retain exactly what Arr returned without using it as an
+	// unvalidated command field.
+	NativeID             string
+	NativePath           string
+	NativeRelativePath   string
+	NativeSubtitle       bool
+	NativeLanguages      []json.RawMessage
+	ForcedEvidenceKnown  bool
+	HearingEvidenceKnown bool
+	// Pair identity is supplied by an explicit reviewed selection when one is
+	// available. The Arr response itself does not provide a safe companion key,
+	// so this adapter never infers IDX/SUB pairing from a basename.
+	SubtitlePairID string
 }
 
 // ReprocessPreviewRequest contains exact reviewed preview candidates.
@@ -1003,7 +1131,7 @@ func (client *Client) ObserveImport(ctx context.Context, connectionID domain.Con
 			}
 		}
 	case domain.ConnectionSonarr:
-		body, err := client.get(ctx, "arr.episode.observe", apiEpisodes, url.Values{"seriesId": []string{externalID}})
+		body, err := client.get(ctx, "arr.episode.observe", apiEpisodes, episodeQuery(externalID))
 		if err != nil {
 			return result, err
 		}
@@ -1107,7 +1235,7 @@ func (client *Client) decodeRecord(ctx context.Context, raw json.RawMessage) (po
 	if id == "" {
 		return record, id, reasons, nil
 	}
-	body, err := client.get(ctx, "arr.series.episodes", apiEpisodes, url.Values{"seriesId": []string{id}})
+	body, err := client.get(ctx, "arr.series.episodes", apiEpisodes, episodeQuery(id))
 	if err != nil {
 		reasons = append(reasons, "episode_files_unavailable")
 		return record, id, reasons, nil
@@ -1211,15 +1339,31 @@ func (client *Client) mapPreviewResponse(body []byte, files []ports.ImportFile) 
 }
 
 func (client *Client) mapPreviewResponseFor(body []byte, files []ports.ImportFile, queriedFolder, registeredID string, expectedEpisodeSets map[string][]string, expectedDownloadIDs map[string]string) ([]ports.ImportFile, []ports.ImportRejection, error) {
+	accepted, _, rejected, err := client.mapPreviewResponseDetailed(body, files, queriedFolder, registeredID, expectedEpisodeSets, expectedDownloadIDs, false)
+	return accepted, rejected, err
+}
+
+// mapPreviewResponseForReprocess retains the complete native candidate for
+// every accepted exact selection. The ordinary frozen port intentionally
+// returns the smaller ImportFile; callers that need a typed Arr reprocess DTO
+// use this product-specific surface so no native source, download, subtitle,
+// quality or episode field is reconstructed in a later step.
+func (client *Client) mapPreviewResponseForReprocess(body []byte, files []ports.ImportFile, queriedFolder, registeredID string, expectedEpisodeSets map[string][]string, expectedDownloadIDs map[string]string) ([]ports.ImportFile, []ReprocessFile, []ports.ImportRejection, error) {
+	return client.mapPreviewResponseDetailed(body, files, queriedFolder, registeredID, expectedEpisodeSets, expectedDownloadIDs, true)
+}
+
+func (client *Client) mapPreviewResponseDetailed(body []byte, files []ports.ImportFile, queriedFolder, registeredID string, expectedEpisodeSets map[string][]string, expectedDownloadIDs map[string]string, retainNative bool) ([]ports.ImportFile, []ReprocessFile, []ports.ImportRejection, error) {
 	accepted := make([]ports.ImportFile, 0)
+	detailed := make([]ReprocessFile, 0)
 	rejected := make([]ports.ImportRejection, 0)
+	detailedSeen := make(map[string]struct{}, len(files))
 	if expectedEpisodeSets == nil {
 		expectedEpisodeSets = expectedEpisodeSetsFor(files)
 	}
 	if client.config.Kind == domain.ConnectionRadarr {
 		var candidates []RadarrManualImportResource
 		if err := decodeJSON(body, &candidates); err != nil {
-			return nil, nil, malformed("arr.manual_import.preview.radarr")
+			return nil, nil, nil, malformed("arr.manual_import.preview.radarr")
 		}
 		for _, requested := range files {
 			candidateFolder := queriedFolder
@@ -1264,12 +1408,25 @@ func (client *Client) mapPreviewResponseFor(body []byte, files []ports.ImportFil
 				continue
 			}
 			accepted = append(accepted, requested)
+			if retainNative {
+				if _, exists := detailedSeen[sourceKey(requested.Source)]; exists {
+					continue
+				}
+				mapped, code, reason := client.reprocessFileFromRadarr(*candidate, requested)
+				if code != "" {
+					rejected = append(rejected, rejection(requested.Source, code, reason))
+					accepted = accepted[:len(accepted)-1]
+					continue
+				}
+				detailedSeen[sourceKey(requested.Source)] = struct{}{}
+				detailed = append(detailed, mapped)
+			}
 		}
-		return accepted, rejected, nil
+		return accepted, detailed, rejected, nil
 	}
 	var candidates []SonarrManualImportResource
 	if err := decodeJSON(body, &candidates); err != nil {
-		return nil, nil, malformed("arr.manual_import.preview.sonarr")
+		return nil, nil, nil, malformed("arr.manual_import.preview.sonarr")
 	}
 	for _, requested := range files {
 		candidateFolder := queriedFolder
@@ -1339,8 +1496,198 @@ func (client *Client) mapPreviewResponseFor(body []byte, files []ports.ImportFil
 			continue
 		}
 		accepted = append(accepted, requested)
+		if retainNative {
+			if _, exists := detailedSeen[sourceKey(requested.Source)]; exists {
+				continue
+			}
+			mapped, code, reason := client.reprocessFileFromSonarr(*candidate, requested)
+			if code != "" {
+				rejected = append(rejected, rejection(requested.Source, code, reason))
+				accepted = accepted[:len(accepted)-1]
+				continue
+			}
+			detailedSeen[sourceKey(requested.Source)] = struct{}{}
+			detailed = append(detailed, mapped)
+		}
 	}
-	return accepted, rejected, nil
+	return accepted, detailed, rejected, nil
+}
+
+func (client *Client) reprocessFileFromRadarr(candidate RadarrManualImportResource, requested ports.ImportFile) (ReprocessFile, string, string) {
+	movieID := ""
+	if candidate.Movie != nil {
+		movieID = scalarString(candidate.Movie.ID)
+	}
+	if movieID == "" {
+		return ReprocessFile{}, "movie_missing", "native preview returned no movie association"
+	}
+	quality, code, reason := nativeObject(candidate.Quality, "quality")
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	customFormats, code, reason := nativeObjects(candidate.CustomFormats, "custom_formats")
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	forcedEvidence := candidate.ForcedEvidence()
+	hearingEvidence := candidate.HearingImpairedEvidence()
+	return ReprocessFile{
+		Source:               requested.Source,
+		MovieOrEpisodeID:     movieID,
+		DownloadID:           strings.TrimSpace(candidate.DownloadID),
+		Subtitle:             requested.Subtitle,
+		Language:             firstNonEmpty(firstLanguage, requested.Language),
+		Forced:               requested.Forced,
+		HearingImpaired:      requested.HearingImpaired,
+		Quality:              quality,
+		Languages:            languages,
+		NativeLanguages:      cloneRawMessages(candidate.Languages),
+		ReleaseGroup:         strings.TrimSpace(candidate.ReleaseGroup),
+		CustomFormats:        customFormats,
+		CustomFormatScore:    candidate.CustomFormatScore,
+		IndexerFlags:         candidate.IndexerFlags,
+		NativeID:             scalarString(candidate.ID),
+		NativePath:           strings.TrimSpace(candidate.Path),
+		NativeRelativePath:   strings.TrimSpace(candidate.RelativePath),
+		NativeSubtitle:       nativeSubtitlePath(candidate.Path, candidate.RelativePath),
+		ForcedEvidenceKnown:  forcedEvidence != nil,
+		HearingEvidenceKnown: hearingEvidence != nil,
+	}, "", ""
+}
+
+func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResource, requested ports.ImportFile) (ReprocessFile, string, string) {
+	seriesID := ""
+	if candidate.Series != nil {
+		seriesID = scalarString(candidate.Series.ID)
+	}
+	if seriesID == "" {
+		return ReprocessFile{}, "series_missing", "native preview returned no series association"
+	}
+	quality, code, reason := nativeObject(candidate.Quality, "quality")
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	customFormats, code, reason := nativeObjects(candidate.CustomFormats, "custom_formats")
+	if code != "" {
+		return ReprocessFile{}, code, reason
+	}
+	episodeIDs, present, duplicate := candidateEpisodeIDs(candidate.Episodes)
+	if !present {
+		return ReprocessFile{}, "episode_association_missing", "native preview returned no complete episode association"
+	}
+	if duplicate {
+		return ReprocessFile{}, "episode_association_duplicate", "native preview returned a duplicate episode association"
+	}
+	if _, err := positiveInts(episodeIDs); err != nil {
+		return ReprocessFile{}, "episode_association_invalid", "native preview returned an invalid episode identity"
+	}
+	forcedEvidence := candidate.ForcedEvidence()
+	hearingEvidence := candidate.HearingImpairedEvidence()
+	episodes := make([]ArrEpisodeReference, 0, len(candidate.Episodes))
+	for _, episode := range candidate.Episodes {
+		episodes = append(episodes, cloneEpisodeReference(episode))
+	}
+	mediaID := strings.TrimSpace(requested.MovieOrEpisodeID)
+	if mediaID == "" {
+		mediaID = episodeIDs[0]
+	}
+	return ReprocessFile{
+		Source:               requested.Source,
+		MovieOrEpisodeID:     mediaID,
+		EpisodeIDs:           append([]string(nil), episodeIDs...),
+		DownloadID:           strings.TrimSpace(candidate.DownloadID),
+		Subtitle:             requested.Subtitle,
+		Language:             firstNonEmpty(firstLanguage, requested.Language),
+		Forced:               requested.Forced,
+		HearingImpaired:      requested.HearingImpaired,
+		SeasonNumber:         cloneIntPointer(candidate.SeasonNumber),
+		Episodes:             episodes,
+		Quality:              quality,
+		Languages:            languages,
+		NativeLanguages:      cloneRawMessages(candidate.Languages),
+		ReleaseGroup:         strings.TrimSpace(candidate.ReleaseGroup),
+		CustomFormats:        customFormats,
+		CustomFormatScore:    candidate.CustomFormatScore,
+		IndexerFlags:         candidate.IndexerFlags,
+		ReleaseType:          strings.TrimSpace(candidate.ReleaseType),
+		NativeID:             scalarString(candidate.ID),
+		NativePath:           strings.TrimSpace(candidate.Path),
+		NativeRelativePath:   strings.TrimSpace(candidate.RelativePath),
+		NativeSubtitle:       nativeSubtitlePath(candidate.Path, candidate.RelativePath),
+		ForcedEvidenceKnown:  forcedEvidence != nil,
+		HearingEvidenceKnown: hearingEvidence != nil,
+	}, "", ""
+}
+
+func nativeObject(value json.RawMessage, field string) (json.RawMessage, string, string) {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, "", ""
+	}
+	var object map[string]json.RawMessage
+	if err := decodeJSON(trimmed, &object); err != nil || len(object) == 0 {
+		return nil, "native_" + field + "_malformed", "native preview returned malformed " + field + " evidence"
+	}
+	return cloneRawMessage(trimmed), "", ""
+}
+
+func nativeObjects(values []json.RawMessage, field string) ([]json.RawMessage, string, string) {
+	if values == nil {
+		return []json.RawMessage{}, "", ""
+	}
+	result := make([]json.RawMessage, 0, len(values))
+	for _, value := range values {
+		object, code, reason := nativeObject(value, field)
+		if code != "" {
+			return nil, code, reason
+		}
+		result = append(result, object)
+	}
+	return result, "", ""
+}
+
+func nativeLanguages(values []json.RawMessage) ([]ArrLanguage, string, string, string) {
+	if values == nil {
+		return []ArrLanguage{}, "", "", ""
+	}
+	result := make([]ArrLanguage, 0, len(values))
+	first := ""
+	for _, value := range values {
+		var object struct {
+			ID       json.RawMessage `json:"id"`
+			Name     string          `json:"name"`
+			ISOCode  string          `json:"isoCode"`
+			Code     string          `json:"code"`
+			Language string          `json:"language"`
+		}
+		if err := decodeJSON(value, &object); err != nil {
+			return nil, "", "native_languages_malformed", "native preview returned malformed language evidence"
+		}
+		id, err := parsePositiveInt(scalarString(object.ID))
+		if err != nil || strings.TrimSpace(object.Name) == "" {
+			return nil, "", "native_languages_untyped", "native preview language evidence lacks the pinned id/name fields"
+		}
+		result = append(result, ArrLanguage{ID: id, Name: strings.TrimSpace(object.Name)})
+		if first == "" {
+			first = firstNonEmpty(object.Name, object.ISOCode, object.Code, object.Language)
+		}
+	}
+	return result, first, "", ""
+}
+
+func cloneEpisodeReference(value ArrEpisodeReference) ArrEpisodeReference {
+	value.SeriesID = cloneRawMessage(value.SeriesID)
+	value.ID = cloneRawMessage(value.ID)
+	value.EpisodeFileID = cloneRawMessage(value.EpisodeFileID)
+	return value
 }
 
 func candidateEpisodeIDs(values []ArrEpisodeReference) ([]string, bool, bool) {
@@ -1399,10 +1746,18 @@ func sourceKey(source domain.FileTarget) string {
 	return source.RootID.String() + "\x00" + source.RelativePath
 }
 
-func validateCandidateKind(candidatePath, relativePath string, requested ports.ImportFile, languages []json.RawMessage, forcedEvidence, hearingImpairedEvidence *bool) (string, string) {
+func nativeSubtitlePath(candidatePath, relativePath string) bool {
 	candidateName := path.Base(normalizeRemotePath(firstNonEmpty(candidatePath, relativePath)))
-	extension := strings.ToLower(path.Ext(candidateName))
-	isSubtitle := extension == ".srt" || extension == ".ass" || extension == ".ssa" || extension == ".vtt" || extension == ".sub" || extension == ".idx" || extension == ".sup"
+	switch strings.ToLower(path.Ext(candidateName)) {
+	case ".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".sup":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateCandidateKind(candidatePath, relativePath string, requested ports.ImportFile, languages []json.RawMessage, forcedEvidence, hearingImpairedEvidence *bool) (string, string) {
+	isSubtitle := nativeSubtitlePath(candidatePath, relativePath)
 	if requested.Subtitle != isSubtitle {
 		if requested.Subtitle {
 			return "subtitle_flag_mismatch", "native preview returned a non-subtitle candidate"
@@ -1563,6 +1918,18 @@ func (client *Client) previewQuery(registeredID, downloadID string, files []port
 		return nil, invalidInput("arr.manual_import.preview.kind")
 	}
 	return query, nil
+}
+
+// episodeQuery opts into Sonarr's nested episodeFile object. The pinned
+// EpisodeController defaults includeEpisodeFile to false, which leaves an
+// otherwise file-bearing episode with only an episodeFileId. Inventory and
+// import read-back require the nested path and identity to prove the
+// association, so every episode read uses the explicit flag.
+func episodeQuery(seriesID string) url.Values {
+	return url.Values{
+		"seriesId":           []string{seriesID},
+		"includeEpisodeFile": []string{"true"},
+	}
 }
 
 func groupImportFiles(files []ports.ImportFile) [][]ports.ImportFile {
@@ -1753,7 +2120,11 @@ func rejectDuplicateImportIdentities(files []ports.ImportFile) error {
 func rejectDuplicateReprocessIdentities(files []ReprocessFile) error {
 	seen := make(map[string]struct{}, len(files))
 	for _, file := range files {
-		key := file.Source.RootID.String() + "\x00" + file.Source.RelativePath + "\x00" + strings.TrimSpace(file.MovieOrEpisodeID)
+		// A native manual-import row is one physical source. Media or episode
+		// identity is part of that row's association and cannot make two rows
+		// safe when they point at the same root-relative file. Reject before the
+		// request is serialized so an ambiguous season-pack cannot reach Arr.
+		key := sourceKey(file.Source)
 		if _, exists := seen[key]; exists {
 			return invalidInput("arr.manual_import.reprocess.duplicate_file")
 		}
@@ -1846,9 +2217,69 @@ type cursorState struct {
 	Offset           int
 	ObservedCount    int
 	SeenIDs          []string
+	SeenFilter       []byte
 	Reasons          []string
 	SnapshotRevision string
 	StartedAt        time.Time
+}
+
+// identityFilter is a fixed-size, signed cursor-side membership filter used
+// after the compact exact-ID prefix has filled. Keeping an exact set for the
+// default 10,000-record bound would exceed the cursor bound for long opaque
+// IDs. The filter lets us continue detecting late overlap; a false positive is
+// conservative evidence and makes the collection partial rather than silently
+// dropping uniqueness guarantees.
+func identityFilterContains(filter []byte, identity string) bool {
+	if len(filter) != identityBloomBytes || strings.TrimSpace(identity) == "" {
+		return false
+	}
+	digestInput := []byte("mastarr-arr-identity-v1\x00" + identity)
+	digestValue := sha256.Sum256(digestInput)
+	bitCount := uint32(len(filter) * 8)
+	for index := 0; index < identityBloomHashes; index++ {
+		bit := binary.BigEndian.Uint32(digestValue[index*4:]) % bitCount
+		if filter[bit/8]&(byte(1)<<uint(bit%8)) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func identityFilterAdd(filter []byte, identity string) {
+	if len(filter) != identityBloomBytes || strings.TrimSpace(identity) == "" {
+		return
+	}
+	digestInput := []byte("mastarr-arr-identity-v1\x00" + identity)
+	digestValue := sha256.Sum256(digestInput)
+	bitCount := uint32(len(filter) * 8)
+	for index := 0; index < identityBloomHashes; index++ {
+		bit := binary.BigEndian.Uint32(digestValue[index*4:]) % bitCount
+		filter[bit/8] |= byte(1) << uint(bit%8)
+	}
+}
+
+func rememberIdentity(state *cursorState, identity string) {
+	if strings.TrimSpace(identity) == "" {
+		return
+	}
+	if len(state.SeenFilter) == 0 && len(state.SeenIDs) < maxCursorSeenIDs {
+		state.SeenIDs = append(state.SeenIDs, identity)
+		if len(state.SeenIDs) < maxCursorSeenIDs {
+			return
+		}
+		state.SeenFilter = make([]byte, identityBloomBytes)
+		for _, seen := range state.SeenIDs {
+			identityFilterAdd(state.SeenFilter, seen)
+		}
+		// The filter now covers the prefix and every subsequent identity. The
+		// exact slice is intentionally released so the signed cursor remains
+		// bounded even when MaxRecords is the default 10,000.
+		state.SeenIDs = nil
+		return
+	}
+	if len(state.SeenFilter) == identityBloomBytes {
+		identityFilterAdd(state.SeenFilter, identity)
+	}
 }
 
 func (client *Client) encodeCursor(state cursorState) (string, error) {
@@ -1891,6 +2322,9 @@ func (client *Client) decodeCursor(value string) (cursorState, error) {
 	}
 	var state cursorState
 	if err := decodeJSON(payload, &state); err != nil || !state.SourceID.Valid() || state.Page <= 0 || state.PageSize <= 0 || state.Offset < 0 || state.ObservedCount < 0 {
+		return cursorState{}, invalidInput("arr.inventory.cursor")
+	}
+	if len(state.SeenFilter) != 0 && len(state.SeenFilter) != identityBloomBytes {
 		return cursorState{}, invalidInput("arr.inventory.cursor")
 	}
 	return state, nil
@@ -2483,24 +2917,32 @@ func (client *Client) reprocessRevision(request ReprocessPreviewRequest, evidenc
 		SceneAbsoluteEpisodeNumber int    `json:"sceneAbsoluteEpisodeNumber"`
 	}
 	type revisionFile struct {
-		RootID              string            `json:"rootId"`
-		Path                string            `json:"relativePath"`
-		ID                  string            `json:"mediaId"`
-		EpisodeIDs          []string          `json:"episodeIds"`
-		DownloadID          string            `json:"downloadId"`
-		Subtitle            bool              `json:"subtitle"`
-		Language            string            `json:"language"`
-		Forced              bool              `json:"forced"`
-		HearingImpaired     bool              `json:"hearingImpaired"`
-		SeasonNumber        *int              `json:"seasonNumber"`
-		Episodes            []revisionEpisode `json:"episodes"`
-		QualityDigest       string            `json:"qualityDigest"`
-		Languages           []ArrLanguage     `json:"languages"`
-		ReleaseGroup        string            `json:"releaseGroup"`
-		CustomFormatDigests []string          `json:"customFormatDigests"`
-		CustomFormatScore   int               `json:"customFormatScore"`
-		IndexerFlags        int               `json:"indexerFlags"`
-		ReleaseType         string            `json:"releaseType"`
+		RootID                string            `json:"rootId"`
+		Path                  string            `json:"relativePath"`
+		ID                    string            `json:"mediaId"`
+		NativeID              string            `json:"nativeId"`
+		NativePath            string            `json:"nativePath"`
+		NativeRelativePath    string            `json:"nativeRelativePath"`
+		NativeSubtitle        bool              `json:"nativeSubtitle"`
+		EpisodeIDs            []string          `json:"episodeIds"`
+		DownloadID            string            `json:"downloadId"`
+		Subtitle              bool              `json:"subtitle"`
+		Language              string            `json:"language"`
+		Forced                bool              `json:"forced"`
+		HearingImpaired       bool              `json:"hearingImpaired"`
+		SeasonNumber          *int              `json:"seasonNumber"`
+		Episodes              []revisionEpisode `json:"episodes"`
+		QualityDigest         string            `json:"qualityDigest"`
+		Languages             []ArrLanguage     `json:"languages"`
+		ReleaseGroup          string            `json:"releaseGroup"`
+		CustomFormatDigests   []string          `json:"customFormatDigests"`
+		CustomFormatScore     int               `json:"customFormatScore"`
+		IndexerFlags          int               `json:"indexerFlags"`
+		ReleaseType           string            `json:"releaseType"`
+		NativeLanguageDigests []string          `json:"nativeLanguageDigests"`
+		ForcedEvidenceKnown   bool              `json:"forcedEvidenceKnown"`
+		HearingEvidenceKnown  bool              `json:"hearingEvidenceKnown"`
+		SubtitlePairID        string            `json:"subtitlePairId"`
 	}
 	type revisionInput struct {
 		ConnectionID   string         `json:"connectionId"`
@@ -2537,13 +2979,22 @@ func (client *Client) reprocessRevision(request ReprocessPreviewRequest, evidenc
 			customFormatDigests = append(customFormatDigests, digest(customFormat))
 		}
 		sort.Strings(customFormatDigests)
+		nativeLanguageDigests := make([]string, 0, len(file.NativeLanguages))
+		for _, language := range file.NativeLanguages {
+			nativeLanguageDigests = append(nativeLanguageDigests, digest(language))
+		}
+		sort.Strings(nativeLanguageDigests)
 		input.Files = append(input.Files, revisionFile{
 			RootID: file.Source.RootID.String(), Path: file.Source.RelativePath, ID: file.MovieOrEpisodeID,
-			EpisodeIDs: episodeIDs, DownloadID: strings.TrimSpace(file.DownloadID), Subtitle: file.Subtitle,
+			NativeID: file.NativeID, NativePath: file.NativePath, NativeRelativePath: file.NativeRelativePath,
+			NativeSubtitle: file.NativeSubtitle,
+			EpisodeIDs:     episodeIDs, DownloadID: strings.TrimSpace(file.DownloadID), Subtitle: file.Subtitle,
 			Language: normalizeLanguage(file.Language), Forced: file.Forced, HearingImpaired: file.HearingImpaired,
 			SeasonNumber: cloneIntPointer(file.SeasonNumber), Episodes: episodes, QualityDigest: digest(file.Quality),
 			Languages: languages, ReleaseGroup: strings.TrimSpace(file.ReleaseGroup), CustomFormatDigests: customFormatDigests,
 			CustomFormatScore: file.CustomFormatScore, IndexerFlags: file.IndexerFlags, ReleaseType: strings.TrimSpace(file.ReleaseType),
+			NativeLanguageDigests: nativeLanguageDigests, ForcedEvidenceKnown: file.ForcedEvidenceKnown,
+			HearingEvidenceKnown: file.HearingEvidenceKnown, SubtitlePairID: file.SubtitlePairID,
 		})
 	}
 	sort.Slice(input.Files, func(left, right int) bool {
