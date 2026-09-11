@@ -21,10 +21,10 @@ contract lanes.
   matrix is claimed complete.
 
 No application runtime, generated consumers, runnable service, container images or
-deployments were produced. C-00 and C-01 evidence is complete, and C-02's
-independent round-two review is recorded in
-`docs/execution/handoffs/C-02-review-round2.md`; C-03 is the next implementation
-lane. Runtime behavior and live-stack acceptance are not claimed.
+deployments were produced. C-00 through C-03 contract evidence is complete, with
+C-03's independent round-four approval recorded in
+`docs/execution/handoffs/C-03-review-round4.md`. U-00 and D-01 are active
+implementation lanes; runtime behavior and live-stack acceptance are not claimed.
 
 ## Publication verified
 
