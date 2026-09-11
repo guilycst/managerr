@@ -46,3 +46,7 @@ review receipts live in [state.json](docs/execution/state.json).
 Implementation is authorized for v0.0.1. Release and live operation require
 their respective gates. Public examples and tests must use synthetic media and
 endpoints.
+
+Install the versioned pre-commit hook with `./scripts/install-hooks.sh`. Run
+the same fast checks directly with `./scripts/check-guardrails.sh --fast`; CI
+uses `./scripts/check-guardrails.sh --ci` after downloading the pinned tools.
