@@ -1131,11 +1131,14 @@
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
       "integratedSha": null,
-      "implementationCommit": "82a8a80b05cd150716dcdc1f41965f30148cbbdc",
+      "implementationCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
       "evidence": [
-        "82a8a80b05cd150716dcdc1f41965f30148cbbdc X-04 product",
-        "9ea995a2b7eaeae35a9ae8663ccf75cb4cd08972 X-04 handoff",
-        "docs/execution/handoffs/X-04.md"
+        "82a8a80b05cd150716dcdc1f41965f30148cbbdc superseded empty X-04 product commit",
+        "9ea995acef259301117c3c446c3ab80b1af18b45 superseded handoff that referenced the empty product",
+        "docs/execution/handoffs/X-04.md",
+        "b4ad382326df4bd780572aed91fafdb0899a1e99 X-04 restored product",
+        "3ca44e16768e567e15069eadc44c68e0962a590c X-04 corrected handoff",
+        "962e95c78aca6d30373cb644b26f6d6818596fbe verified recovery tree"
       ],
       "review": {
         "status": "pending",
@@ -1174,8 +1177,8 @@
         "attempt": 2,
         "reviewerReassignedFrom": "/root/f01_reviewer",
         "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review",
-        "implementationCommit": "82a8a80b05cd150716dcdc1f41965f30148cbbdc",
-        "handoffCommit": "9ea995a2b7eaeae35a9ae8663ccf75cb4cd08972"
+        "implementationCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
+        "handoffCommit": "3ca44e16768e567e15069eadc44c68e0962a590c"
       }
     },
     "X-05": {
@@ -1406,7 +1409,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-eleven, X-03 round-five, and X-04 round-one reviews while D-01/X-03 corrections continue",
+  "nextAction": "Complete independent D-01 round-eleven, X-03 round-five, and recovered X-04 round-one reviews while D-01/X-03 corrections continue",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
