@@ -561,3 +561,42 @@ func TestRound13CancellationAcceptsStrictRFC3339DateTimes(t *testing.T) {
 		})
 	}
 }
+
+func TestRound14CancellationRejectsEmbeddedNULAndNonASCII(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		requestedAt string
+	}{
+		{name: "embedded-nul-trailing", requestedAt: "2026-09-11T00:01:13Z\x00trailing"},
+		{name: "embedded-nul-before-zone", requestedAt: "2026-09-11T00:01:13\x00Z"},
+		{name: "non-ascii-trailing", requestedAt: "2026-09-11T00:01:13Zé"},
+		{name: "non-ascii-byte-trailing", requestedAt: "2026-09-11T00:01:13Z\xff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, fixture := seedRound7ApprovedPurge(t,
+				filepath.Join(t.TempDir(), "invalid-byte-cancellation.sqlite"), "round14-invalid-byte-"+tc.name)
+			defer store.Close()
+			ctx := context.Background()
+
+			before, err := store.Queries().GetActionRun(ctx, fixture.actionRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = store.Queries().RequestActionCancellation(ctx, &sqlc.RequestActionCancellationParams{
+				RequestedAt: sql.NullString{String: tc.requestedAt, Valid: true},
+				UpdatedAt:   "2026-09-11T00:02:00Z", ID: fixture.actionRunID,
+			})
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("invalid byte cancellation = %v, want sql.ErrNoRows", err)
+			}
+
+			after, err := store.Queries().GetActionRun(ctx, fixture.actionRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Version != before.Version || after.UpdatedAt != before.UpdatedAt || after.CancellationRequestedAt.Valid {
+				t.Fatalf("invalid byte cancellation changed action: before=%+v after=%+v", before, after)
+			}
+		})
+	}
+}

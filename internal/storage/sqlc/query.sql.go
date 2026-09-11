@@ -4742,6 +4742,11 @@ WHERE id = ?3 AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_ex
   -- Match the API's RFC3339 date-time contract instead of SQLite's broad
   -- date/time grammar. The fixed-width fields and canonical date round-trip
   -- reject date-only, time-only, impossible dates, and trailing data.
+  -- SQLite text functions stop at an embedded NUL, so inspect the bound bytes
+  -- before relying on length/substr/GLOB. RFC3339's permitted timestamp bytes
+  -- are ASCII; reject non-ASCII bytes explicitly as well.
+  AND instr(CAST(?1 AS BLOB), X'00') = 0
+  AND ?1 NOT GLOB '*[^ -~]*'
   AND length(?1) >= 20
   AND substr(?1, 1, 4) NOT GLOB '*[^0-9]*'
   AND substr(?1, 5, 1) = '-'
