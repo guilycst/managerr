@@ -28,21 +28,23 @@
   ],
   "tasks": {
     "C-00": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root",
       "baseSha": "ef4fbc3668e3f021b24c8e6c0e7ecbe0704b5bd0",
-      "integratedSha": null,
+      "integratedSha": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
       "implementationCommit": "ca6f51d",
-      "evidence": [],
+      "evidence": [
+        "docs/execution/handoffs/C-00.md",
+        "docs/execution/handoffs/C-00-review-round3.md",
+        "python3 scripts/check_planning.py"
+      ],
       "review": {
-        "status": "changes_requested",
-        "reviewer": "/root/c00_reviewer_round2",
-        "commit": "ca6f51d",
-        "findings": [
-          "Capability rows used placeholder fixtures and mixed PASS with UNKNOWN in one result.",
-          "NZBGet and qBittorrent evidence needed immutable source identities."
-        ],
-        "round": 2,
+        "status": "approved",
+        "decision": "approved",
+        "reviewer": "/root/c00_reviewer_round3",
+        "commit": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
+        "findings": [],
+        "round": 3,
         "correctionCommit": "ca6f51d"
       },
       "reviewHistory": [
@@ -58,6 +60,13 @@
           "reviewer": "/root/c00_reviewer_round2",
           "commit": "ca6f51d",
           "status": "changes_requested",
+          "correctionCommit": "ca6f51d"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/c00_reviewer_round3",
+          "commit": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
+          "status": "approved",
           "correctionCommit": "ca6f51d"
         }
       ],

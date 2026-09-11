@@ -91,7 +91,11 @@ def main():
         broken['tasks'][0]['dependsOn'] = ['MISSING']
         assert any('unknown dependencies' in e for e in check_records(broken, state, acceptance_ids))
         broken_state = copy.deepcopy(state)
-        broken_state['tasks'][definitions['tasks'][0]['id']]['status'] = 'done'
+        probe_id = next(
+            task['id'] for task in definitions['tasks']
+            if broken_state['tasks'][task['id']]['status'] == 'planned'
+        )
+        broken_state['tasks'][probe_id]['status'] = 'done'
         assert any('completion missing' in e for e in check_records(definitions, broken_state, acceptance_ids))
         print('Self-checks passed: cycles, unknown dependencies, unsupported completion.')
     if errors:
