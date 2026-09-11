@@ -501,11 +501,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
+      "implementationCommit": "8098e2b552737e5e18848d27b665991fddce18bf",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -556,17 +556,18 @@
         "0437c149cc32b41c3351c2671bcdd4e476c397fe D-01 correction round-thirteen handoff",
         "docs/execution/handoffs/D-01-round13.md",
         "9265acfa62c46b667978f05264a44da4ba5f641a D-01 round-thirteen review receipt",
-        "docs/execution/handoffs/D-01-review-round13.md"
+        "docs/execution/handoffs/D-01-review-round13.md",
+        "8098e2b552737e5e18848d27b665991fddce18bf D-01 correction round-fourteen product",
+        "4dceac51acff597041d8d1497891daafe42afb62 D-01 correction round-fourteen handoff",
+        "docs/execution/handoffs/D-01-round14.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "9265acfa62c46b667978f05264a44da4ba5f641a",
-        "findings": [
-          "P2: embedded NUL trailing data bypasses SQLite length/substr/GLOB checks, so 2026-09-11T00:01:13Z\\x00trailing advances v2->v3 and stores an invalid marker"
-        ],
-        "round": 13
+        "commit": null,
+        "findings": [],
+        "round": 14
       },
       "reviewHistory": [
         {
@@ -692,11 +693,13 @@
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "bda29901e9ffc06a61632da171ce853bd9708261",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round14.md",
-        "implementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
-        "handoffCommit": "0437c149cc32b41c3351c2671bcdd4e476c397fe",
+        "implementationCommit": "8098e2b552737e5e18848d27b665991fddce18bf",
+        "handoffCommit": "4dceac51acff597041d8d1497891daafe42afb62",
         "reviewCommit": "9265acfa62c46b667978f05264a44da4ba5f641a",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "bda29901e9ffc06a61632da171ce853bd9708261"
+        "reviewSourceCommit": "8098e2b552737e5e18848d27b665991fddce18bf",
+        "correctionImplementationCommit": "8098e2b552737e5e18848d27b665991fddce18bf",
+        "correctionHandoffCommit": "4dceac51acff597041d8d1497891daafe42afb62"
       }
     },
     "D-02": {
@@ -1479,7 +1482,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent X-04 round-three review and D-01 correction round-fourteen review",
+  "nextAction": "Complete independent D-01 round-fourteen and X-04 round-three reviews",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
