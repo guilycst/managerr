@@ -549,9 +549,9 @@ func TestConnectionScopedIdentityAcrossInstances(t *testing.T) {
 
 func TestBestEffortDescriptorMetadata(t *testing.T) {
 	handler := &qbitFixtureHandler{
-		info:       func(int) ([]byte, int) { return fixture(t, "info-page-1.json"), http.StatusOK },
+		info:       func(int) ([]byte, int) { return fixture(t, "info-descriptor-v1.json"), http.StatusOK },
 		properties: fixture(t, "properties.json"),
-		files:      map[string][]byte{fixtureFilmHash: fixture(t, "files-film.json")},
+		files:      map[string][]byte{descriptorV1Hash: fixture(t, "files-film.json")},
 		descriptor: bytes.TrimSpace(fixture(t, "descriptor.torrent")),
 	}
 	config := Config{
@@ -578,6 +578,66 @@ func TestBestEffortDescriptorMetadata(t *testing.T) {
 	descriptor := page.Items[0].Item.Descriptor
 	if !descriptor.Available || descriptor.Size != int64(len(bytes.TrimSpace(fixture(t, "descriptor.torrent")))) || !strings.HasPrefix(descriptor.Digest, "sha256:") || descriptor.Source != "qbittorrent.export" || !descriptor.ID.Valid() {
 		t.Fatalf("descriptor = %#v", descriptor)
+	}
+}
+
+const (
+	descriptorV1Hash = "1ade8a1a581f338e4fce4ce784da3f7d03f81f3a"
+	descriptorV2Hash = "2103314417747750314a4161e1ca02f92c1c020f24ad3739f2b67d88005aca05"
+)
+
+func TestDescriptorIdentityVariants(t *testing.T) {
+	descriptor := bytes.TrimSpace(fixture(t, "descriptor.torrent"))
+	for _, test := range []struct {
+		name        string
+		info        string
+		available   bool
+		unavailable string
+		wantID      string
+	}{
+		{name: "matching v1", info: "info-descriptor-v1.json", available: true},
+		{name: "matching v2", info: "info-descriptor-v2.json", available: true},
+		{name: "hybrid supported identities", info: "info-descriptor-hybrid.json", available: true, wantID: fixturePackHash},
+		{name: "structurally valid wrong hash", info: "info-single.json", unavailable: "export_identity_mismatch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &qbitFixtureHandler{
+				info:       func(int) ([]byte, int) { return fixture(t, test.info), http.StatusOK },
+				properties: fixture(t, "properties.json"),
+				descriptor: descriptor,
+			}
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			client, err := New(Config{
+				ConnectionID:   "qbt-main",
+				Endpoint:       server.URL,
+				DescriptorMode: DescriptorBestEffort,
+				Mappings:       []domain.PathMapping{{ConnectionID: "qbt-main", RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			page, err := client.ListDetailed(context.Background(), "qbt-main", "", 1)
+			if err != nil {
+				t.Fatalf("ListDetailed: %v", err)
+			}
+			if len(page.Items) != 1 || page.Items[0].Item.Descriptor == nil {
+				t.Fatalf("page = %#v", page)
+			}
+			got := page.Items[0].Item.Descriptor
+			if got.Available != test.available {
+				t.Fatalf("descriptor availability = %t, want %t: %#v", got.Available, test.available, got)
+			}
+			if test.wantID != "" && page.Items[0].Item.ExternalID != test.wantID {
+				t.Fatalf("external ID = %q, want primary hash %q", page.Items[0].Item.ExternalID, test.wantID)
+			}
+			if test.unavailable != "" && got.Unavailable != test.unavailable {
+				t.Fatalf("descriptor unavailable = %q, want %q", got.Unavailable, test.unavailable)
+			}
+			if test.unavailable != "" && !hasReason(page.Coverage, "item_0_descriptor_unavailable") {
+				t.Fatalf("coverage = %#v, want descriptor unavailable reason", page.Coverage)
+			}
+		})
 	}
 }
 
@@ -1110,6 +1170,10 @@ func TestMalformedTorrentDescriptorRejected(t *testing.T) {
 	}
 	if !validTorrentDescriptor([]byte("d4:infod4:name4:testee")) {
 		t.Fatal("valid descriptor rejected")
+	}
+	parsed, valid := parseTorrentDescriptor([]byte("d4:infod4:name4:testee"))
+	if !valid || string(parsed.info) != "d4:name4:teste" {
+		t.Fatalf("raw info span = %q, valid = %t", parsed.info, valid)
 	}
 }
 

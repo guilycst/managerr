@@ -1,0 +1,20 @@
+[
+  {
+    "added_on": 1760000000,
+    "category": "movies",
+    "completion_on": 1760001000,
+    "content_path": "/downloads/Descriptor Film v2 (2024)",
+    "hash": "2103314417747750314a4161e1ca02f92c1c020f24ad3739f2b67d88005aca05",
+    "infohash_v1": "",
+    "infohash_v2": "2103314417747750314a4161e1ca02f92c1c020f24ad3739f2b67d88005aca05",
+    "name": "Descriptor Film v2 (2024)",
+    "progress": 1,
+    "ratio": 1,
+    "state": "uploading",
+    "tags": "manual",
+    "save_path": "/downloads",
+    "num_seeds": 1,
+    "num_leechs": 0,
+    "has_metadata": true
+  }
+]

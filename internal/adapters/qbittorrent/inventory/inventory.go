@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/hmac"
 	cryptorand "crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -772,7 +773,7 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 		}
 	}
 
-	result.Item.Descriptor, reasons = client.descriptor(ctx, id, summary.HasMetadata, reasons)
+	result.Item.Descriptor, reasons = client.descriptor(ctx, summary, reasons)
 	if err := ctx.Err(); err != nil {
 		return TorrentObservation{}, nil, err
 	}
@@ -839,16 +840,17 @@ func (client *Client) mapFiles(contentPath string, files []torrentFile, observed
 	return result, uniqueReasons(reasons)
 }
 
-func (client *Client) descriptor(ctx context.Context, id string, hasMetadata bool, reasons []string) (*ports.DescriptorObservation, []string) {
+func (client *Client) descriptor(ctx context.Context, summary torrentSummary, reasons []string) (*ports.DescriptorObservation, []string) {
 	descriptor := &ports.DescriptorObservation{Kind: "torrent", Available: false, Unavailable: "not_requested"}
 	if client.config.DescriptorMode != DescriptorBestEffort {
 		return descriptor, reasons
 	}
+	id := summary.externalID()
 	if id == "" {
 		descriptor.Unavailable = "identity_unavailable"
 		return descriptor, append(reasons, "descriptor_unavailable")
 	}
-	if !hasMetadata {
+	if !summary.HasMetadata {
 		descriptor.Unavailable = "metadata_unavailable"
 		return descriptor, append(reasons, "descriptor_unavailable")
 	}
@@ -864,8 +866,13 @@ func (client *Client) descriptor(ctx context.Context, id string, hasMetadata boo
 		}
 		return descriptor, append(reasons, "descriptor_unavailable")
 	}
-	if !validTorrentDescriptor(body) {
+	parsed, valid := parseTorrentDescriptor(body)
+	if !valid {
 		descriptor.Unavailable = "export_malformed"
+		return descriptor, append(reasons, "descriptor_unavailable")
+	}
+	if !descriptorIdentityMatches(parsed.info, descriptorIdentityHashes(summary)) {
+		descriptor.Unavailable = "export_identity_mismatch"
 		return descriptor, append(reasons, "descriptor_unavailable")
 	}
 	identifier, idErr := domain.NewRuntimeID()
@@ -1171,14 +1178,21 @@ func decodeJSON(data []byte, target any) error {
 	return nil
 }
 
-// validTorrentDescriptor performs a bounded structural check of the bencode
-// returned by qBittorrent's export endpoint. It intentionally does not parse
-// metadata or expose the descriptor body; callers only need to distinguish an
-// exact exported descriptor from an HTML/error response with a coincidental
-// leading byte.
-func validTorrentDescriptor(data []byte) bool {
+type torrentDescriptor struct {
+	// info is the exact byte span of the bencoded info value. Torrent v1 and
+	// v2 identities are hashes of this raw span, including its original key
+	// ordering and encoding.
+	info []byte
+}
+
+// parseTorrentDescriptor performs a bounded structural check of the bencode
+// returned by qBittorrent's export endpoint and retains the exact raw info
+// value span for identity binding. It intentionally does not decode metadata
+// or expose descriptor bytes to callers.
+func parseTorrentDescriptor(data []byte) (torrentDescriptor, bool) {
+	var descriptor torrentDescriptor
 	if len(data) == 0 || data[0] != 'd' {
-		return false
+		return descriptor, false
 	}
 	parser := bencodeParser{data: data}
 	parser.offset++ // top-level dictionary marker
@@ -1186,23 +1200,79 @@ func validTorrentDescriptor(data []byte) bool {
 	for parser.offset < len(parser.data) && parser.data[parser.offset] != 'e' {
 		key, ok := parser.bytesValue()
 		if !ok {
-			return false
+			return descriptor, false
 		}
 		valueStart := parser.offset
 		if !parser.value(1) {
-			return false
+			return descriptor, false
 		}
 		if bytes.Equal(key, []byte("info")) {
 			infoCount++
 			if infoCount > 1 || valueStart >= len(parser.data) || parser.data[valueStart] != 'd' || !validDictionary(parser.data[valueStart:parser.offset]) {
-				return false
+				return descriptor, false
 			}
+			descriptor.info = parser.data[valueStart:parser.offset]
 		}
 	}
 	if !parser.consumeEnd() || parser.offset != len(data) {
+		return descriptor, false
+	}
+	return descriptor, infoCount == 1
+}
+
+// validTorrentDescriptor keeps the structural validator available to tests
+// and callers that only need a format check.
+func validTorrentDescriptor(data []byte) bool {
+	_, valid := parseTorrentDescriptor(data)
+	return valid
+}
+
+func descriptorIdentityHashes(summary torrentSummary) []string {
+	values := []string{
+		normalizeHash(summary.Hash, 0),
+		normalizeHash(summary.InfoHashV1, 40),
+		normalizeHash(summary.InfoHashV2, 64),
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		duplicate := false
+		for _, existing := range result {
+			if existing == value {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func descriptorIdentityMatches(info []byte, supported []string) bool {
+	if len(info) == 0 {
 		return false
 	}
-	return infoCount == 1
+	v1 := sha1.Sum(info)
+	v2 := sha256.Sum256(info)
+	v1Hex := hex.EncodeToString(v1[:])
+	v2Hex := hex.EncodeToString(v2[:])
+	for _, value := range supported {
+		switch len(value) {
+		case sha1.Size * 2:
+			if value == v1Hex {
+				return true
+			}
+		case sha256.Size * 2:
+			if value == v2Hex {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validDictionary(data []byte) bool {
