@@ -78,6 +78,8 @@ paths:
         '201':
           description: Managed connection created.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
             ETag:
@@ -130,6 +132,8 @@ paths:
         '200':
           description: Updated managed connection.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             ETag:
               $ref: '#/components/headers/ETag'
           content:
@@ -198,6 +202,8 @@ paths:
         '202':
           description: Check queued.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -267,6 +273,8 @@ paths:
         '201':
           description: Storage root created.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
             ETag:
@@ -319,6 +327,8 @@ paths:
         '200':
           description: Updated storage root.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             ETag:
               $ref: '#/components/headers/ETag'
           content:
@@ -387,6 +397,8 @@ paths:
         '201':
           description: Path mapping created.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
             ETag:
@@ -439,6 +451,8 @@ paths:
         '200':
           description: Updated path mapping.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             ETag:
               $ref: '#/components/headers/ETag'
           content:
@@ -524,6 +538,8 @@ paths:
         '202':
           description: Scan queued or coalesced.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -566,6 +582,8 @@ paths:
         '202':
           description: Cancellation requested.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -793,6 +811,8 @@ paths:
         '201':
           description: Immutable read-only plan created.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -845,6 +865,8 @@ paths:
         '201':
           description: New immutable plan revision.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -876,6 +898,8 @@ paths:
         '202':
           description: Decision recorded and action run queued when approved.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -987,6 +1011,8 @@ paths:
         '202':
           description: Durable cancellation request.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -1017,6 +1043,8 @@ paths:
         '202':
           description: Read-only reconciliation queued.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -1047,6 +1075,8 @@ paths:
         '202':
           description: Explicit retry request queued after validation.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -1094,6 +1124,8 @@ paths:
         '202':
           description: Workflow created and waiting for its approval gates.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
@@ -1144,6 +1176,8 @@ paths:
         '202':
           description: Workflow cancellation requested.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Location:
               $ref: '#/components/headers/Location'
           content:
