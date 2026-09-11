@@ -291,7 +291,7 @@ type FilesystemCopyRequest struct {
 }
 
 func (request FilesystemCopyRequest) Validate() error {
-	return validateFileMaps(request.Files, true)
+	return validateFileMaps(request.Files, true, true)
 }
 
 // FilesystemHardlinkRequest has its own type so a directory cannot be passed
@@ -301,7 +301,7 @@ type FilesystemHardlinkRequest struct {
 }
 
 func (request FilesystemHardlinkRequest) Validate() error {
-	return validateFileMaps(request.Files, false)
+	return validateFileMaps(request.Files, false, true)
 }
 
 type FilesystemTrashRequest struct {
@@ -313,7 +313,7 @@ func (request FilesystemTrashRequest) Validate() error {
 	if request.Retention <= 0 {
 		return fmt.Errorf("trash retention must be positive")
 	}
-	return validateManifest(request.Files)
+	return validateManifest(request.Files, false)
 }
 
 type FilesystemRestoreRequest struct {
@@ -321,7 +321,7 @@ type FilesystemRestoreRequest struct {
 }
 
 func (request FilesystemRestoreRequest) Validate() error {
-	return validateFileMaps(request.Files, true)
+	return validateFileMaps(request.Files, true, false)
 }
 
 type FilesystemDeleteRequest struct {
@@ -329,7 +329,7 @@ type FilesystemDeleteRequest struct {
 }
 
 func (request FilesystemDeleteRequest) Validate() error {
-	return validateManifest(request.Files)
+	return validateManifest(request.Files, false)
 }
 
 type FilesystemEffect struct {
@@ -351,12 +351,12 @@ type FilesystemActionPort interface {
 	Delete(ctx context.Context, request FilesystemDeleteRequest) (FilesystemEffect, error)
 }
 
-func validateManifest(entries []domain.FileManifestEntry) error {
+func validateManifest(entries []domain.FileManifestEntry, requireDigest bool) error {
 	if len(entries) == 0 {
 		return fmt.Errorf("filesystem manifest cannot be empty")
 	}
 	for index, entry := range entries {
-		if err := entry.Validate(); err != nil {
+		if err := entry.ValidateAction(requireDigest); err != nil {
 			return fmt.Errorf("manifest entry %d: %w", index, err)
 		}
 	}
@@ -370,13 +370,16 @@ func validateManifest(entries []domain.FileManifestEntry) error {
 	return nil
 }
 
-func validateFileMaps(mappings []FileMap, allowDirectories bool) error {
+func validateFileMaps(mappings []FileMap, allowDirectories, requireDigest bool) error {
 	if len(mappings) == 0 {
 		return fmt.Errorf("filesystem map cannot be empty")
 	}
 	for index, mapping := range mappings {
 		if err := mapping.Validate(); err != nil {
 			return fmt.Errorf("file map %d: %w", index, err)
+		}
+		if err := mapping.Source.ValidateAction(requireDigest); err != nil {
+			return fmt.Errorf("file map %d source: %w", index, err)
 		}
 		if !allowDirectories && mapping.Source.Type == domain.ManifestDirectory {
 			return fmt.Errorf("file map %d: hardlink does not support directories", index)

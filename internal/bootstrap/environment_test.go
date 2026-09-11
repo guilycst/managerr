@@ -67,3 +67,39 @@ func TestValidateUIAndBounds(t *testing.T) {
 		t.Fatal("expected credentials in public origin to fail")
 	}
 }
+
+func TestParseRejectsInvalidBootstrapValues(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     map[string]string
+		validateUI bool
+	}{
+		{name: "missing BFF API URL", values: map[string]string{"MANAGERR_UI_PUBLIC_ORIGIN": "https://managerr.example"}, validateUI: true},
+		{name: "missing BFF public origin", values: map[string]string{"MANAGERR_UI_API_URL": "http://managerr-api:8080"}, validateUI: true},
+		{name: "malformed API listener", values: map[string]string{"MANAGERR_LISTEN_ADDR": ":notaport"}},
+		{name: "malformed UI listener", values: map[string]string{"MANAGERR_UI_LISTEN_ADDR": "localhost:notaport"}},
+		{name: "invalid log level", values: map[string]string{"MANAGERR_LOG_LEVEL": "trace"}},
+		{name: "relative data directory", values: map[string]string{"MANAGERR_DATA_DIR": "data"}},
+		{name: "relative config file", values: map[string]string{"MANAGERR_CONFIG_FILE": "config.yaml"}},
+		{name: "invalid API URL", values: map[string]string{"MANAGERR_UI_API_URL": "ftp://managerr-api:8080"}},
+		{name: "public origin path", values: map[string]string{"MANAGERR_UI_PUBLIC_ORIGIN": "https://managerr.example/base"}},
+		{name: "public origin query", values: map[string]string{"MANAGERR_UI_PUBLIC_ORIGIN": "https://managerr.example/?check=1"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configuration, err := Parse(test.values)
+			if test.validateUI {
+				if err != nil {
+					t.Fatalf("API parse failed before BFF validation: %v", err)
+				}
+				if err := configuration.ValidateUI(); err == nil {
+					t.Fatal("BFF validation accepted incomplete configuration")
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("invalid bootstrap configuration was accepted")
+			}
+		})
+	}
+}

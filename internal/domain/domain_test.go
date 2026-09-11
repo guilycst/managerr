@@ -55,6 +55,12 @@ func TestManifestAndTrackingValidation(t *testing.T) {
 	if err := observation.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	if err := (Provenance{ClientItemID: "same-item"}).Validate(); err == nil {
+		t.Fatal("client provenance without a connection was accepted")
+	}
+	if err := (Provenance{ConnectionID: root, ClientItemID: "same-item"}).Validate(); err != nil {
+		t.Fatal(err)
+	}
 
 	coverageID, err := NewRuntimeID()
 	if err != nil {

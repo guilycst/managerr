@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -230,6 +231,7 @@ type FileManifestEntry struct {
 	FileIdentity string
 	Role         ManifestRole
 	ObservedAt   time.Time
+	Children     []FileManifestEntry
 }
 
 // Validate checks the fields needed to bind an action to an observed object.
@@ -248,10 +250,72 @@ func (entry FileManifestEntry) Validate() error {
 	if entry.Role != "" && entry.Role != RoleVideo && entry.Role != RoleSubtitle && entry.Role != RoleCompanion {
 		return errors.New("unsupported manifest entry role")
 	}
+	if len(entry.Children) > 0 && entry.Type != ManifestDirectory {
+		return errors.New("only directory entries can carry children")
+	}
+	for index, child := range entry.Children {
+		if err := child.Validate(); err != nil {
+			return fmt.Errorf("manifest child %d: %w", index, err)
+		}
+		if child.RootID != entry.RootID || !strings.HasPrefix(child.RelativePath, entry.RelativePath+"/") {
+			return errors.New("manifest child must remain below its directory")
+		}
+	}
+	for left := 0; left < len(entry.Children); left++ {
+		for right := left + 1; right < len(entry.Children); right++ {
+			if manifestEntriesOverlap(entry.Children[left], entry.Children[right]) {
+				return errors.New("directory manifest children overlap")
+			}
+		}
+	}
 	if entry.ObservedAt.IsZero() {
 		return errors.New("manifest entry observation time is required")
 	}
 	return nil
+}
+
+// ValidateAction checks the evidence required before a filesystem effect can
+// use an observed entry. Directory entries must carry their exact child list.
+func (entry FileManifestEntry) ValidateAction(requireDigest bool) error {
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(entry.FileIdentity) == "" {
+		return errors.New("filesystem action requires file identity evidence")
+	}
+	if requireDigest && entry.Type != ManifestDirectory && !strongDigest(entry.Digest) {
+		return errors.New("filesystem copy requires a strong content digest")
+	}
+	if entry.Type == ManifestDirectory {
+		if len(entry.Children) == 0 {
+			return errors.New("filesystem action requires an exact directory child manifest")
+		}
+		for index, child := range entry.Children {
+			if err := child.ValidateAction(requireDigest); err != nil {
+				return fmt.Errorf("manifest child %d: %w", index, err)
+			}
+		}
+	}
+	return nil
+}
+
+func strongDigest(value string) bool {
+	value = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "sha256:")
+	if len(value) != hex.EncodedLen(32) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func manifestEntriesOverlap(left, right FileManifestEntry) bool {
+	if left.RootID != right.RootID {
+		return false
+	}
+	if left.RelativePath == right.RelativePath {
+		return true
+	}
+	return left.Type == ManifestDirectory && strings.HasPrefix(right.RelativePath, left.RelativePath+"/") || right.Type == ManifestDirectory && strings.HasPrefix(left.RelativePath, right.RelativePath+"/")
 }
 
 // TrackingDimension separates registration, import, server availability and
@@ -368,6 +432,9 @@ type Provenance struct {
 
 // Validate checks optional provenance references when they are present.
 func (provenance Provenance) Validate() error {
+	if (strings.TrimSpace(provenance.ClientItemID) != "" || strings.TrimSpace(provenance.Hash) != "") && !provenance.ConnectionID.Valid() {
+		return errors.New("client provenance requires a valid connection id")
+	}
 	if provenance.ConnectionID != "" && !provenance.ConnectionID.Valid() {
 		return errors.New("provenance has an invalid connection id")
 	}

@@ -1,6 +1,7 @@
 package ports
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 		RelativePath: "Example Film/movie.mkv",
 		Type:         domain.ManifestFile,
 		Size:         42,
-		Digest:       "sha256:fixture",
+		Digest:       "sha256:" + strings.Repeat("0", 64),
 		FileIdentity: "fixture-inode",
 		ObservedAt:   time.Now(),
 	}
@@ -36,11 +37,40 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 	if err := hardlink.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	directory := entry
-	directory.Type = domain.ManifestDirectory
-	hardlink.Files[0].Source = directory
-	if err := hardlink.Validate(); err == nil {
+	directory := domain.FileManifestEntry{
+		RootID:       root,
+		RelativePath: "Example Film",
+		Type:         domain.ManifestDirectory,
+		FileIdentity: "fixture-directory",
+		ObservedAt:   entry.ObservedAt,
+		Children:     []domain.FileManifestEntry{entry},
+	}
+	directoryRequest := FilesystemCopyRequest{Files: []FileMap{{
+		Source:      directory,
+		Destination: domain.FileTarget{RootID: destinationRoot, RelativePath: "Example Film"},
+	}}}
+	if err := directoryRequest.Validate(); err != nil {
+		t.Fatalf("exact directory manifest rejected: %v", err)
+	}
+	directoryHardlink := FilesystemHardlinkRequest{Files: directoryRequest.Files}
+	if err := directoryHardlink.Validate(); err == nil {
 		t.Fatal("directory hardlink was accepted")
+	}
+	withoutIdentity := entry
+	withoutIdentity.FileIdentity = ""
+	if err := (FilesystemCopyRequest{Files: []FileMap{{
+		Source:      withoutIdentity,
+		Destination: domain.FileTarget{RootID: destinationRoot, RelativePath: "Example Film/no-identity.mkv"},
+	}}}).Validate(); err == nil {
+		t.Fatal("copy accepted a source without identity evidence")
+	}
+	withoutDigest := entry
+	withoutDigest.Digest = ""
+	if err := (FilesystemCopyRequest{Files: []FileMap{{
+		Source:      withoutDigest,
+		Destination: domain.FileTarget{RootID: destinationRoot, RelativePath: "Example Film/no-digest.mkv"},
+	}}}).Validate(); err == nil {
+		t.Fatal("copy accepted a source without a strong digest")
 	}
 	if err := (FilesystemCopyRequest{}).Validate(); err == nil {
 		t.Fatal("empty filesystem map was accepted")
