@@ -488,7 +488,7 @@
       "review": null
     },
     "F-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
@@ -504,11 +504,13 @@
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "26827f0a29a1c91da6ca6cbf920ddcbd64b1185f",
+        "findings": [
+          "P1: a queued same-generation continuation can survive cancellation cleanup and advance after the canceled stream, returning a page with a deleted cursor"
+        ],
         "round": 4
       },
       "reviewHistory": [
@@ -537,11 +539,20 @@
         {
           "round": 4,
           "reviewer": "/root/f01_reviewer",
+          "commit": "26827f0a29a1c91da6ca6cbf920ddcbd64b1185f",
+          "status": "changes_requested",
+          "correctionCommit": null,
+          "sourceCommit": "81f4a89918f1bffb365e9c98a36aa900284da400",
+          "receipt": "docs/execution/handoffs/F-01-review-round4.md"
+        },
+        {
+          "round": 5,
+          "reviewer": "/root/f01_reviewer",
           "commit": null,
           "status": "pending",
           "correctionCommit": null,
           "sourceCommit": "81f4a89918f1bffb365e9c98a36aa900284da400",
-          "receipt": "docs/execution/handoffs/F-01-review-round4.md"
+          "receipt": "docs/execution/handoffs/F-01-review-round5.md"
         }
       ],
       "dispatch": {
