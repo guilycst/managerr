@@ -511,29 +511,13 @@ func (client *Client) History(ctx context.Context, connectionID domain.ConfigID,
 	}
 	explicitTotal := collectionHasTotal(body)
 	metadata := historyMetadata(body)
-	if metadata.snapshotPresent {
-		if !metadata.snapshotValid {
-			addReason(&state.Reasons, "history_snapshot_invalid")
-			state.SnapshotStable = false
-		} else if state.SnapshotToken == "" {
-			if state.Page > 0 {
-				// A token appearing after the first page cannot prove that the
-				// already-read page belongs to this snapshot.
-				addReason(&state.Reasons, "history_snapshot_unverified")
-				state.SnapshotStable = false
-			} else {
-				state.SnapshotToken = metadata.snapshotToken
-				state.SnapshotStable = true
-			}
-		} else if metadata.snapshotToken != state.SnapshotToken {
-			addReason(&state.Reasons, "history_snapshot_changed")
-			state.SnapshotStable = false
-		}
-	} else if state.SnapshotToken != "" {
-		// A previously advertised boundary disappearing is itself evidence of
-		// an unstable response. Do not let a terminal empty page turn it into
-		// confirmed absence.
-		addReason(&state.Reasons, "history_snapshot_unverified")
+	if metadata.snapshotPresent || state.SnapshotToken != "" || state.SnapshotStable {
+		// The pinned Arr history contracts have no documented snapshot
+		// capability or request parameter. An arbitrary response field with a
+		// snapshot-shaped name therefore cannot certify offset pages. Keep the
+		// field as non-authoritative evidence and force partial coverage.
+		addReason(&state.Reasons, "history_snapshot_unsupported")
+		state.SnapshotToken = ""
 		state.SnapshotStable = false
 	}
 	if metadata.totalKnown {
@@ -1054,7 +1038,7 @@ func (client *Client) ReprocessPreview(ctx context.Context, connectionID domain.
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return ports.ImportPreview{}, err
 	}
-	if err := validateReprocessRequest(request, client.config.MaxFiles); err != nil {
+	if err := validateReprocessRequestForKind(request, client.config.MaxFiles, client.config.Kind); err != nil {
 		return ports.ImportPreview{}, err
 	}
 	switch client.config.Kind {
@@ -1366,6 +1350,7 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 	reasons := make([]string, 0)
 	index := make(map[string]int)
 	pathIndex := make(map[string]string)
+	episodeIndex := make(map[string]string)
 	for _, raw := range rawEpisodes {
 		var episode episodeDTO
 		if err := decodeJSON(raw, &episode); err != nil {
@@ -1413,6 +1398,10 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 			reasons = append(reasons, "episode_file_identity_conflict")
 			continue
 		}
+		if previousFileID, exists := episodeIndex[episodeID]; exists && previousFileID != fileID {
+			reasons = append(reasons, "episode_identity_conflict")
+			continue
+		}
 		position, exists := index[fileID]
 		if !exists {
 			files = append(files, ports.MediaFile{ExternalID: fileID, Path: target, Size: fileDTO.Size})
@@ -1426,6 +1415,7 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 				continue
 			}
 		}
+		episodeIndex[episodeID] = fileID
 		if !contains(files[position].EpisodeIDs, episodeID) {
 			files[position].EpisodeIDs = append(files[position].EpisodeIDs, episodeID)
 		}
@@ -1626,7 +1616,7 @@ func (client *Client) reprocessFileFromRadarr(candidate RadarrManualImportResour
 	if movieID == "" {
 		return ReprocessFile{}, "movie_missing", "native preview returned no movie association"
 	}
-	quality, code, reason := nativeObject(candidate.Quality, "quality")
+	quality, code, reason := nativeObjectForKind(candidate.Quality, "quality", client.config.Kind)
 	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
@@ -1634,7 +1624,7 @@ func (client *Client) reprocessFileFromRadarr(candidate RadarrManualImportResour
 	if code != "" {
 		return ReprocessFile{}, code, reason
 	}
-	customFormats, code, reason := nativeObjects(candidate.CustomFormats, "custom_formats")
+	customFormats, code, reason := nativeObjectsForKind(candidate.CustomFormats, "custom_formats", client.config.Kind)
 	if code != "" {
 		return ReprocessFile{}, code, reason
 	}
@@ -1672,7 +1662,7 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 	if seriesID == "" {
 		return ReprocessFile{}, "series_missing", "native preview returned no series association"
 	}
-	quality, code, reason := nativeObject(candidate.Quality, "quality")
+	quality, code, reason := nativeObjectForKind(candidate.Quality, "quality", client.config.Kind)
 	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
@@ -1680,7 +1670,7 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 	if code != "" {
 		return ReprocessFile{}, code, reason
 	}
-	customFormats, code, reason := nativeObjects(candidate.CustomFormats, "custom_formats")
+	customFormats, code, reason := nativeObjectsForKind(candidate.CustomFormats, "custom_formats", client.config.Kind)
 	if code != "" {
 		return ReprocessFile{}, code, reason
 	}
@@ -1733,6 +1723,10 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 }
 
 func nativeObject(value json.RawMessage, field string) (json.RawMessage, string, string) {
+	return nativeObjectForKind(value, field, domain.ConnectionRadarr)
+}
+
+func nativeObjectForKind(value json.RawMessage, field string, kind domain.ConnectionKind) (json.RawMessage, string, string) {
 	trimmed := bytes.TrimSpace(value)
 	if len(trimmed) == 0 {
 		if field == "quality" {
@@ -1750,19 +1744,23 @@ func nativeObject(value json.RawMessage, field string) (json.RawMessage, string,
 	if err := decodeJSON(trimmed, &object); err != nil || len(object) == 0 {
 		return nil, "native_" + field + "_malformed", "native preview returned malformed " + field + " evidence"
 	}
-	if err := validateNativeObjectShape(object, field); err != nil {
+	if err := validateNativeObjectShapeForKind(object, field, kind); err != nil {
 		return nil, "native_" + field + "_untyped", "native preview returned untyped " + field + " evidence"
 	}
 	return cloneRawMessage(trimmed), "", ""
 }
 
 func nativeObjects(values []json.RawMessage, field string) ([]json.RawMessage, string, string) {
+	return nativeObjectsForKind(values, field, domain.ConnectionRadarr)
+}
+
+func nativeObjectsForKind(values []json.RawMessage, field string, kind domain.ConnectionKind) ([]json.RawMessage, string, string) {
 	if values == nil {
 		return []json.RawMessage{}, "", ""
 	}
 	result := make([]json.RawMessage, 0, len(values))
 	for _, value := range values {
-		object, code, reason := nativeObject(value, field)
+		object, code, reason := nativeObjectForKind(value, field, kind)
 		if code != "" {
 			return nil, code, reason
 		}
@@ -1777,19 +1775,36 @@ func nativeObjects(values []json.RawMessage, field string) ([]json.RawMessage, s
 // can cross into the POST DTO. This keeps upstream additions non-executable
 // until the adapter has an explicit mapping for them.
 func validateNativeObjectShape(object map[string]json.RawMessage, field string) error {
+	return validateNativeObjectShapeForKind(object, field, domain.ConnectionRadarr)
+}
+
+func validateNativeObjectShapeForKind(object map[string]json.RawMessage, field string, kind domain.ConnectionKind) error {
 	switch field {
 	case "quality":
-		return validateQualityModel(object)
+		return validateQualityModelForKind(object, kind)
 	case "custom_formats":
-		return validateCustomFormat(object, 0)
+		return validateCustomFormatForKind(object, kind, 0)
 	default:
 		return errors.New("native field is unsupported")
 	}
 }
 
 func validateQualityModel(object map[string]json.RawMessage) error {
+	return validateQualityModelForKind(object, domain.ConnectionRadarr)
+}
+
+func validateQualityModelForKind(object map[string]json.RawMessage, kind domain.ConnectionKind) error {
 	if err := rejectUnknownNativeFields(object, map[string]struct{}{"quality": {}, "revision": {}}); err != nil {
 		return err
+	}
+	var qualityFields map[string]struct{}
+	switch kind {
+	case domain.ConnectionRadarr:
+		qualityFields = map[string]struct{}{"id": {}, "name": {}, "source": {}, "resolution": {}, "modifier": {}}
+	case domain.ConnectionSonarr:
+		qualityFields = map[string]struct{}{"id": {}, "name": {}, "source": {}, "resolution": {}}
+	default:
+		return errors.New("quality product is unsupported")
 	}
 	qualityRaw, ok := object["quality"]
 	if !ok {
@@ -1799,9 +1814,7 @@ func validateQualityModel(object map[string]json.RawMessage) error {
 	if err != nil || len(quality) == 0 {
 		return errors.New("quality value is invalid")
 	}
-	if err := rejectUnknownNativeFields(quality, map[string]struct{}{
-		"id": {}, "name": {}, "source": {}, "resolution": {}, "modifier": {},
-	}); err != nil {
+	if err := rejectUnknownNativeFields(quality, qualityFields); err != nil {
 		return err
 	}
 	if len(quality) == 0 {
@@ -1823,7 +1836,7 @@ func validateQualityModel(object map[string]json.RawMessage) error {
 	}
 	if raw, ok := quality["source"]; ok {
 		var source string
-		if json.Unmarshal(raw, &source) != nil || !validQualitySource(source) {
+		if json.Unmarshal(raw, &source) != nil || !validQualitySourceForKind(source, kind) {
 			return errors.New("quality source is invalid")
 		}
 		meaningful = true
@@ -1870,8 +1883,15 @@ func validateQualityModel(object map[string]json.RawMessage) error {
 }
 
 func validateCustomFormat(object map[string]json.RawMessage, depth int) error {
+	return validateCustomFormatForKind(object, domain.ConnectionRadarr, depth)
+}
+
+func validateCustomFormatForKind(object map[string]json.RawMessage, kind domain.ConnectionKind, depth int) error {
 	if depth > 4 {
 		return errors.New("custom format nesting is too deep")
+	}
+	if kind != domain.ConnectionRadarr && kind != domain.ConnectionSonarr {
+		return errors.New("custom format product is unsupported")
 	}
 	if err := rejectUnknownNativeFields(object, map[string]struct{}{
 		"id": {}, "name": {}, "includeCustomFormatWhenRenaming": {}, "specifications": {},
@@ -2133,6 +2153,21 @@ func rawNullableBool(value json.RawMessage) bool {
 }
 
 func validQualitySource(value string) bool {
+	return validQualitySourceForKind(value, domain.ConnectionRadarr)
+}
+
+func validQualitySourceForKind(value string, kind domain.ConnectionKind) bool {
+	if kind == domain.ConnectionSonarr {
+		switch value {
+		case "unknown", "television", "televisionRaw", "web", "webRip", "dvd", "bluray", "blurayRaw":
+			return true
+		default:
+			return false
+		}
+	}
+	if kind != domain.ConnectionRadarr {
+		return false
+	}
 	switch value {
 	case "unknown", "cam", "telesync", "telecine", "workprint", "dvd", "tv", "webdl", "webrip", "bluray":
 		return true
@@ -2638,6 +2673,10 @@ func validateImportRequest(request ports.ImportPreviewRequest, maxFiles int) err
 }
 
 func validateReprocessRequest(request ReprocessPreviewRequest, maxFiles int) error {
+	return validateReprocessRequestForKind(request, maxFiles, domain.ConnectionRadarr)
+}
+
+func validateReprocessRequestForKind(request ReprocessPreviewRequest, maxFiles int, kind domain.ConnectionKind) error {
 	if strings.TrimSpace(request.RegisteredExternalID) == "" {
 		return invalidInput("arr.manual_import.reprocess.registered_id")
 	}
@@ -2657,13 +2696,16 @@ func validateReprocessRequest(request ReprocessPreviewRequest, maxFiles int) err
 		if file.SeasonNumber != nil && *file.SeasonNumber < 0 {
 			return invalidInput("arr.manual_import.reprocess.season_number")
 		}
+		if len(bytes.TrimSpace(file.Quality)) == 0 && !file.Subtitle {
+			return invalidInput("arr.manual_import.reprocess.quality")
+		}
 		if len(bytes.TrimSpace(file.Quality)) > 0 {
-			if _, code, _ := nativeObject(file.Quality, "quality"); code != "" {
+			if _, code, _ := nativeObjectForKind(file.Quality, "quality", kind); code != "" {
 				return invalidInput("arr.manual_import.reprocess.quality")
 			}
 		}
 		if file.CustomFormats != nil {
-			if _, code, _ := nativeObjects(file.CustomFormats, "custom_formats"); code != "" {
+			if _, code, _ := nativeObjectsForKind(file.CustomFormats, "custom_formats", kind); code != "" {
 				return invalidInput("arr.manual_import.reprocess.custom_formats")
 			}
 		}
@@ -3235,12 +3277,12 @@ type historyPageMetadata struct {
 	pageSizeKnown   bool
 }
 
-// historyMetadata extracts only paging metadata that can detect an upstream
-// history response changing while a cursor is being consumed. Arr's ordinary
-// history resource does not advertise an immutable boundary; synthetic or
-// future compatible endpoints may provide one under one of these explicit
-// token names. A body digest is deliberately not treated as a boundary: each
-// page has a different digest even when all pages come from one snapshot.
+// historyMetadata extracts paging metadata that can detect an upstream history
+// response changing while a cursor is being consumed. Arr's pinned history
+// resource does not advertise an immutable boundary, so snapshot-shaped fields
+// are recorded only as unsupported evidence. A body digest is deliberately not
+// treated as a boundary: each page has a different digest even when all pages
+// come from one snapshot.
 func historyMetadata(data []byte) historyPageMetadata {
 	metadata := historyPageMetadata{}
 	trimmed := bytes.TrimSpace(data)

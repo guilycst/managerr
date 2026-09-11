@@ -388,7 +388,7 @@ func TestArrHistoryCapsRemainPartial(t *testing.T) {
 		t.Fatalf("boundary first page = %#v, %v", first, err)
 	}
 	second, err = boundary.History(context.Background(), "radarr-history-boundary", first.NextCursor, 1)
-	if err != nil || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessComplete || len(second.Coverage.ReasonCodes) != 0 {
+	if err != nil || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "history_snapshot_unsupported") {
 		t.Fatalf("boundary final page = %#v, %v", second, err)
 	}
 
@@ -412,6 +412,60 @@ func TestArrHistoryCapsRemainPartial(t *testing.T) {
 	second, err = lyingTotal.History(context.Background(), "radarr-history-lying-total", first.NextCursor, 1)
 	if err != nil || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "history_total_inconsistent") {
 		t.Fatalf("lying-total final page = %#v, %v", second, err)
+	}
+}
+
+func TestArrHistorySnapshotShapedFieldsCannotCertifyOffsetDeletionDrift(t *testing.T) {
+	for index, field := range []string{"snapshotId", "snapshotToken", "snapshotRevision"} {
+		t.Run(field, func(t *testing.T) {
+			connectionID := domain.ConfigID("radarr-history-unsupported-snapshot-" + strconv.Itoa(index))
+			historyHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("X-Api-Key") != "fixture-api-key" {
+					response.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if request.URL.Path != apiHistory {
+					response.WriteHeader(http.StatusNotFound)
+					return
+				}
+				page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+				if page <= 1 {
+					writeJSON(response, map[string]any{
+						"page": 1, "pageSize": 2, "hasMore": true,
+						field: "synthetic-boundary-that-is-not-pinned",
+						"records": []map[string]any{
+							{"id": 1, "eventType": "imported", "date": "2026-09-11T12:00:00Z"},
+							{"id": 2, "eventType": "imported", "date": "2026-09-11T12:00:01Z"},
+						},
+					})
+					return
+				}
+				// A deletion between offset requests removes id 3. The response has
+				// no overlap with page one, so an unbound snapshot field must not turn
+				// this into complete coverage.
+				writeJSON(response, map[string]any{
+					"page": 2, "pageSize": 2, "hasMore": false,
+					field:     "synthetic-boundary-that-is-not-pinned",
+					"records": []map[string]any{{"id": 4, "eventType": "imported", "date": "2026-09-11T12:00:03Z"}},
+				})
+			})
+			client, server := newSyntheticClient(t, domain.ConnectionRadarr, connectionID, historyHandler, 2, 10, 50, 50)
+			defer server.Close()
+			first, err := client.History(context.Background(), connectionID, "", 2)
+			if err != nil || first.NextCursor == "" {
+				t.Fatalf("first history page = %#v, %v", first, err)
+			}
+			second, err := client.History(context.Background(), connectionID, first.NextCursor, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "history_snapshot_unsupported") || second.Coverage.ObservedCount != 3 {
+				t.Fatalf("snapshot-shaped %s certified deletion drift: %#v", field, second.Coverage)
+			}
+			if len(second.Items) != 1 || second.Items[0].ID != "4" {
+				t.Fatalf("snapshot-shaped %s lost tail evidence: %#v", field, second.Items)
+			}
+		})
 	}
 }
 
@@ -799,8 +853,8 @@ func TestArrReprocessRejectsDuplicatePhysicalSourcesBeforePOST(t *testing.T) {
 	source := domain.FileTarget{RootID: "library", RelativePath: "series/season-pack.mkv"}
 	_, err := client.ReprocessPreview(context.Background(), "sonarr-duplicate-source", ReprocessPreviewRequest{
 		RegisteredExternalID: "201", Transfer: "copy", Files: []ReprocessFile{
-			{Source: source, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301"}, DownloadID: "download-a"},
-			{Source: source, MovieOrEpisodeID: "302", EpisodeIDs: []string{"302"}, DownloadID: "download-b"},
+			{Source: source, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301"}, DownloadID: "download-a", Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`)},
+			{Source: source, MovieOrEpisodeID: "302", EpisodeIDs: []string{"302"}, DownloadID: "download-b", Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`)},
 		},
 	})
 	assertUpstreamCode(t, err, domain.OutcomeInvalidInput)
@@ -1001,6 +1055,112 @@ func TestArrNativeNestedObjectsRejectUntypedValuesBeforePOST(t *testing.T) {
 	}
 }
 
+func TestArrProductSpecificQualityValidation(t *testing.T) {
+	validRadarrQuality := json.RawMessage(`{"quality":{"id":3,"name":"WEB-1080p","source":"webdl","resolution":1080},"revision":{"version":1,"real":1,"isRepack":false}}`)
+	validSonarrQuality := json.RawMessage(`{"quality":{"id":3,"name":"WEBDL-1080p","source":"web","resolution":1080},"revision":{"version":1,"real":1,"isRepack":false}}`)
+	sonarrQualityWithRadarrSource := json.RawMessage(`{"quality":{"id":3,"name":"WEB-1080p","source":"webdl","resolution":1080}}`)
+	radarrQualityWithSonarrSource := json.RawMessage(`{"quality":{"id":3,"name":"WEBDL-1080p","source":"web","resolution":1080}}`)
+	sonarrQualityWithRadarrModifier := json.RawMessage(`{"quality":{"id":3,"name":"WEBDL-1080p","source":"web","resolution":1080,"modifier":"none"}}`)
+	cases := []struct {
+		name               string
+		kind               domain.ConnectionKind
+		registeredID       string
+		file               ReprocessFile
+		wantError          bool
+		wantPreview        bool
+		wantPosts          int
+		wantResponseDetail string
+	}{
+		{
+			name: "Radarr accepts Radarr quality source", kind: domain.ConnectionRadarr, registeredID: "101",
+			file:        ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/Synthetic Film (2024).mkv"}, MovieOrEpisodeID: "101", Quality: validRadarrQuality, CustomFormats: []json.RawMessage{json.RawMessage(`{"id":9,"name":"HDR"}`)}},
+			wantPreview: true, wantPosts: 1,
+		},
+		{
+			name: "Sonarr accepts pinned web quality source", kind: domain.ConnectionSonarr, registeredID: "201",
+			file:        ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301", "302"}, Quality: validSonarrQuality, CustomFormats: []json.RawMessage{json.RawMessage(`{"id":12,"name":"Anime"}`)}},
+			wantPreview: true, wantPosts: 1,
+		},
+		{
+			name: "Radarr rejects Sonarr quality source", kind: domain.ConnectionRadarr, registeredID: "101",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/Synthetic Film (2024).mkv"}, MovieOrEpisodeID: "101", Quality: radarrQualityWithSonarrSource},
+			wantError: true, wantResponseDetail: "radarr accepted Sonarr-only source",
+		},
+		{
+			name: "Sonarr rejects Radarr quality source", kind: domain.ConnectionSonarr, registeredID: "201",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301", "302"}, Quality: sonarrQualityWithRadarrSource},
+			wantError: true, wantResponseDetail: "Sonarr accepted Radarr-only source",
+		},
+		{
+			name: "Sonarr rejects Radarr quality modifier", kind: domain.ConnectionSonarr, registeredID: "201",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301", "302"}, Quality: sonarrQualityWithRadarrModifier},
+			wantError: true, wantResponseDetail: "Sonarr accepted Radarr-only modifier",
+		},
+		{
+			name: "Radarr video rejects missing quality", kind: domain.ConnectionRadarr, registeredID: "101",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/Synthetic Film (2024).mkv"}, MovieOrEpisodeID: "101"},
+			wantError: true, wantResponseDetail: "Radarr video without quality reached POST",
+		},
+		{
+			name: "Sonarr video rejects missing quality", kind: domain.ConnectionSonarr, registeredID: "201",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301", "302"}},
+			wantError: true, wantResponseDetail: "Sonarr video without quality reached POST",
+		},
+		{
+			name: "Sonarr rejects untyped custom format before POST", kind: domain.ConnectionSonarr, registeredID: "201",
+			file:      ReprocessFile{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301", "302"}, Quality: validSonarrQuality, CustomFormats: []json.RawMessage{json.RawMessage(`{"unexpected":true}`)}},
+			wantError: true, wantResponseDetail: "Sonarr untyped custom format reached POST",
+		},
+	}
+	for index, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			connectionID := domain.ConfigID("arr-quality-" + strconv.Itoa(index))
+			handler := &arrFixtureHandler{kind: testCase.kind}
+			client, server := newFixtureClient(t, testCase.kind, handler, connectionID)
+			defer server.Close()
+			preview, err := client.ReprocessPreview(context.Background(), connectionID, ReprocessPreviewRequest{
+				RegisteredExternalID: testCase.registeredID, Transfer: "copy", Files: []ReprocessFile{testCase.file},
+			})
+			if testCase.wantError {
+				assertUpstreamCode(t, err, domain.OutcomeInvalidInput)
+			} else if err != nil || !testCase.wantPreview || len(preview.Files) != 1 {
+				t.Fatalf("valid %s request preview=%#v err=%v", testCase.kind, preview, err)
+			}
+			handler.mu.Lock()
+			posts := len(handler.manualPosts)
+			handler.mu.Unlock()
+			if posts != testCase.wantPosts {
+				t.Fatalf("%s: %s (posts=%d, want %d)", testCase.name, testCase.wantResponseDetail, posts, testCase.wantPosts)
+			}
+		})
+	}
+}
+
+func TestArrQualitySourceEnumsAreProductSpecific(t *testing.T) {
+	radarrSources := []string{"unknown", "cam", "telesync", "telecine", "workprint", "dvd", "tv", "webdl", "webrip", "bluray"}
+	sonarrSources := []string{"unknown", "television", "televisionRaw", "web", "webRip", "dvd", "bluray", "blurayRaw"}
+	for _, source := range radarrSources {
+		if !validQualitySourceForKind(source, domain.ConnectionRadarr) {
+			t.Fatalf("Radarr source %q was rejected", source)
+		}
+	}
+	for _, source := range sonarrSources {
+		if !validQualitySourceForKind(source, domain.ConnectionSonarr) {
+			t.Fatalf("Sonarr source %q was rejected", source)
+		}
+	}
+	for _, source := range []string{"television", "televisionRaw", "web", "webRip", "blurayRaw"} {
+		if validQualitySourceForKind(source, domain.ConnectionRadarr) {
+			t.Fatalf("Radarr accepted Sonarr-only source %q", source)
+		}
+	}
+	for _, source := range []string{"cam", "telesync", "telecine", "workprint", "tv", "webdl", "webrip"} {
+		if validQualitySourceForKind(source, domain.ConnectionSonarr) {
+			t.Fatalf("Sonarr accepted Radarr-only source %q", source)
+		}
+	}
+}
+
 func TestSonarrEpisodeFileEvidenceRejectsContradictions(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -1026,6 +1186,13 @@ func TestSonarrEpisodeFileEvidenceRejectsContradictions(t *testing.T) {
 			episodes: []map[string]any{
 				{"id": 301, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
 				{"id": 302, "seriesId": 201, "episodeFileId": 802, "episodeFile": map[string]any{"id": 802, "path": "/downloads/series/one.mkv", "size": 10}},
+			}, wantError: true,
+		},
+		{
+			name: "episode identity appears on different files",
+			episodes: []map[string]any{
+				{"id": 301, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
+				{"id": 301, "seriesId": 201, "episodeFileId": 802, "episodeFile": map[string]any{"id": 802, "path": "/downloads/series/two.mkv", "size": 20}},
 			}, wantError: true,
 		},
 		{
@@ -1087,7 +1254,7 @@ func TestArrManualImportRedirectsNeverReachCommand(t *testing.T) {
 	_, err := client.PreviewImport(context.Background(), "radarr-redirect", request)
 	assertUpstreamCode(t, err, domain.OutcomeUnknown)
 	_, err = client.ReprocessPreview(context.Background(), "radarr-redirect", ReprocessPreviewRequest{RegisteredExternalID: "101", Transfer: "copy", Files: []ReprocessFile{{
-		Source: request.Files[0].Source, MovieOrEpisodeID: "101",
+		Source: request.Files[0].Source, MovieOrEpisodeID: "101", Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`),
 	}}})
 	assertUpstreamCode(t, err, domain.OutcomeUnknown)
 	if commandCalls != 0 {
@@ -1278,7 +1445,7 @@ func TestPreviewReprocessAndNativeRejectionEvidence(t *testing.T) {
 	reprocessed, err := client.ReprocessPreview(context.Background(), "radarr-main", ReprocessPreviewRequest{
 		RegisteredExternalID: "101", Transfer: "copy", Files: []ReprocessFile{{
 			Source:           domain.FileTarget{RootID: "library", RelativePath: "incoming/Synthetic Film (2024).mkv"},
-			MovieOrEpisodeID: "101", DownloadID: "synthetic-download-1",
+			MovieOrEpisodeID: "101", DownloadID: "synthetic-download-1", Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`),
 		}},
 	})
 	if err != nil || len(reprocessed.Files) != 1 || len(reprocessed.Rejections) != 0 {
