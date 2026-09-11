@@ -18,23 +18,26 @@ import (
 )
 
 type jellyfinFixture struct {
-	System       json.RawMessage `json:"system"`
-	Libraries    json.RawMessage `json:"libraries"`
-	MovieItems   json.RawMessage `json:"movieItems"`
-	SeriesItems  json.RawMessage `json:"seriesItems"`
-	SingleItem   json.RawMessage `json:"singleItem"`
-	PathOnlyItem json.RawMessage `json:"pathOnlyItem"`
+	System             json.RawMessage `json:"system"`
+	Libraries          json.RawMessage `json:"libraries"`
+	DuplicateLibraries json.RawMessage `json:"duplicateLibraries"`
+	EmptyItems         json.RawMessage `json:"emptyItems"`
+	MovieItems         json.RawMessage `json:"movieItems"`
+	SeriesItems        json.RawMessage `json:"seriesItems"`
+	SingleItem         json.RawMessage `json:"singleItem"`
+	PathOnlyItem       json.RawMessage `json:"pathOnlyItem"`
 }
 
 type jellyfinFixtureHandler struct {
 	mu sync.Mutex
 
-	fixture      jellyfinFixture
-	fallback     bool
-	omitTotal    bool
-	requestLog   []string
-	libraryCalls int
-	itemCalls    int
+	fixture            jellyfinFixture
+	fallback           bool
+	omitTotal          bool
+	duplicateLibraries bool
+	requestLog         []string
+	libraryCalls       int
+	itemCalls          int
 }
 
 func (handler *jellyfinFixtureHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -56,6 +59,10 @@ func (handler *jellyfinFixtureHandler) ServeHTTP(response http.ResponseWriter, r
 			response.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if handler.duplicateLibraries {
+			writeJellyfinRaw(response, handler.fixture.DuplicateLibraries)
+			return
+		}
 		writeJellyfinRaw(response, handler.fixture.Libraries)
 	case apiViews:
 		writeJellyfinRaw(response, handler.fixture.Libraries)
@@ -64,6 +71,10 @@ func (handler *jellyfinFixtureHandler) ServeHTTP(response http.ResponseWriter, r
 		handler.itemCalls++
 		handler.mu.Unlock()
 		query := request.URL.Query()
+		if query.Get("ParentId") == "library-duplicate" {
+			writeJellyfinRaw(response, handler.fixture.EmptyItems)
+			return
+		}
 		if query.Get("Ids") != "" {
 			if query.Get("Ids") == "jf-path-only" {
 				writeJellyfinRaw(response, handler.fixture.PathOnlyItem)
@@ -186,8 +197,10 @@ func TestJellyfinLibrariesItemsProvidersAndMappedAvailability(t *testing.T) {
 	if len(item.MediaSources) != 1 || item.MediaSources[0].MappedTarget == nil || item.MediaSources[0].MappedTarget.RelativePath != "Movies/Fixture Film (1999)/Fixture Film.mkv" {
 		t.Fatalf("media sources = %+v", item.MediaSources)
 	}
-	pathOnly, err := client.ObserveItem(context.Background(), "jellyfin-main", "jf-path-only")
-	if err != nil || !pathOnly.Item.Playable || !hasJellyfinReason(pathOnly.Evidence, "media_source_from_item_path") {
+	pathOnlyClient, pathOnlyServer := newJellyfinFixtureClient(t, handler, "jellyfin-main", nil)
+	defer pathOnlyServer.Close()
+	pathOnly, err := pathOnlyClient.ObserveItem(context.Background(), "jellyfin-main", "jf-path-only")
+	if err != nil || pathOnly.Item.Playable || !hasJellyfinReason(pathOnly.Evidence, "media_source_from_item_path") || !hasJellyfinReason(pathOnly.Evidence, "media_source_path_only_unverified") {
 		t.Fatalf("path-only item = %+v, err %v", pathOnly, err)
 	}
 
@@ -202,7 +215,7 @@ func TestJellyfinLibrariesItemsProvidersAndMappedAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second inventory page: %v", err)
 	}
-	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessComplete || second.Coverage.ObservedCount != 2 {
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || second.Coverage.ObservedCount != 2 || !hasJellyfinReason(second.Coverage.ReasonCodes, "pagination_snapshot_unverified") {
 		t.Fatalf("second inventory page = %+v", second)
 	}
 	handler.mu.Lock()
@@ -248,6 +261,49 @@ func TestJellyfinFallbackMappingAndUnsupportedRefresh(t *testing.T) {
 	}
 	_, err = client.Capabilities(context.Background(), "other")
 	assertJellyfinCode(t, err, domain.OutcomeInvalidInput)
+}
+
+func TestJellyfinCapabilitiesKeepUnpinnedCatalogUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Emby-Token") != "fixture-api-key" {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if request.URL.Path == apiSystemPublic {
+			writeJellyfinRaw(response, []byte(`{"ProductName":"Jellyfin","Version":"999.0.0"}`))
+			return
+		}
+		response.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(Config{ConnectionID: "jellyfin-main", Endpoint: server.URL, APIKey: "fixture-api-key"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	capabilities, err := client.Capabilities(context.Background(), "jellyfin-main")
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	for _, capability := range capabilities {
+		if capability.Name == "jellyfin.libraries" || capability.Name == "jellyfin.items" || capability.Name == "jellyfin.provider-ids" || capability.Name == "jellyfin.playable-media" {
+			if capability.State != domain.CapabilityUnknown || capability.Reason == "" {
+				t.Fatalf("unverified capability = %+v", capability)
+			}
+		}
+	}
+}
+
+func TestJellyfinDuplicateLibraryIdentityIsPartial(t *testing.T) {
+	fixture := loadJellyfinFixture(t)
+	client, server := newJellyfinFixtureClient(t, &jellyfinFixtureHandler{fixture: fixture, duplicateLibraries: true}, "jellyfin-main", nil)
+	defer server.Close()
+	page, err := client.ListDetailed(context.Background(), "jellyfin-main", "", 1)
+	if err != nil {
+		t.Fatalf("ListDetailed: %v", err)
+	}
+	if len(page.Items) != 0 || page.Coverage.Completeness != domain.CompletenessPartial || !hasJellyfinReason(page.Coverage.ReasonCodes, "library_identity_duplicate") {
+		t.Fatalf("duplicate library coverage = %+v", page.Coverage)
+	}
 }
 
 func TestJellyfinUserScopeIsSentToReadRoutes(t *testing.T) {

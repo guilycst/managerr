@@ -10,6 +10,13 @@
       {"Id": "library-series", "Name": "Series", "CollectionType": "tvshows", "Type": "CollectionFolder"}
     ]
   },
+  "duplicateLibraries": {
+    "Items": [
+      {"Id": "library-duplicate", "Name": "Duplicate", "CollectionType": "movies", "Type": "CollectionFolder"},
+      {"Id": "library-duplicate", "Name": "Duplicate", "CollectionType": "movies", "Type": "CollectionFolder"}
+    ]
+  },
+  "emptyItems": {"Items": [], "TotalRecordCount": 0, "StartIndex": 0},
   "movieItems": {
     "Items": [
       {

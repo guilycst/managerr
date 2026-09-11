@@ -380,7 +380,19 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 	result.Coverage.ObservedCount = int64(state.ObservedCount)
 
 	more := state.Offset < len(snapshot.items)
-	stop := !more || state.PageCount >= client.config.MaxPages || state.ObservedCount >= client.config.MaxItems || state.SnapshotRevision != "" && state.SnapshotRevision != snapshot.revision || snapshot.completeness != domain.CompletenessComplete
+	// An offset traversal without an upstream snapshot token is still safe to
+	// page locally: the result remains partial and the signed cursor carries
+	// the digest so a changed re-read stops with an explicit reason. Other
+	// partial/unknown conditions can mean that the local result itself is
+	// truncated or ambiguous, so do not offer a continuation for those.
+	continuationSafe := snapshot.completeness != domain.CompletenessUnknown
+	for _, reason := range snapshot.reasons {
+		if reason != "pagination_snapshot_unverified" {
+			continuationSafe = false
+			break
+		}
+	}
+	stop := !more || state.PageCount >= client.config.MaxPages || state.ObservedCount >= client.config.MaxItems || state.SnapshotRevision != "" && state.SnapshotRevision != snapshot.revision || !continuationSafe
 	if state.PageCount >= client.config.MaxPages && more {
 		addReason(&result.Coverage.ReasonCodes, "pagination_limit")
 	}
@@ -484,8 +496,10 @@ func (client *Client) Refresh(ctx context.Context, connectionID domain.ConfigID,
 	}
 }
 
-// Capabilities reports the tested read surfaces. Refresh remains explicitly
-// unsupported until X-09 supplies a versioned write fixture.
+// Capabilities reports the tested read surfaces. The public compatibility
+// matrix does not pin a Jellyfin release or a versioned catalog fixture yet,
+// so a successful system-info response can establish only the version
+// observation. It must not be promoted into a catalog capability claim.
 func (client *Client) Capabilities(ctx context.Context, connectionID domain.ConfigID) ([]domain.Capability, error) {
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return nil, err
@@ -507,20 +521,26 @@ func (client *Client) Capabilities(ctx context.Context, connectionID domain.Conf
 	} else if code, ok := upstreamCode(versionErr); ok && code == domain.OutcomeUnsupported {
 		versionState, versionReason = domain.CapabilityUnsupported, "Jellyfin public system-info endpoint is unsupported"
 	}
-	readState := versionState
-	readReason := versionReason
+	readState := domain.CapabilityUnknown
+	readReason := "Jellyfin catalog route compatibility is not pinned to a verified release"
+	if versionErr != nil {
+		switch {
+		case versionState == domain.CapabilityUnsupported:
+			readReason = "Jellyfin catalog compatibility is unknown because the system-info endpoint is unsupported"
+		case versionState == domain.CapabilityUnknown:
+			readReason = "Jellyfin catalog compatibility is unknown because the version observation is unavailable"
+		}
+	}
 	caps := []domain.Capability{
 		{Name: "jellyfin.version", State: versionState, Version: version.Version, Reason: versionReason, ObservedAt: now},
-		{Name: "jellyfin.libraries", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"Library/MediaFolders or user Views"}, ObservedAt: now},
-		{Name: "jellyfin.items", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"Items with provider and media-source fields"}, ObservedAt: now},
-		{Name: "jellyfin.provider-ids", State: readState, Version: version.Version, Reason: readReason, ObservedAt: now},
+		{Name: "jellyfin.libraries", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"Library/MediaFolders or user Views", "compatibility_version_unpinned"}, ObservedAt: now},
+		{Name: "jellyfin.items", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"Items with provider and media-source fields", "compatibility_version_unpinned"}, ObservedAt: now},
+		{Name: "jellyfin.provider-ids", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"compatibility_version_unpinned"}, ObservedAt: now},
 	}
 	playableState := domain.CapabilityUnknown
-	playableReason := "configured path mapping has not been observed"
+	playableReason := "Jellyfin playable-media compatibility is not pinned to a verified release"
 	if len(client.config.Mappings) == 0 {
-		playableReason = "no configured root mapping; source path remains uncorrelated"
-	} else if readState == domain.CapabilitySupported {
-		playableState, playableReason = domain.CapabilitySupported, "media-source path mapping is validated per item"
+		playableReason = "Jellyfin playable-media compatibility is unknown because no configured root mapping exists"
 	}
 	caps = append(caps,
 		domain.Capability{Name: "jellyfin.playable-media", State: playableState, Version: version.Version, Reason: playableReason, ObservedAt: now},
@@ -543,11 +563,26 @@ func (client *Client) collectSnapshot(ctx context.Context, connectionID domain.C
 	}
 	result := snapshot{completeness: domain.CompletenessComplete}
 	seen := make(map[string]struct{})
+	seenLibraries := make(map[string]LibraryObservation, len(libraries))
 	pageCount := 0
 	for _, library := range libraries {
 		if err := ctx.Err(); err != nil {
 			return snapshot{}, err
 		}
+		if previous, exists := seenLibraries[library.ExternalID]; exists {
+			// A repeated library identity makes the collection boundary
+			// ambiguous, even when the duplicate rows happen to have equal
+			// names. Keep the observation bounded but never certify absence
+			// from it. The first row remains the only row traversed so a
+			// duplicate cannot manufacture repeated item reads.
+			addReason(&result.reasons, "library_identity_duplicate")
+			if previous.Name != library.Name || previous.CollectionType != library.CollectionType || previous.Type != library.Type {
+				addReason(&result.reasons, "library_identity_conflict")
+			}
+			result.completeness = domain.CompletenessPartial
+			continue
+		}
+		seenLibraries[library.ExternalID] = library
 		if len(result.items) >= client.config.MaxItems {
 			result.completeness = domain.CompletenessPartial
 			addReason(&result.reasons, "items_limit")
@@ -581,6 +616,15 @@ func (client *Client) collectSnapshot(ctx context.Context, connectionID domain.C
 			addReason(&result.reasons, "pagination_limit")
 			break
 		}
+	}
+	if len(libraries) > 1 || pageCount > 1 {
+		// Jellyfin's offset Items endpoint does not expose an immutable
+		// collection token. Multiple upstream reads can therefore observe a
+		// deletion, insertion or reorder between offsets/libraries. A local
+		// digest records what was seen; it cannot prove that the traversal was
+		// stable, so retain partial coverage until a versioned boundary exists.
+		addReason(&result.reasons, "pagination_snapshot_unverified")
+		result.completeness = domain.CompletenessPartial
 	}
 	result.revision = snapshotDigest(result.items)
 	if len(result.reasons) > 0 && result.completeness == domain.CompletenessComplete {
@@ -683,6 +727,12 @@ func (client *Client) collectLibraryItems(ctx context.Context, library LibraryOb
 	if pages >= pagesRemaining && len(result) < remaining {
 		addReason(&reasons, "pagination_limit")
 	}
+	if pages > 1 {
+		// The endpoint is offset-based and supplies no immutable snapshot
+		// identity. Never turn a multi-request traversal into complete
+		// absence evidence merely because totals happened to agree.
+		addReason(&reasons, "pagination_snapshot_unverified")
+	}
 	return result, reasons, pages, nil
 }
 
@@ -716,11 +766,13 @@ func (client *Client) observeItem(item itemDTO, libraryID, libraryName string) (
 		result.Evidence = appendReason(result.Evidence, "location_not_playable")
 	} else {
 		sources := item.MediaSources
+		pathOnly := false
 		if len(sources) == 0 && strings.TrimSpace(item.Path) != "" {
 			// Jellyfin can omit MediaSources for a normal item read while still
 			// returning its exact Path. Keep that evidence bounded and typed,
 			// without treating a title-only item as playable.
 			sources = []mediaSourceDTO{{ID: id + ":path", Path: item.Path, Protocol: "File", LocationType: item.LocationType, MediaType: item.MediaType}}
+			pathOnly = true
 			result.Evidence = appendReason(result.Evidence, "media_source_from_item_path")
 		}
 		for index, source := range sources {
@@ -729,6 +781,14 @@ func (client *Client) observeItem(item itemDTO, libraryID, libraryName string) (
 				break
 			}
 			observed, playable := client.observeMediaSource(source)
+			if pathOnly && playable && observed.MappedTarget == nil {
+				// An item-level Path is useful correlation evidence, but it is
+				// not the versioned MediaSources evidence needed to claim that
+				// Jellyfin can play the item. A configured, unambiguous mapping
+				// is the only local proof available for this fallback shape.
+				playable = false
+				observed.PlayableEvidence = appendReason(observed.PlayableEvidence, "media_source_path_only_unverified")
+			}
 			result.MediaSources = append(result.MediaSources, observed)
 			result.Evidence = appendReasons(result.Evidence, observed.PlayableEvidence...)
 			if playable {

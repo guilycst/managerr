@@ -23,7 +23,9 @@ type seerrFixture struct {
 	Status            json.RawMessage   `json:"status"`
 	MediaPages        []json.RawMessage `json:"mediaPages"`
 	OverlapMediaPages []json.RawMessage `json:"overlapMediaPages"`
+	DriftMediaPages   []json.RawMessage `json:"driftMediaPages"`
 	RequestPages      []json.RawMessage `json:"requestPages"`
+	DriftRequestPages []json.RawMessage `json:"driftRequestPages"`
 }
 
 type seerrFixtureHandler struct {
@@ -31,6 +33,9 @@ type seerrFixtureHandler struct {
 
 	fixture          seerrFixture
 	overlap          bool
+	driftMedia       bool
+	driftRequests    bool
+	catalogNotFound  bool
 	zeroPageInfo     bool
 	statusCode       int
 	statusBody       string
@@ -67,17 +72,33 @@ func (handler *seerrFixtureHandler) ServeHTTP(response http.ResponseWriter, requ
 		handler.mu.Lock()
 		handler.mediaPageCalls = append(handler.mediaPageCalls, query)
 		handler.mu.Unlock()
+		if handler.catalogNotFound {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if handler.zeroPageInfo {
 			writeRaw(response, []byte(`{"pageInfo":{"pages":0,"pageSize":2,"results":0,"page":1},"results":[]}`))
 			return
 		}
-		writeRaw(response, pageAt(query, handler.fixture.MediaPages, handler.fixture.OverlapMediaPages, handler.overlap))
+		pages := handler.fixture.MediaPages
+		if handler.driftMedia {
+			pages = handler.fixture.DriftMediaPages
+		}
+		writeRaw(response, pageAt(query, pages, handler.fixture.OverlapMediaPages, handler.overlap))
 	case "/api/v1/request":
 		query := request.URL.Query()
 		handler.mu.Lock()
 		handler.requestPageCalls = append(handler.requestPageCalls, query)
 		handler.mu.Unlock()
-		writeRaw(response, pageAt(query, handler.fixture.RequestPages, nil, false))
+		if handler.catalogNotFound {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		pages := handler.fixture.RequestPages
+		if handler.driftRequests {
+			pages = handler.fixture.DriftRequestPages
+		}
+		writeRaw(response, pageAt(query, pages, nil, false))
 	default:
 		response.WriteHeader(http.StatusNotFound)
 	}
@@ -121,12 +142,14 @@ func loadSeerrFixture(t *testing.T) seerrFixture {
 		t.Fatalf("read request fixture: %v", err)
 	}
 	var requests struct {
-		RequestPages []json.RawMessage `json:"requestPages"`
+		RequestPages      []json.RawMessage `json:"requestPages"`
+		DriftRequestPages []json.RawMessage `json:"driftRequestPages"`
 	}
 	if err := json.Unmarshal(requestData, &requests); err != nil {
 		t.Fatalf("decode request fixture: %v", err)
 	}
 	fixture.RequestPages = requests.RequestPages
+	fixture.DriftRequestPages = requests.DriftRequestPages
 	return fixture
 }
 
@@ -225,7 +248,7 @@ func TestMediaPaginationPreservesNativeEvidence(t *testing.T) {
 	if series.JellyfinMediaID4K != "jf-series-102-4k" || series.RatingKey4K != "fixture-series-102-4k" || len(series.ServiceRelationships) != 2 || series.ServiceRelationships[1].Slug != "sonarr-4k" || !series.ServiceRelationships[1].Is4K {
 		t.Fatalf("4k relationships = %+v", series)
 	}
-	if second.Coverage.Completeness != domain.CompletenessComplete || second.Coverage.ObservedCount != 4 || second.Coverage.CompletedAt == nil {
+	if second.Coverage.Completeness != domain.CompletenessPartial || second.Coverage.ObservedCount != 4 || second.Coverage.CompletedAt == nil || !hasReason(second.Coverage.ReasonCodes, "pagination_snapshot_unverified") {
 		t.Fatalf("second coverage = %+v", second.Coverage)
 	}
 	if err := second.Coverage.Validate(); err != nil {
@@ -296,7 +319,7 @@ func TestRequestPaginationPreservesStatusRelationshipsAndServiceErrors(t *testin
 	if err != nil {
 		t.Fatalf("second request page: %v", err)
 	}
-	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessComplete {
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage.ReasonCodes, "pagination_snapshot_unverified") {
 		t.Fatalf("second request page = %+v", second)
 	}
 	if err := second.Coverage.Validate(); err != nil {
@@ -332,6 +355,58 @@ func TestCapabilitiesExposeUnsupportedVersionAndNoWrites(t *testing.T) {
 	defer handler.mu.Unlock()
 	if handler.writeRequest != 0 {
 		t.Fatalf("write requests = %d", handler.writeRequest)
+	}
+}
+
+func TestCapabilitiesKeepUnpinnedCatalogUnknown(t *testing.T) {
+	fixture := loadSeerrFixture(t)
+	fixture.Status = json.RawMessage(`{"version":"999.0.0","commitTag":"future","commit":"future-commit"}`)
+	handler := &seerrFixtureHandler{fixture: fixture, catalogNotFound: true}
+	client, server := newSeerrFixtureClient(t, handler, "seerr-main")
+	defer server.Close()
+	capabilities, err := client.Capabilities(context.Background(), "seerr-main")
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	for _, capability := range capabilities {
+		if capability.Name == "seerr.media.read" || capability.Name == "seerr.requests.read" || capability.Name == "seerr.provider-relationships" {
+			if capability.State != domain.CapabilityUnknown || capability.Reason == "" {
+				t.Fatalf("unverified capability = %+v", capability)
+			}
+		}
+	}
+}
+
+func TestOffsetTraversalWithoutSnapshotBoundaryStaysPartial(t *testing.T) {
+	fixture := loadSeerrFixture(t)
+	mediaHandler := &seerrFixtureHandler{fixture: fixture, driftMedia: true}
+	mediaClient, mediaServer := newSeerrFixtureClient(t, mediaHandler, "seerr-main")
+	defer mediaServer.Close()
+	firstMedia, err := mediaClient.ListMediaDetailed(context.Background(), "seerr-main", "", 2)
+	if err != nil {
+		t.Fatalf("first media page: %v", err)
+	}
+	secondMedia, err := mediaClient.ListMediaDetailed(context.Background(), "seerr-main", firstMedia.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("second media page: %v", err)
+	}
+	if len(secondMedia.Items) != 2 || secondMedia.Items[0].ID != "104" || secondMedia.Items[1].ID != "105" || secondMedia.Coverage.Completeness != domain.CompletenessPartial || !hasReason(secondMedia.Coverage.ReasonCodes, "pagination_snapshot_unverified") {
+		t.Fatalf("media drift coverage = %+v", secondMedia)
+	}
+
+	requestHandler := &seerrFixtureHandler{fixture: fixture, driftRequests: true}
+	requestClient, requestServer := newSeerrFixtureClient(t, requestHandler, "seerr-main")
+	defer requestServer.Close()
+	firstRequest, err := requestClient.ListRequestsDetailed(context.Background(), "seerr-main", "", 2)
+	if err != nil {
+		t.Fatalf("first request page: %v", err)
+	}
+	secondRequest, err := requestClient.ListRequestsDetailed(context.Background(), "seerr-main", firstRequest.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("second request page: %v", err)
+	}
+	if len(secondRequest.Items) != 2 || secondRequest.Items[0].ID != "9004" || secondRequest.Items[1].ID != "9005" || secondRequest.Coverage.Completeness != domain.CompletenessPartial || !hasReason(secondRequest.Coverage.ReasonCodes, "pagination_snapshot_unverified") {
+		t.Fatalf("request drift coverage = %+v", secondRequest)
 	}
 }
 

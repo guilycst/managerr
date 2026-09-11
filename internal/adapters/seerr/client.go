@@ -385,8 +385,10 @@ func (client *Client) Version(ctx context.Context, connectionID domain.ConfigID)
 }
 
 // Capabilities reports read surfaces and the explicit v0.0.1 write boundary.
-// It returns capability observations for an unavailable or unsupported status
-// probe, while unauthorized and invalid configuration errors remain errors.
+// The compatibility matrix pins only the inspected route source, not a
+// Seerr release and disposable server. A successful status response therefore
+// establishes version metadata only; it cannot promote media/request routes
+// into supported capabilities.
 func (client *Client) Capabilities(ctx context.Context, connectionID domain.ConfigID) ([]domain.Capability, error) {
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return nil, err
@@ -410,15 +412,20 @@ func (client *Client) Capabilities(ctx context.Context, connectionID domain.Conf
 		versionState, versionReason = domain.CapabilityUnsupported, "Seerr status endpoint is unsupported"
 	}
 	readState := domain.CapabilityUnknown
-	readReason := "read capability is unverified because Seerr version is unavailable"
-	if versionErr == nil && versionState == domain.CapabilitySupported {
-		readState, readReason = domain.CapabilitySupported, ""
+	readReason := "Seerr media/request route compatibility is not pinned to a verified release"
+	if versionErr != nil {
+		switch {
+		case versionState == domain.CapabilityUnsupported:
+			readReason = "Seerr media/request compatibility is unknown because the status endpoint is unsupported"
+		case versionState == domain.CapabilityUnknown:
+			readReason = "Seerr media/request compatibility is unknown because the version observation is unavailable"
+		}
 	}
 	return []domain.Capability{
 		{Name: "seerr.version", State: versionState, Version: version.Version, Reason: versionReason, Evidence: []string{"GET /api/v1/status"}, ObservedAt: now},
-		{Name: "seerr.media.read", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"GET /api/v1/media with take/skip/pageInfo"}, ObservedAt: now},
-		{Name: "seerr.requests.read", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"GET /api/v1/request with take/skip/pageInfo"}, ObservedAt: now},
-		{Name: "seerr.provider-relationships", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"typed tmdb/tvdb/imdb and service IDs"}, ObservedAt: now},
+		{Name: "seerr.media.read", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"GET /api/v1/media with take/skip/pageInfo", "compatibility_version_unpinned"}, ObservedAt: now},
+		{Name: "seerr.requests.read", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"GET /api/v1/request with take/skip/pageInfo", "compatibility_version_unpinned"}, ObservedAt: now},
+		{Name: "seerr.provider-relationships", State: readState, Version: version.Version, Reason: readReason, Evidence: []string{"typed tmdb/tvdb/imdb and service IDs", "compatibility_version_unpinned"}, ObservedAt: now},
 		{Name: "seerr.writes", State: domain.CapabilityUnsupported, Version: version.Version, Reason: "Seerr connector is read-only in v0.0.1", Evidence: []string{"no mutation port or HTTP write method"}, ObservedAt: now},
 	}, nil
 }
@@ -504,6 +511,7 @@ func (client *Client) ListMediaDetailed(ctx context.Context, connectionID domain
 	if state.SnapshotRevision == "" {
 		state.SnapshotRevision = pageDigest
 	}
+	markOffsetSnapshotUnverified(&state, info, hasPageInfo, rawCount)
 	responseBoundHit := false
 	if rawCount > state.Limit {
 		rawCount = state.Limit
@@ -650,6 +658,7 @@ func (client *Client) ListRequestsDetailed(ctx context.Context, connectionID dom
 	if state.SnapshotRevision == "" {
 		state.SnapshotRevision = pageDigest
 	}
+	markOffsetSnapshotUnverified(&state, info, hasPageInfo, rawCount)
 	responseBoundHit := false
 	if rawCount > state.Limit {
 		rawCount = state.Limit
@@ -888,6 +897,24 @@ func pageHasMore(info PageInfo, hasPageInfo bool, nextSkip, rawCount, limit int)
 		return byTotal, ""
 	}
 	return rawCount >= limit && rawCount > 0, ""
+}
+
+// markOffsetSnapshotUnverified records the boundary that an offset traversal
+// cannot establish from Seerr's response alone. pageInfo validates totals and
+// page shape, but it is not an immutable collection identity: a deletion,
+// insertion or reorder can replace records between two otherwise consistent
+// requests. Keep the complete result visible while forcing partial coverage
+// until a versioned upstream snapshot token is available.
+func markOffsetSnapshotUnverified(state *cursorState, info PageInfo, hasPageInfo bool, rawCount int) {
+	if hasPageInfo {
+		if info.Pages > 1 || info.Results > info.PageSize {
+			addReason(&state.Reasons, "pagination_snapshot_unverified")
+		}
+		return
+	}
+	if rawCount >= state.Limit && rawCount > 0 {
+		addReason(&state.Reasons, "pagination_snapshot_unverified")
+	}
 }
 
 type statusDTO struct {

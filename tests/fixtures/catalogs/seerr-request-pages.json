@@ -100,5 +100,51 @@
       ],
       "serviceErrors": {}
     }
+  ],
+  "driftRequestPages": [
+    {
+      "pageInfo": {"pages": 2, "pageSize": 2, "results": 4, "page": 1},
+      "results": [
+        {
+          "id": 9001,
+          "status": 2,
+          "type": "movie",
+          "createdAt": "2026-09-11T14:00:00Z",
+          "updatedAt": "2026-09-11T14:01:00Z",
+          "media": {"id": 101, "mediaType": "movie", "tmdbId": 550, "status": 5}
+        },
+        {
+          "id": 9002,
+          "status": 1,
+          "type": "tv",
+          "createdAt": "2026-09-11T14:02:00Z",
+          "updatedAt": "2026-09-11T14:03:00Z",
+          "media": {"id": 102, "mediaType": "tv", "tvdbId": 2002, "status": 4}
+        }
+      ],
+      "serviceErrors": {}
+    },
+    {
+      "pageInfo": {"pages": 2, "pageSize": 2, "results": 4, "page": 2},
+      "results": [
+        {
+          "id": 9004,
+          "status": 2,
+          "type": "movie",
+          "createdAt": "2026-09-11T14:04:00Z",
+          "updatedAt": "2026-09-11T14:05:00Z",
+          "media": {"id": 104, "mediaType": "tv", "tvdbId": 2040, "status": 2}
+        },
+        {
+          "id": 9005,
+          "status": 1,
+          "type": "movie",
+          "createdAt": "2026-09-11T14:06:00Z",
+          "updatedAt": "2026-09-11T14:07:00Z",
+          "media": {"id": 105, "mediaType": "movie", "tmdbId": 1050, "status": 3}
+        }
+      ],
+      "serviceErrors": {}
+    }
   ]
 }
