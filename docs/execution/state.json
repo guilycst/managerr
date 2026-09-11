@@ -21,7 +21,21 @@
   "guardrailBaseline": {
     "status": "in_progress",
     "startedAt": "2026-09-11",
-    "commits": [],
+    "commits": [
+      {
+        "sha": "9c5946b371715e6cf6d0c2cb99d919390f12d783",
+        "message": "build(api): add exploded OpenAPI 3.1.1 source",
+        "checks": [
+          "./scripts/generate.sh --check",
+          "GOWORK=off go test ./...",
+          "GOWORK=off go test ./... (ui)",
+          "GOWORK=off go test ./... (tools)",
+          "python3 scripts/check_planning.py",
+          "git diff --check"
+        ],
+        "blocker": "Vacuum, lint, architecture import checks and the versioned hook are still pending"
+      }
+    ],
     "requiredChecks": [
       "deterministic exploded OpenAPI 3.1.1 bundle",
       "Vacuum with zero warnings or errors",
