@@ -144,6 +144,41 @@ func TestObserveEnumerationIsBoundedAndCursorRejectsChangedDirectory(t *testing.
 	}
 }
 
+func TestObserveEnumerationCursorDoesNotDropProbedEntry(t *testing.T) {
+	observer, root, rootID := newTestObserver(t, false)
+	directory := filepath.Join(root, "paged")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.mkv", "two.mkv", "three.mkv"} {
+		writeFile(t, filepath.Join(directory, name), name)
+	}
+
+	var all []domain.FileManifestEntry
+	page, err := observer.Enumerate(context.Background(), rootID, "paged", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all = append(all, page.Items...)
+	for page.NextCursor != "" {
+		page, err = observer.EnumeratePage(context.Background(), rootID, "paged", page.NextCursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, page.Items...)
+	}
+	if len(all) != 3 {
+		t.Fatalf("paged entries = %d, want 3: %#v", len(all), all)
+	}
+	seen := make(map[string]struct{}, len(all))
+	for _, entry := range all {
+		if _, exists := seen[entry.RelativePath]; exists {
+			t.Fatalf("paged entry repeated: %q", entry.RelativePath)
+		}
+		seen[entry.RelativePath] = struct{}{}
+	}
+}
+
 func TestObserveCapabilitiesExposeReadOnlyAndMissingAsEvidence(t *testing.T) {
 	observer, root, rootID := newTestObserver(t, true)
 	caps, err := observer.Capabilities(context.Background(), rootID)

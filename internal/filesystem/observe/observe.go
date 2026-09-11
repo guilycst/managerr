@@ -285,24 +285,19 @@ func (o *Observer) EnumeratePage(ctx context.Context, rootID domain.ConfigID, re
 			return page, err
 		}
 	}
-	page.Items, err = readEntries(ctx, directory, rootID, relativePrefix, limit)
+	var more bool
+	page.Items, more, err = readEntries(ctx, directory, rootID, relativePrefix, limit)
 	if err != nil {
 		return page, err
 	}
 	page.Coverage = coverage(root, len(page.Items), started, time.Now().UTC())
-	if len(page.Items) == limit {
-		more, err := hasMoreNames(ctx, directory)
-		if err != nil {
-			return page, err
-		}
-		if more {
-			page.NextCursor = encodeCursor(cursorState{
-				Offset: offset + len(page.Items), DirectoryID: directoryID,
-				DirectoryMTime: directoryInfo.ModTime().UnixNano(), Prefix: relativePrefix,
-			})
-			page.Coverage.Completeness = domain.CompletenessPartial
-			page.Coverage.ReasonCodes = []string{"enumeration_limit"}
-		}
+	if more {
+		page.NextCursor = encodeCursor(cursorState{
+			Offset: offset + len(page.Items), DirectoryID: directoryID,
+			DirectoryMTime: directoryInfo.ModTime().UnixNano(), Prefix: relativePrefix,
+		})
+		page.Coverage.Completeness = domain.CompletenessPartial
+		page.Coverage.ReasonCodes = []string{"enumeration_limit"}
 	}
 	finalInfo, err := directory.Stat()
 	if err != nil {
@@ -411,21 +406,22 @@ func manifestEntry(rootID domain.ConfigID, relativePath string, info fs.FileInfo
 	}, nil
 }
 
-func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID, prefix string, limit int) ([]domain.FileManifestEntry, error) {
-	names, err := directory.Readdirnames(limit)
+func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID, prefix string, limit int) ([]domain.FileManifestEntry, bool, error) {
+	names, err := directory.Readdirnames(limit + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("read directory: %w", err)
+		return nil, false, fmt.Errorf("read directory: %w", err)
 	}
+	more := len(names) > limit
 	if len(names) > limit {
 		names = names[:limit]
 	}
 	entries := make([]domain.FileManifestEntry, 0, len(names))
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if strings.Contains(name, "/") || strings.Contains(name, "\\") || name == "." || name == ".." {
-			return nil, fmt.Errorf("%w: directory entry %q", ErrPathEscape, name)
+			return nil, false, fmt.Errorf("%w: directory entry %q", ErrPathEscape, name)
 		}
 		relativePath := path.Join(prefix, name)
 		if prefix == "" {
@@ -433,16 +429,16 @@ func readEntries(ctx context.Context, directory *os.File, rootID domain.ConfigID
 		}
 		child, info, err := openConstrainedChild(directory, name)
 		if err != nil {
-			return nil, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePath}, err)
+			return nil, false, wrapObservationError(domain.FileTarget{RootID: rootID, RelativePath: relativePath}, err)
 		}
 		entry, entryErr := manifestEntry(rootID, relativePath, info, time.Now().UTC())
 		child.Close()
 		if entryErr != nil {
-			return nil, entryErr
+			return nil, false, entryErr
 		}
 		entries = append(entries, entry)
 	}
-	return entries, nil
+	return entries, more, nil
 }
 
 func discardNames(ctx context.Context, directory *os.File, count int) error {
@@ -467,22 +463,6 @@ func discardNames(ctx context.Context, directory *os.File, count int) error {
 		}
 	}
 	return nil
-}
-
-func hasMoreNames(ctx context.Context, directory *os.File) (bool, error) {
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	names, err := directory.Readdirnames(1)
-	if len(names) > 0 {
-		// There is no seek-back operation in this API. Caller only invokes
-		// this after a full page and cursor offset advances past this probe.
-		return true, nil
-	}
-	if errors.Is(err, io.EOF) {
-		return false, nil
-	}
-	return false, fmt.Errorf("read directory continuation: %w", err)
 }
 
 type cursorState struct {
