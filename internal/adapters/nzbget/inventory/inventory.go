@@ -44,6 +44,7 @@ const (
 	maxReasonCodes           = 256
 	maxVersionLength         = 128
 	maxRPCMethodLength       = 64
+	maxPostInfoLength        = 4096
 )
 
 const rpcPath = "/jsonrpc"
@@ -484,8 +485,9 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 		if observeErr != nil {
 			return inventorySnapshot{}, observeErr
 		}
+		itemIndex := appendObservation(&snapshot, seen, observation)
 		for _, reason := range reasons {
-			addReason(&snapshot.reasons, fmt.Sprintf("item_%d_%s", len(snapshot.items), reason))
+			addReason(&snapshot.reasons, fmt.Sprintf("item_%d_%s", itemIndex, reason))
 		}
 		if key := observation.NZBIDKey(); key != "" {
 			if _, exists := queueSeen[key]; exists {
@@ -493,7 +495,6 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 			}
 			queueSeen[key] = struct{}{}
 		}
-		appendObservation(&snapshot, seen, observation)
 	}
 	historySeen := make(map[string]struct{}, len(histories))
 	for index := range histories {
@@ -504,39 +505,43 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 		if observeErr != nil {
 			return inventorySnapshot{}, observeErr
 		}
+		if key := observation.NZBIDKey(); key != "" {
+			if previous, exists := seen[key]; exists && observationConflicts(snapshot.items[previous], observation) {
+				addReason(&snapshot.reasons, "queue_history_conflict")
+			}
+		}
+		itemIndex := appendObservation(&snapshot, seen, observation)
 		for _, reason := range reasons {
-			addReason(&snapshot.reasons, fmt.Sprintf("item_%d_%s", len(snapshot.items), reason))
+			addReason(&snapshot.reasons, fmt.Sprintf("item_%d_%s", itemIndex, reason))
 		}
 		if key := observation.NZBIDKey(); key != "" {
 			if _, exists := historySeen[key]; exists {
 				addReason(&snapshot.reasons, "history_duplicate_id")
 			}
-			if previous, exists := seen[key]; exists && observationConflicts(snapshot.items[previous], observation) {
-				addReason(&snapshot.reasons, "queue_history_conflict")
-			}
 			historySeen[key] = struct{}{}
 		}
-		appendObservation(&snapshot, seen, observation)
 	}
 	if len(snapshot.items) > client.config.MaxItems {
 		snapshot.items = snapshot.items[:client.config.MaxItems]
 		addReason(&snapshot.reasons, "items_limit")
 	}
+	client.reconcilePathReasons(&snapshot)
 	return snapshot, nil
 }
 
-func appendObservation(snapshot *inventorySnapshot, seen map[string]int, observation DownloadObservation) {
+func appendObservation(snapshot *inventorySnapshot, seen map[string]int, observation DownloadObservation) int {
 	key := observation.NZBIDKey()
 	if key == "" {
 		snapshot.items = append(snapshot.items, observation)
-		return
+		return len(snapshot.items) - 1
 	}
 	if previous, ok := seen[key]; ok {
 		mergeObservation(&snapshot.items[previous], observation)
-		return
+		return previous
 	}
 	seen[key] = len(snapshot.items)
 	snapshot.items = append(snapshot.items, observation)
+	return len(snapshot.items) - 1
 }
 
 func mergeObservation(existing *DownloadObservation, incoming DownloadObservation) {
@@ -556,15 +561,13 @@ func mergeObservation(existing *DownloadObservation, incoming DownloadObservatio
 		existing.DestDir = incoming.DestDir
 	}
 	finalMissing := existing.FinalDir == ""
-	if finalMissing {
+	if finalMissing && incoming.FinalDir != "" {
 		existing.FinalDir = incoming.FinalDir
-	}
-	if existing.ContentPath == "" || (finalMissing && incoming.FinalDir != "") {
 		existing.ContentPath = incoming.ContentPath
-	}
-	if (existing.MappedPath == nil || (finalMissing && incoming.FinalDir != "")) && incoming.MappedPath != nil {
-		target := *incoming.MappedPath
-		existing.MappedPath = &target
+		existing.MappedPath = cloneFileTarget(incoming.MappedPath)
+	} else if existing.ContentPath == "" && incoming.ContentPath != "" {
+		existing.ContentPath = incoming.ContentPath
+		existing.MappedPath = cloneFileTarget(incoming.MappedPath)
 	}
 	if existing.Drone == "" || (existing.ArrDownloadID == nzbIDString(existing.NZBID) && incoming.Drone != "") {
 		existing.Drone = incoming.Drone
@@ -585,6 +588,47 @@ func mergeObservation(existing *DownloadObservation, incoming DownloadObservatio
 	if existing.Item.Descriptor == nil || (!existing.Item.Descriptor.Available && incoming.Item.Descriptor != nil && incoming.Item.Descriptor.Available) {
 		existing.Item.Descriptor = incoming.Item.Descriptor
 	}
+}
+
+func cloneFileTarget(target *domain.FileTarget) *domain.FileTarget {
+	if target == nil {
+		return nil
+	}
+	copy := *target
+	return &copy
+}
+
+func (client *Client) reconcilePathReasons(snapshot *inventorySnapshot) {
+	filtered := snapshot.reasons[:0]
+	for _, reason := range snapshot.reasons {
+		if isItemPathReason(reason) {
+			continue
+		}
+		filtered = append(filtered, reason)
+	}
+	snapshot.reasons = filtered
+	for index := range snapshot.items {
+		for _, reason := range client.mapObservationPath(&snapshot.items[index]) {
+			addReason(&snapshot.reasons, fmt.Sprintf("item_%d_%s", index, reason))
+		}
+	}
+}
+
+func isItemPathReason(reason string) bool {
+	if !strings.HasPrefix(reason, "item_") {
+		return false
+	}
+	for _, suffix := range []string{
+		"_final_path_unknown",
+		"_final_path_unsafe",
+		"_final_path_mapping_ambiguous",
+		"_final_path_unmapped",
+	} {
+		if strings.HasSuffix(reason, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func observationConflicts(existing, incoming DownloadObservation) bool {
@@ -621,11 +665,12 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 		state, done, known = "unknown", false, false
 	}
 	progress, progressKnown := queueProgress(record)
+	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
 	observation := DownloadObservation{
 		NZBID: effectiveID, HistoryID: record.DeprecatedID, Kind: record.Kind,
 		NZBFilename: record.NZBFilename, NZBName: name, DestDir: record.DestDir,
 		FinalDir: record.FinalDir, ContentPath: firstNonEmpty(record.FinalDir, record.DestDir),
-		Drone: parameterValue(record.Parameters, "drone"), ArrDownloadID: firstNonEmpty(parameterValue(record.Parameters, "drone"), id),
+		Drone: drone, ArrDownloadID: firstNonEmpty(drone, id),
 		Queue: queueObservation(record),
 	}
 	observation.ScopedIdentity = client.ScopedIdentity(id)
@@ -640,7 +685,7 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 	if record.Kind == "" {
 		reasons = append(reasons, "kind_unknown")
 	}
-	if record.DeprecatedID != 0 && record.DeprecatedID != record.NZBID {
+	if record.NZBID > 0 && record.DeprecatedID > 0 && record.DeprecatedID != record.NZBID {
 		reasons = append(reasons, "history_id_alias_mismatch")
 	}
 	if record.Status == "" || !known {
@@ -654,7 +699,7 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 	if observation.ArrDownloadID == "" {
 		reasons = append(reasons, "arr_download_id_unknown")
 	}
-	if parametersMalformed(record.Parameters) {
+	if parametersMalformed(record.Parameters) || !droneValid {
 		reasons = append(reasons, "parameters_malformed")
 	}
 	reasons = append(reasons, client.mapObservationPath(&observation)...)
@@ -677,11 +722,12 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 		state, done, known, statusReason = "unknown", false, false, "history_id_alias_mismatch"
 	}
 	progress := historyProgress(record, done)
+	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
 	observation := DownloadObservation{
 		NZBID: effectiveID, HistoryID: record.DeprecatedID, Kind: record.Kind,
 		NZBFilename: record.NZBFilename, NZBName: name, DestDir: record.DestDir,
 		FinalDir: record.FinalDir, ContentPath: firstNonEmpty(record.FinalDir, record.DestDir),
-		Drone: parameterValue(record.Parameters, "drone"), ArrDownloadID: firstNonEmpty(parameterValue(record.Parameters, "drone"), id),
+		Drone: drone, ArrDownloadID: firstNonEmpty(drone, id),
 		History: historyObservation(record),
 	}
 	if record.HistoryTime > 0 {
@@ -700,7 +746,7 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 	if name == "" {
 		reasons = append(reasons, "name_unknown")
 	}
-	if record.DeprecatedID != 0 && record.DeprecatedID != record.NZBID {
+	if record.NZBID > 0 && record.DeprecatedID > 0 && record.DeprecatedID != record.NZBID {
 		reasons = append(reasons, "history_id_alias_mismatch")
 	}
 	if record.Kind == "" {
@@ -717,7 +763,7 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 	if observation.ArrDownloadID == "" {
 		reasons = append(reasons, "arr_download_id_unknown")
 	}
-	if parametersMalformed(record.Parameters) {
+	if parametersMalformed(record.Parameters) || !droneValid {
 		reasons = append(reasons, "parameters_malformed")
 	}
 	reasons = append(reasons, client.mapObservationPath(&observation)...)
@@ -729,8 +775,12 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 }
 
 func (client *Client) mapObservationPath(observation *DownloadObservation) []string {
+	observation.MappedPath = nil
 	if observation.ContentPath == "" {
 		return []string{"final_path_unknown"}
+	}
+	if !absoluteRemotePath(observation.ContentPath) {
+		return []string{"final_path_unsafe"}
 	}
 	target, ok, ambiguous := client.mapPath(observation.ContentPath)
 	if ambiguous {
@@ -752,7 +802,7 @@ func queueObservation(record queueRecord) *QueueObservation {
 		PausedBytes: combinedSize(record.PausedSizeHi, record.PausedSizeLo), FileCount: int64(record.FileCount), RemainingFiles: int64(record.RemainingFileCount),
 		ActiveDownloads: int64(record.ActiveDownloads), TotalArticles: int64(record.TotalArticles), SuccessArticles: int64(record.SuccessArticles), FailedArticles: int64(record.FailedArticles),
 		Health: int64(record.Health), CriticalHealth: int64(record.CriticalHealth), DownloadedBytes: combinedSize(record.DownloadedSizeHi, record.DownloadedSizeLo),
-		Parameters: parameterObservations(record.Parameters), PostInfoText: record.PostInfoText, PostStageProgress: int64(record.PostStageProgress),
+		Parameters: parameterObservations(record.Parameters), PostInfoText: redactSecretText(record.PostInfoText), PostStageProgress: int64(record.PostStageProgress),
 	}
 }
 
@@ -763,7 +813,7 @@ func historyObservation(record historyRecord) *HistoryObservation {
 	}
 	return &HistoryObservation{
 		NZBID: record.NZBID, DeprecatedID: record.DeprecatedID, Kind: record.Kind, NZBFilename: record.NZBFilename,
-		NZBName: firstNonEmpty(record.NZBName, record.NZBNicename), Name: record.Name, URL: record.URL, HistoryTime: historyTime,
+		NZBName: firstNonEmpty(record.NZBName, record.NZBNicename), Name: record.Name, URL: sanitizeURL(record.URL), HistoryTime: historyTime,
 		DestDir: record.DestDir, FinalDir: record.FinalDir, Category: record.Category,
 		FileSizeBytes: combinedSize(record.FileSizeHi, record.FileSizeLo), DownloadedBytes: combinedSize(record.DownloadedSizeHi, record.DownloadedSizeLo),
 		FileCount: int64(record.FileCount), RemainingFiles: int64(record.RemainingFileCount), Health: int64(record.Health), CriticalHealth: int64(record.CriticalHealth),
@@ -783,23 +833,35 @@ func parameterObservations(parameters []rpcParameter) []ParameterObservation {
 		if !ok {
 			continue
 		}
-		result = append(result, ParameterObservation{Name: parameter.Name, Value: value})
+		result = append(result, ParameterObservation{Name: parameter.Name, Value: sanitizeParameterValue(parameter.Name, value)})
 	}
 	return result
 }
 
-func parameterValue(parameters []rpcParameter, name string) string {
+func parameterValueStatus(parameters []rpcParameter, name string) (string, bool) {
 	var value string
+	found := false
 	for _, parameter := range parameters {
-		if parameter.Name != name {
+		if !strings.EqualFold(strings.TrimSpace(parameter.Name), name) {
 			continue
 		}
 		candidate, ok := rawString(parameter.Value)
-		if ok && value == "" {
+		if !ok {
+			return "", false
+		}
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if found && value != candidate {
+			return "", false
+		}
+		if !found {
 			value = candidate
+			found = true
 		}
 	}
-	return value
+	return value, true
 }
 
 func parametersMalformed(parameters []rpcParameter) bool {
@@ -809,6 +871,81 @@ func parametersMalformed(parameters []rpcParameter) bool {
 		}
 	}
 	return false
+}
+
+func sanitizeParameterValue(name, value string) string {
+	if sensitiveParameterName(name) || strings.Contains(strings.ToLower(name), "url") {
+		if strings.Contains(strings.ToLower(name), "url") && !sensitiveParameterName(name) {
+			return sanitizeURL(value)
+		}
+		return "[redacted]"
+	}
+	if containsSecretMarker(value) {
+		return "[redacted]"
+	}
+	return value
+}
+
+func sensitiveParameterName(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"password", "passwd", "passphrase", "secret", "token", "apikey", "api_key",
+		"authorization", "cookie", "credential", "private_key", "privatekey", "username",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return normalized == "key" || strings.HasSuffix(normalized, "_key") || strings.HasSuffix(normalized, "-key")
+}
+
+func containsSecretMarker(value string) bool {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{
+		"password", "passwd", "passphrase", "secret", "token", "apikey", "api_key",
+		"authorization", "bearer ", "cookie",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactSecretText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if containsSecretMarker(value) {
+		return "[redacted]"
+	}
+	if len(value) <= maxPostInfoLength {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) > maxPostInfoLength {
+		runes = runes[:maxPostInfoLength]
+	}
+	return string(runes)
+}
+
+func sanitizeURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "[redacted]"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func queueState(status string) (string, bool, bool) {
@@ -1175,14 +1312,14 @@ type rpcParameter struct {
 }
 
 type rpcRequest struct {
-	JSONRPC string `json:"jsonrpc"`
+	Version string `json:"version"`
 	Method  string `json:"method"`
 	Params  []any  `json:"params"`
 	ID      uint64 `json:"id"`
 }
 
 type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
+	Version string          `json:"version"`
 	ID      json.RawMessage `json:"id"`
 	Result  json.RawMessage `json:"result"`
 	Error   *rpcError       `json:"error"`
@@ -1198,7 +1335,7 @@ func (client *Client) rpcCall(ctx context.Context, method string, params []any, 
 		return nil, invalidInput("nzbget.rpc.method")
 	}
 	requestID := client.requestID.Add(1)
-	requestBody, err := json.Marshal(rpcRequest{JSONRPC: "2.0", Method: method, Params: params, ID: requestID})
+	requestBody, err := json.Marshal(rpcRequest{Version: "1.1", Method: method, Params: params, ID: requestID})
 	if err != nil {
 		return nil, errors.New("NZBGet request could not be encoded")
 	}
@@ -1243,7 +1380,7 @@ func (client *Client) rpcCall(ctx context.Context, method string, params []any, 
 	if err := decodeJSON(body, &envelope); err != nil {
 		return nil, upstreamMalformed("nzbget." + method)
 	}
-	if envelope.JSONRPC != "2.0" || !rpcResponseIDMatches(envelope.ID, requestID) {
+	if envelope.Version != "1.1" || !rpcResponseIDMatches(envelope.ID, requestID) {
 		return nil, upstreamMalformed("nzbget." + method)
 	}
 	if envelope.Error != nil {
@@ -1366,7 +1503,7 @@ func validateMappings(connectionID domain.ConfigID, mappings []domain.PathMappin
 			continue
 		}
 		rawPrefix := strings.TrimSpace(mapping.SourcePrefix)
-		if rawPrefix == "" || !strings.HasPrefix(rawPrefix, "/") {
+		if rawPrefix == "" || !absoluteRemotePath(rawPrefix) {
 			return errors.New("NZBGet path mapping is invalid")
 		}
 		prefix := normalizeMappingPrefix(rawPrefix)
@@ -1384,6 +1521,9 @@ func validateMappings(connectionID domain.ConfigID, mappings []domain.PathMappin
 }
 
 func (client *Client) mapPath(remote string) (domain.FileTarget, bool, bool) {
+	if !absoluteRemotePath(remote) {
+		return domain.FileTarget{}, false, false
+	}
 	bestLength := -1
 	var selected domain.PathMapping
 	ambiguous := false
@@ -1435,7 +1575,15 @@ func normalizeMappingPrefix(value string) string {
 }
 
 func absoluteRemotePath(value string) bool {
-	return strings.HasPrefix(value, "/") && !strings.Contains(value, "\\") && !strings.Contains(value, "\x00")
+	if !strings.HasPrefix(value, "/") || strings.Contains(value, "\\") || strings.Contains(value, "\x00") || strings.Contains(value, "//") {
+		return false
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
+		if component == "." || component == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func pathBoundaryMatch(value, prefix string) bool {
@@ -1480,18 +1628,12 @@ func firstNonEmpty(values ...string) string {
 
 func rawString(value json.RawMessage) (string, bool) {
 	value = bytes.TrimSpace(value)
-	if len(value) == 0 || bytes.Equal(value, []byte("null")) {
+	if len(value) == 0 {
 		return "", false
 	}
 	var stringValue string
-	if json.Unmarshal(value, &stringValue) == nil {
+	if json.Unmarshal(value, &stringValue) == nil && len(value) > 0 && value[0] == '"' {
 		return stringValue, true
-	}
-	var number json.Number
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.UseNumber()
-	if decoder.Decode(&number) == nil && number.String() != "" {
-		return number.String(), true
 	}
 	return "", false
 }

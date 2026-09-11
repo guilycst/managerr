@@ -21,8 +21,9 @@ import (
 )
 
 type rpcFixtureCall struct {
-	Method string
-	Params []json.RawMessage
+	Version string
+	Method  string
+	Params  []json.RawMessage
 }
 
 type rpcFixtureHandler struct {
@@ -43,7 +44,9 @@ type rpcFixtureHandler struct {
 	blockMethod        string
 	blockDone          chan struct{}
 	responseJSONRPC    string
+	responseVersion    string
 	responseID         json.RawMessage
+	responseError      *rpcError
 	calls              []rpcFixtureCall
 	methods            []string
 }
@@ -61,9 +64,10 @@ func (handler *rpcFixtureHandler) ServeHTTP(response http.ResponseWriter, reques
 		}
 	}
 	var incoming struct {
-		Method string            `json:"method"`
-		Params []json.RawMessage `json:"params"`
-		ID     json.RawMessage   `json:"id"`
+		Version string            `json:"version"`
+		Method  string            `json:"method"`
+		Params  []json.RawMessage `json:"params"`
+		ID      json.RawMessage   `json:"id"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&incoming); err != nil {
 		response.WriteHeader(http.StatusBadRequest)
@@ -71,7 +75,7 @@ func (handler *rpcFixtureHandler) ServeHTTP(response http.ResponseWriter, reques
 	}
 	handler.mu.Lock()
 	handler.methods = append(handler.methods, incoming.Method)
-	handler.calls = append(handler.calls, rpcFixtureCall{Method: incoming.Method, Params: append([]json.RawMessage(nil), incoming.Params...)})
+	handler.calls = append(handler.calls, rpcFixtureCall{Version: incoming.Version, Method: incoming.Method, Params: append([]json.RawMessage(nil), incoming.Params...)})
 	status := handler.status[incoming.Method]
 	malformed := handler.malformed[incoming.Method]
 	var result []byte
@@ -115,16 +119,27 @@ func (handler *rpcFixtureHandler) ServeHTTP(response http.ResponseWriter, reques
 		result = []byte("null")
 	}
 	response.Header().Set("Content-Type", "application/json")
-	jsonrpc := handler.responseJSONRPC
-	if jsonrpc == "" {
-		jsonrpc = "2.0"
+	version := handler.responseVersion
+	if version == "" {
+		version = "1.1"
 	}
 	responseID := handler.responseID
 	if len(responseID) == 0 {
 		responseID = incoming.ID
 	}
-	_, _ = response.Write([]byte(`{"jsonrpc":"` + jsonrpc + `","id":`))
+	if handler.responseJSONRPC != "" {
+		_, _ = response.Write([]byte(`{"jsonrpc":"` + handler.responseJSONRPC + `","id":`))
+	} else {
+		_, _ = response.Write([]byte(`{"version":"` + version + `","id":`))
+	}
 	_, _ = response.Write(responseID)
+	if handler.responseError != nil {
+		errorBody, _ := json.Marshal(handler.responseError)
+		_, _ = response.Write([]byte(`,"error":`))
+		_, _ = response.Write(errorBody)
+		_, _ = response.Write([]byte("}"))
+		return
+	}
 	_, _ = response.Write([]byte(`,"result":`))
 	_, _ = response.Write(result)
 	_, _ = response.Write([]byte("}"))
@@ -228,7 +243,7 @@ func TestListQueueHistoryCorrelationAndMapping(t *testing.T) {
 		t.Fatalf("queue observation = %#v", queue)
 	}
 	processing := page.Items[1]
-	if processing.NZBID != 78 || processing.Item.State != "completed" || !processing.Item.ProcessingDone || processing.ArrDownloadID != "78" || processing.MappedPath == nil || processing.MappedPath.RelativePath != "managed/movies/Example Processing" || processing.Item.Progress != 1 {
+	if processing.NZBID != 78 || processing.Item.State != "completed" || !processing.Item.ProcessingDone || processing.ArrDownloadID != "78" || processing.MappedPath == nil || processing.MappedPath.RelativePath != "managed/movies/Example Processing" || processing.Item.Progress != 1 || processing.Queue == nil || processing.Queue.PostInfoText != "" {
 		t.Fatalf("post-processing observation = %#v, mapped=%+v", processing, processing.MappedPath)
 	}
 	history := page.Items[2]
@@ -346,6 +361,165 @@ func TestRPCEnvelopeAndParameterEvidence(t *testing.T) {
 	}
 }
 
+func TestJSONRPC11EnvelopeAndRequest(t *testing.T) {
+	handler := &rpcFixtureHandler{version: fixture(t, "version.json"), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-rpc11", nil)
+	defer closeServer()
+	version, err := client.Version(context.Background(), "nzb-rpc11")
+	if err != nil || version.Version != "24.2.1" {
+		t.Fatalf("JSON-RPC 1.1 version = %#v, %v", version, err)
+	}
+	handler.mu.Lock()
+	if len(handler.calls) != 1 || handler.calls[0].Version != "1.1" || handler.calls[0].Method != "version" || len(handler.calls[0].Params) != 0 {
+		t.Fatalf("JSON-RPC 1.1 request = %#v", handler.calls)
+	}
+	handler.mu.Unlock()
+
+	errorHandler := &rpcFixtureHandler{
+		version:       fixture(t, "version.json"),
+		status:        map[string]int{},
+		malformed:     map[string]bool{},
+		responseError: &rpcError{Code: -32601, Message: "synthetic method unavailable"},
+	}
+	errorClient, closeError := newFixtureClient(t, errorHandler, "nzb-rpc11-error", nil)
+	defer closeError()
+	assertErrorCode(t, func() error {
+		_, callErr := errorClient.Version(context.Background(), "nzb-rpc11-error")
+		return callErr
+	}(), domain.OutcomeUnsupported)
+
+	wrongVersion := &rpcFixtureHandler{
+		version:         fixture(t, "version.json"),
+		status:          map[string]int{},
+		malformed:       map[string]bool{},
+		responseJSONRPC: "2.0",
+	}
+	wrongClient, closeWrong := newFixtureClient(t, wrongVersion, "nzb-rpc11-wrong", nil)
+	defer closeWrong()
+	assertErrorCode(t, func() error {
+		_, callErr := wrongClient.Version(context.Background(), "nzb-rpc11-wrong")
+		return callErr
+	}(), domain.OutcomeUnknown)
+}
+
+func TestFinalDirMergeReplacesFallbackMappingAndReasonIndex(t *testing.T) {
+	queue := []map[string]any{{
+		"NZBID": 501, "ID": 501, "Kind": "NZB", "NZBName": "Merged Final Directory",
+		"DestDir": "/downloads/incoming", "Status": "QUEUED",
+	}}
+	history := []map[string]any{{
+		"NZBID": 501, "ID": 501, "Kind": "NZB", "NZBName": "Merged Final Directory",
+		"DestDir": "/downloads/incoming", "FinalDir": "/outside/final", "Status": "SUCCESS/ALL",
+	}}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-final-merge", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-final-merge", "", 1)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("merged final directory = %#v, %v", page, err)
+	}
+	item := page.Items[0]
+	if item.ContentPath != "/outside/final" || item.FinalDir != "/outside/final" || item.MappedPath != nil {
+		t.Fatalf("stale fallback mapping retained = %#v", item)
+	}
+	if !hasReason(page.Coverage, "item_0_final_path_unmapped") || hasReason(page.Coverage, "item_1_final_path_unmapped") {
+		t.Fatalf("final directory reason index = %#v", page.Coverage.ReasonCodes)
+	}
+}
+
+func TestTraversalBearingPathsRemainUnmapped(t *testing.T) {
+	handler := &rpcFixtureHandler{queue: fixture(t, "empty.json"), history: fixture(t, "empty.json"), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-path-safety", nil)
+	defer closeServer()
+	for _, remote := range []string{
+		"/downloads/../secret/movie.mkv",
+		"/downloads/./movie.mkv",
+		"//downloads/movie.mkv",
+		"/downloads//movie.mkv",
+		"\\downloads\\movie.mkv",
+		"downloads/movie.mkv",
+	} {
+		if _, ok, ambiguous := client.mapPath(remote); ok || ambiguous {
+			t.Errorf("unsafe remote path mapped: %q", remote)
+		}
+	}
+	for _, prefix := range []string{"/downloads/../secret", "/downloads/./movies", "/downloads//movies"} {
+		config := Config{
+			ConnectionID: "nzb-path-safety", Endpoint: "https://example.test",
+			Mappings: []domain.PathMapping{{ConnectionID: "nzb-path-safety", SourcePrefix: prefix, RootID: "library"}},
+		}
+		if _, err := New(config); err == nil {
+			t.Errorf("unsafe source prefix accepted: %q", prefix)
+		}
+	}
+
+	queue := []map[string]any{{"NZBID": 801, "NZBName": "Traversal", "Status": "QUEUED", "FinalDir": "/downloads/../secret"}}
+	unsafeHandler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: fixture(t, "empty.json"), status: map[string]int{}, malformed: map[string]bool{}}
+	unsafeClient, closeUnsafe := newFixtureClient(t, unsafeHandler, "nzb-path-safety-observed", nil)
+	defer closeUnsafe()
+	page, err := unsafeClient.ListDetailed(context.Background(), "nzb-path-safety-observed", "", 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].MappedPath != nil || !hasReason(page.Coverage, "item_0_final_path_unsafe") {
+		t.Fatalf("unsafe observed final directory = %#v, %v", page, err)
+	}
+}
+
+func TestNumericDroneDoesNotFabricateArrIdentity(t *testing.T) {
+	queue := []map[string]any{{
+		"NZBID": 902, "NZBName": "Numeric Drone", "Status": "QUEUED", "DestDir": "/downloads",
+		"Parameters": []map[string]any{{"Name": "drone", "Value": 12345}},
+	}}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: fixture(t, "empty.json"), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-drone-type", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-drone-type", "", 1)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("numeric drone page = %#v, %v", page, err)
+	}
+	item := page.Items[0]
+	if item.Drone != "" || item.ArrDownloadID != "902" || !hasReason(page.Coverage, "item_0_parameters_malformed") || len(item.Queue.Parameters) != 0 {
+		t.Fatalf("numeric drone correlation = %#v, coverage=%#v", item, page.Coverage)
+	}
+}
+
+func TestDetailedSecretEvidenceIsRedacted(t *testing.T) {
+	const (
+		password = "synthetic-secret-password"
+		token    = "synthetic-secret-token"
+	)
+	queue := []map[string]any{{
+		"NZBID": 903, "NZBName": "Redacted Queue", "Status": "QUEUED", "DestDir": "/downloads",
+		"PostInfoText": "password=" + password,
+		"Parameters": []map[string]any{
+			{"Name": "*Unpack:Password", "Value": password},
+			{"Name": "public", "Value": "token=" + token},
+		},
+	}}
+	history := []map[string]any{{
+		"NZBID": 903, "ID": 903, "Kind": "NZB", "NZBName": "Redacted History", "Name": "Redacted History",
+		"Status": "SUCCESS/ALL", "URL": "https://fixture-user:" + password + "@example.test/nzb?apikey=" + token,
+		"Parameters": []map[string]any{{"Name": "ApiKey", "Value": token}, {"Name": "source", "Value": "manual"}},
+	}}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-redaction", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-redaction", "", 1)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("redaction page = %#v, %v", page, err)
+	}
+	item := page.Items[0]
+	if item.Queue == nil || item.History == nil || item.Queue.PostInfoText != "[redacted]" || item.History.URL != "https://example.test/nzb" {
+		t.Fatalf("redacted detail fields = %#v", item)
+	}
+	for _, parameter := range append(item.Queue.Parameters, item.History.Parameters...) {
+		if parameter.Value == password || parameter.Value == token || strings.Contains(parameter.Value, password) || strings.Contains(parameter.Value, token) {
+			t.Fatalf("secret parameter leaked: %#v", parameter)
+		}
+	}
+	if strings.Contains(fmt.Sprintf("%#v", page), password) || strings.Contains(fmt.Sprintf("%#v", page), token) {
+		t.Fatalf("secret detailed evidence leaked: %#v", page)
+	}
+}
+
 func TestHistoryAliasFallbackAndProcessingStates(t *testing.T) {
 	history := []map[string]any{
 		{"ID": 9, "Kind": "NZB", "NZBName": "Alias Only", "DestDir": "/downloads/a", "Status": "SUCCESS/ALL"},
@@ -366,6 +540,9 @@ func TestHistoryAliasFallbackAndProcessingStates(t *testing.T) {
 	}
 	if page.Items[0].NZBID != 9 || page.Items[0].Item.ExternalID != "9" || page.Items[0].HistoryID != 9 || !page.Items[0].Item.ProcessingDone {
 		t.Fatalf("deprecated ID fallback = %#v", page.Items[0])
+	}
+	if hasReason(page.Coverage, "item_0_history_id_alias_mismatch") {
+		t.Fatalf("ID-only history was treated as contradictory: %#v", page.Coverage.ReasonCodes)
 	}
 	if page.Items[1].Item.ProcessingDone || page.Items[1].Item.State != "completed" || !hasReason(page.Coverage, "item_1_processing_warning") {
 		t.Fatalf("warning state = %#v", page.Items[1])
