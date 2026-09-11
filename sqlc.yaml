@@ -10,6 +10,7 @@ sql:
       - migrations/000005_storage_safety.up.sql
       - migrations/000006_approval_safety.up.sql
       - migrations/000007_storage_recovery_safety.up.sql
+      - migrations/000008_storage_recovery_concurrency.up.sql
     queries: internal/storage/query.sql
     gen:
       go:

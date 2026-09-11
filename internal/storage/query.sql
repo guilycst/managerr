@@ -488,6 +488,7 @@ UPDATE action_runs SET
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = sqlc.arg(now)
 WHERE state = 'running'
+   OR (state = 'reconciling' AND claimed_by IS NOT NULL)
 RETURNING *;
 
 -- name: RecoverExpiredActionRuns :many
@@ -497,7 +498,8 @@ UPDATE action_runs SET
     state = 'reconciling', next_attempt_at = sqlc.arg(now),
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = sqlc.arg(now)
-WHERE state = 'running'
+WHERE (state = 'running'
+    OR (state = 'reconciling' AND claimed_by IS NOT NULL))
   AND (lease_until IS NULL OR lease_until <= sqlc.arg(now))
 RETURNING *;
 
@@ -807,8 +809,10 @@ RETURNING *;
 
 -- name: ClaimApprovedEarlyPurgeReconciliation :one
 -- Reacquires a janitor/trash lease for read-only reconciliation after startup
--- recovery. The associated action run must remain reconciling and unleased;
--- no external mutation is dispatched by this CAS.
+-- recovery. The associated action run remains reconciling but is fenced with
+-- the same worker lease by the migration trigger; no external mutation is
+-- dispatched by this CAS. The trash generation follows the current janitor
+-- generation, rather than a fixed offset from the approval-time version.
 UPDATE janitor_records
 SET state = 'running',
     claimed_by = sqlc.arg(worker_id),
@@ -837,6 +841,7 @@ WHERE janitor_records.id = sqlc.arg(id)
         AND action.plan_revision = sqlc.arg(approval_plan_revision)
         AND action.plan_digest = sqlc.arg(approval_plan_digest)
         AND action.state = 'reconciling'
+        AND action.version = janitor_records.version
         AND action.version > sqlc.arg(approval_action_run_version) + 1
         AND action.claimed_by IS NULL
         AND action.lease_until IS NULL
@@ -868,7 +873,7 @@ WHERE janitor_records.id = sqlc.arg(id)
       WHERE entry.id = sqlc.arg(trash_entry_id)
         AND entry.state = 'purging'
         AND entry.active_operation = 'purge'
-        AND entry.version = sqlc.arg(approved_entry_version) + 2
+        AND entry.version = janitor_records.version + sqlc.arg(approved_entry_version) - 1
         AND entry.operation_claimed_by IS NULL
         AND entry.operation_lease_until IS NULL
   )

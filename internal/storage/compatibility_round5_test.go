@@ -116,7 +116,7 @@ func TestRound5LegacyApprovalIsHeldAndCannotGenericReclaimAcrossDownUp(t *testin
 		t.Fatal(err)
 	}
 
-	if err := runRound5MigrationSteps(path, -3); err != nil {
+	if err := runRound5MigrationSteps(path, -4); err != nil {
 		t.Fatalf("down to v4: %v", err)
 	}
 	check := openRound5DB(t, path)
@@ -303,7 +303,7 @@ func TestRound5QuarantineReupgradeRejectsChangedEvidenceAndAllowsExactDuplicate(
 			if err := upgraded.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if err := runRound5MigrationSteps(path, -3); err != nil {
+			if err := runRound5MigrationSteps(path, -4); err != nil {
 				t.Fatalf("down to nullable v4: %v", err)
 			}
 

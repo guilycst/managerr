@@ -16,8 +16,10 @@ type Querier interface {
 	// decision and action-run identities before it changes the shared entry.
 	ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprovedEarlyPurgeParams) (*JanitorRecord, error)
 	// Reacquires a janitor/trash lease for read-only reconciliation after startup
-	// recovery. The associated action run must remain reconciling and unleased;
-	// no external mutation is dispatched by this CAS.
+	// recovery. The associated action run remains reconciling but is fenced with
+	// the same worker lease by the migration trigger; no external mutation is
+	// dispatched by this CAS. The trash generation follows the current janitor
+	// generation, rather than a fixed offset from the approval-time version.
 	ClaimApprovedEarlyPurgeReconciliation(ctx context.Context, arg *ClaimApprovedEarlyPurgeReconciliationParams) (*JanitorRecord, error)
 	ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecordParams) (*JanitorRecord, error)
 	CreateActionAttempt(ctx context.Context, arg *CreateActionAttemptParams) (*ActionAttempt, error)

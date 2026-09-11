@@ -186,11 +186,12 @@ func TestRound6ApprovedPurgeReacquiresAfterRestartAndResolves(t *testing.T) {
 		t.Fatalf("reacquired janitor = %+v, want running version 4 with worker lease", reclaimed)
 	}
 	var actionVersion int64
-	if err := reopened.DB().QueryRow("SELECT version FROM action_runs WHERE id = ? AND state = 'reconciling' AND claimed_by IS NULL AND lease_until IS NULL", fixture.actionRunID).Scan(&actionVersion); err != nil {
-		t.Fatalf("action remained read-only reconciling: %v", err)
+	var actionLeaseUntil string
+	if err := reopened.DB().QueryRow("SELECT version, claimed_by, lease_until FROM action_runs WHERE id = ? AND state = 'reconciling' AND claimed_by IS NOT NULL AND lease_until IS NOT NULL", fixture.actionRunID).Scan(&actionVersion, &actionClaimedBy, &actionLeaseUntil); err != nil {
+		t.Fatalf("action was not fenced for read-only reconciling: %v", err)
 	}
-	if actionVersion != 3 {
-		t.Fatalf("reconciled action version = %d, want 3", actionVersion)
+	if actionVersion != 4 || actionClaimedBy != "round6-reconciler" || actionLeaseUntil != "2026-09-11T00:02:00Z" {
+		t.Fatalf("reconciled action fence = version=%d worker=%q lease=%q, want 4/round6-reconciler/2026-09-11T00:02:00Z", actionVersion, actionClaimedBy, actionLeaseUntil)
 	}
 	var entryVersion int64
 	if err := reopened.DB().QueryRow("SELECT version FROM trash_entries WHERE id = ? AND state = 'purging' AND active_operation = 'purge' AND operation_claimed_by = 'round6-reconciler'", fixture.entryID).Scan(&entryVersion); err != nil {

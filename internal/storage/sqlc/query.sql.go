@@ -187,6 +187,7 @@ WHERE janitor_records.id = ?4
         AND action.plan_revision = ?8
         AND action.plan_digest = ?9
         AND action.state = 'reconciling'
+        AND action.version = janitor_records.version
         AND action.version > ?13 + 1
         AND action.claimed_by IS NULL
         AND action.lease_until IS NULL
@@ -218,7 +219,7 @@ WHERE janitor_records.id = ?4
       WHERE entry.id = ?6
         AND entry.state = 'purging'
         AND entry.active_operation = 'purge'
-        AND entry.version = ?12 + 2
+        AND entry.version = janitor_records.version + ?12 - 1
         AND entry.operation_claimed_by IS NULL
         AND entry.operation_lease_until IS NULL
   )
@@ -242,8 +243,10 @@ type ClaimApprovedEarlyPurgeReconciliationParams struct {
 }
 
 // Reacquires a janitor/trash lease for read-only reconciliation after startup
-// recovery. The associated action run must remain reconciling and unleased;
-// no external mutation is dispatched by this CAS.
+// recovery. The associated action run remains reconciling but is fenced with
+// the same worker lease by the migration trigger; no external mutation is
+// dispatched by this CAS. The trash generation follows the current janitor
+// generation, rather than a fixed offset from the approval-time version.
 func (q *Queries) ClaimApprovedEarlyPurgeReconciliation(ctx context.Context, arg *ClaimApprovedEarlyPurgeReconciliationParams) (*JanitorRecord, error) {
 	row := q.db.QueryRowContext(ctx, claimApprovedEarlyPurgeReconciliation,
 		arg.WorkerID,
@@ -4024,7 +4027,8 @@ UPDATE action_runs SET
     state = 'reconciling', next_attempt_at = ?1,
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = ?1
-WHERE state = 'running'
+WHERE (state = 'running'
+    OR (state = 'reconciling' AND claimed_by IS NOT NULL))
   AND (lease_until IS NULL OR lease_until <= ?1)
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
@@ -4175,6 +4179,7 @@ UPDATE action_runs SET
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = ?1
 WHERE state = 'running'
+   OR (state = 'reconciling' AND claimed_by IS NOT NULL)
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
 
