@@ -507,6 +507,7 @@ const (
 	ErrorCancelled                  = ErrorCanceled
 	ErrorMalformed        ErrorKind = "malformed_response"
 	ErrorProtocol         ErrorKind = "protocol_error"
+	ErrorUnsupported      ErrorKind = "unsupported"
 	ErrorResponseTooLarge ErrorKind = "response_too_large"
 	ErrorRemote           ErrorKind = "remote_error"
 )
@@ -698,7 +699,7 @@ func normalizeRPCError(method string, upstream *wireError) error {
 	case -32600, -32602:
 		kind = ErrorInvalidInput
 	case -32601:
-		kind = ErrorProtocol
+		kind = ErrorUnsupported
 	case -32000, -32001, -32002:
 		kind, retryable = ErrorUnavailable, true
 	}

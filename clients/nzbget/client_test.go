@@ -253,7 +253,7 @@ func TestMalformedOversizedAndRPCFailures(t *testing.T) {
 	}
 	_, err = client.Version(context.Background())
 	var upstream *UpstreamError
-	if !errors.As(err, &upstream) || upstream.Kind != ErrorProtocol || upstream.RPCCode != -32601 || strings.Contains(err.Error(), "secret") {
+	if !errors.As(err, &upstream) || upstream.Kind != ErrorUnsupported || upstream.RPCCode != -32601 || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("RPC error = %#v, %v", upstream, err)
 	}
 }
