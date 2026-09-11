@@ -502,11 +502,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
+      "implementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -547,18 +547,18 @@
         "docs/execution/handoffs/D-01-round11.md",
         "root race red in unowned Seerr test: internal/adapters/seerr/client_test.go:397",
         "559a9b435f648f89e79eca707ba2b86bada51dbf D-01 round-eleven review receipt",
-        "docs/execution/handoffs/D-01-review-round11.md"
+        "docs/execution/handoffs/D-01-review-round11.md",
+        "35ad5ca2ba265643134a8fa08d747ee91ad95c73 D-01 correction round-twelve product",
+        "c07ba01410949a052ad5276c5f9a48406b49a6a7 D-01 correction round-twelve handoff",
+        "docs/execution/handoffs/D-01-round12.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "559a9b435f648f89e79eca707ba2b86bada51dbf",
-        "findings": [
-          "P1: unrelated or wrong-target durable effects can prove a purge, and duplicated state/outcome predicates can produce contradictory state/outcome pairs",
-          "P1: a NULL cancellation timestamp advances the action generation without recording cancellation or synchronizing the janitor/trash generation"
-        ],
-        "round": 11
+        "commit": null,
+        "findings": [],
+        "round": 12
       },
       "reviewHistory": [
         {
@@ -668,11 +668,13 @@
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round12.md",
-        "implementationCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
-        "handoffCommit": "c354dfd73c46f7bf08f4ad007d93c2df23daca9d",
+        "implementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
+        "handoffCommit": "c07ba01410949a052ad5276c5f9a48406b49a6a7",
         "reviewCommit": "559a9b435f648f89e79eca707ba2b86bada51dbf",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972"
+        "reviewSourceCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
+        "correctionImplementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
+        "correctionHandoffCommit": "c07ba01410949a052ad5276c5f9a48406b49a6a7"
       }
     },
     "D-02": {
@@ -1432,7 +1434,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete X-04 correction round two, D-01 correction round twelve, and X-03 correction round six",
+  "nextAction": "Complete independent D-01 round-twelve, X-04 round-two, and X-03 round-six reviews",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
