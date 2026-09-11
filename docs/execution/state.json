@@ -1086,7 +1086,7 @@
       "review": {
         "status": "pending",
         "decision": "pending",
-        "reviewer": "/root/f01_reviewer",
+        "reviewer": "/root/d01_reviewer",
         "commit": null,
         "findings": [],
         "round": 1
@@ -1109,7 +1109,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-04-review-round1.md",
         "handoffPath": "docs/execution/handoffs/X-04.md",
-        "nextReviewer": "/root/f01_reviewer",
+        "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
@@ -1117,7 +1117,9 @@
         "reassignedFrom": "/root/c01_implementer",
         "reassignmentReason": "No X-04 files were written; c01 is reassigned to the X-03 correction before X-04 starts",
         "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
-        "attempt": 2
+        "attempt": 2,
+        "reviewerReassignedFrom": "/root/f01_reviewer",
+        "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review"
       }
     },
     "X-05": {
@@ -1348,7 +1350,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement D-01 round-ten, X-03 round-four, and X-04 observations, then run independent reviews",
+  "nextAction": "Run D-01 round-ten and X-03 round-four corrections while X-04 builds its read adapters",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
