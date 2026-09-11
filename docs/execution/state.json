@@ -502,7 +502,7 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
@@ -520,18 +520,17 @@
         "8c2d76cc4927af04a0d6837d0be8e12fbb97518c D-01 round-five handoff",
         "./scripts/generate.sh --check",
         "GOWORK=off go mod verify",
-        "5829da918aecad00346075b9f1cb29612f196e0d D-01 round-six correction product"
+        "5829da918aecad00346075b9f1cb29612f196e0d D-01 round-six correction product",
+        "docs/execution/handoffs/D-01-review-round6.md",
+        "9cf358c7c31bef2bb828f528356f8bd71a220b8c D-01 round-six handoff"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
-        "findings": [
-          "P1: a populated v5 post-approval purge target remains executable after the v6 upgrade",
-          "P1: an approval-bound purge cannot reacquire its lease after startup recovery"
-        ],
-        "round": 5
+        "commit": null,
+        "findings": [],
+        "round": 6
       },
       "reviewHistory": [
         {
@@ -592,7 +591,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round5.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round6.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -602,7 +601,9 @@
         "correctionBaseSha": "6eda9b03f1fe6c6128e0e650226a31d08dcbb658",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round6.md",
         "implementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d",
-        "correctionImplementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d"
+        "correctionImplementationCommit": "5829da918aecad00346075b9f1cb29612f196e0d",
+        "correctionHandoffCommit": "9cf358c7c31bef2bb828f528356f8bd71a220b8c",
+        "handoffCommit": "9cf358c7c31bef2bb828f528356f8bd71a220b8c"
       }
     },
     "D-02": {
@@ -1188,7 +1189,7 @@
       "review": null
     }
   },
-  "nextAction": "Finish D-01 and X-03 reviews, then run the X-02 correction against its six findings",
+  "nextAction": "Complete the independent D-01 and X-03 reviews while X-02 correction runs",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
