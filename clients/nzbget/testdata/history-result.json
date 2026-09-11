@@ -1,0 +1,26 @@
+[
+  {
+    "NZBID": 0,
+    "ID": 77,
+    "Kind": "NZB",
+    "NZBFilename": "/incoming/Example Series.nzb",
+    "Name": "Example Series",
+    "NZBName": "Example Series",
+    "HistoryTime": 1700000000,
+    "DestDir": "/downloads/tv",
+    "FinalDir": "/downloads/tv/Example Series/Season 01",
+    "Category": "tv",
+    "FileSizeLo": 1000,
+    "FileSizeHi": 1,
+    "DownloadedSizeLo": 1000,
+    "DownloadedSizeHi": 1,
+    "Status": "SUCCESS/ALL",
+    "ParStatus": "SUCCESS",
+    "UnpackStatus": "SUCCESS",
+    "ScriptStatus": "SUCCESS",
+    "MoveStatus": "SUCCESS",
+    "Parameters": [
+      {"Name": "drone", "Value": null}
+    ]
+  }
+]

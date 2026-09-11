@@ -1,0 +1,19 @@
+[
+  {
+    "ID": 1701,
+    "NZBID": 77,
+    "NZBFilename": "/incoming/Example Series.nzb",
+    "NZBName": "Example Series",
+    "Subject": "Example Series - episode.mkv",
+    "Filename": "episode.mkv",
+    "FilenameConfirmed": true,
+    "DestDir": "/downloads/tv",
+    "FileSizeLo": 2000,
+    "FileSizeHi": 2,
+    "RemainingSizeLo": 0,
+    "RemainingSizeHi": 0,
+    "Paused": false,
+    "Category": "tv",
+    "Progress": 1000
+  }
+]
