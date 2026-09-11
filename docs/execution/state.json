@@ -1510,11 +1510,15 @@
       "review": null
     },
     "X-10": {
-      "status": "assigned",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
-      "evidence": [],
+      "evidence": [
+        "915eaab2568394ae4afb2ab0e580e8db9936fec8 X-10 product",
+        "54584d510466281d0bc5a39a7ec161894596e934 X-10 handoff",
+        "docs/execution/handoffs/X-10.md"
+      ],
       "review": {
         "status": "pending",
         "decision": "pending",
@@ -1546,8 +1550,12 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77"
-      }
+        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
+        "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
+        "handoffCommit": "54584d510466281d0bc5a39a7ec161894596e934",
+        "reviewSourceCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8"
+      },
+      "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8"
     },
     "X-11": {
       "status": "assigned",
@@ -1607,7 +1615,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 and X-11 are assigned in parallel from the recorded base; wait for their product and handoff commits, then review each module independently before C-05 CI wiring.",
+  "nextAction": "X-10 is in independent review; keep X-11 in progress, then record both review receipts before dispatching C-05 generation/CI wiring.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
