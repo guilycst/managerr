@@ -267,7 +267,7 @@
     },
     "C-03": {
       "status": "in_progress",
-      "owner": "/root/c03_implementer_retry",
+      "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
       "evidence": [],
@@ -302,7 +302,13 @@
           "owner": "/root/c03_implementer_retry",
           "assignedAt": "2026-09-11",
           "scope": "minimal domain, port, bootstrap env parser and generated environment documentation",
-          "status": "in_progress"
+          "status": "interrupted",
+          "reason": "bounded retry window exceeded without handoff or file changes"
+        },
+        "coordinatorTakeover": {
+          "owner": "/root",
+          "assignedAt": "2026-09-11",
+          "reason": "two bounded Luna attempts produced no files; preserve domain/bootstrap contract gate by implementing owned slice directly"
         }
       }
     },
@@ -579,7 +585,7 @@
       "review": null
     }
   },
-  "nextAction": "Await bounded C-03 retry, then dispatch independent review",
+  "nextAction": "Coordinator takeover of C-03, then dispatch independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
