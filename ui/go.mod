@@ -4,4 +4,9 @@ go 1.27.0
 
 toolchain go1.27.1
 
-require github.com/oapi-codegen/runtime v1.7.0
+require (
+	github.com/a-h/templ v0.3.1020
+	github.com/araihu/goshtoso v0.3.0
+	github.com/araihu/goshtoso-app-shells v0.1.9-0.20260910224508-5b2222e54637
+	github.com/oapi-codegen/runtime v1.7.0
+)

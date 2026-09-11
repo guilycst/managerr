@@ -1,2 +1,8 @@
+github.com/a-h/templ v0.3.1020 h1:ypAT/L5ySWEnZ6Zft/5yfoWXYYkhFNvEFOeeqecg4tw=
+github.com/a-h/templ v0.3.1020/go.mod h1:A2DlK61v+K+NRoGnhmYbNYVmtYHcFO5/AisMvBdDxTM=
+github.com/araihu/goshtoso v0.3.0 h1:6+fTBCzDHFCfEtw8UGH3IePfrDsCyDvaZPIEn3V85i8=
+github.com/araihu/goshtoso v0.3.0/go.mod h1:9gg3IPPU1C1gJZUZts+AUDfbV/iYb0N5mSbL5NtyRzU=
+github.com/araihu/goshtoso-app-shells v0.1.9-0.20260910224508-5b2222e54637 h1:Ur4NL5uoB0gIRtL72hXMKHwop/K76m1fkPzYTEeqNjw=
+github.com/araihu/goshtoso-app-shells v0.1.9-0.20260910224508-5b2222e54637/go.mod h1:vme6qwadyuneFflKQsnvIWYp8D/oFhJSux0YOxPMvhg=
 github.com/oapi-codegen/runtime v1.7.0 h1:t7358VYPvNbWJ9gdAkIK/smVeHpBf6yp8VTsaZsb/7k=
 github.com/oapi-codegen/runtime v1.7.0/go.mod h1:GwV7hC2hviaMzj+ITfHVRESK5J2W/GefVwIND/bMGvU=
