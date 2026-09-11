@@ -501,7 +501,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
@@ -554,14 +554,18 @@
         "docs/execution/handoffs/D-01-review-round12.md",
         "bda29901e9ffc06a61632da171ce853bd9708261 D-01 correction round-thirteen product",
         "0437c149cc32b41c3351c2671bcdd4e476c397fe D-01 correction round-thirteen handoff",
-        "docs/execution/handoffs/D-01-round13.md"
+        "docs/execution/handoffs/D-01-round13.md",
+        "9265acfa62c46b667978f05264a44da4ba5f641a D-01 round-thirteen review receipt",
+        "docs/execution/handoffs/D-01-review-round13.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "9265acfa62c46b667978f05264a44da4ba5f641a",
+        "findings": [
+          "P2: embedded NUL trailing data bypasses SQLite length/substr/GLOB checks, so 2026-09-11T00:01:13Z\\x00trailing advances v2->v3 and stores an invalid marker"
+        ],
         "round": 13
       },
       "reviewHistory": [
@@ -653,6 +657,14 @@
           "status": "changes_requested",
           "sourceCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
           "receipt": "docs/execution/handoffs/D-01-review-round12.md"
+        },
+        {
+          "round": 13,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "9265acfa62c46b667978f05264a44da4ba5f641a",
+          "status": "changes_requested",
+          "sourceCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
+          "receipt": "docs/execution/handoffs/D-01-review-round13.md"
         }
       ],
       "dispatch": {
@@ -671,22 +683,20 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round13.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round14.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "correctionRound": 13,
+        "correctionRound": 14,
         "correctionOwner": "/root/f01_implementer",
-        "correctionBaseSha": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
-        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round13.md",
+        "correctionBaseSha": "bda29901e9ffc06a61632da171ce853bd9708261",
+        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round14.md",
         "implementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
         "handoffCommit": "0437c149cc32b41c3351c2671bcdd4e476c397fe",
-        "reviewCommit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
+        "reviewCommit": "9265acfa62c46b667978f05264a44da4ba5f641a",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
-        "correctionImplementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
-        "correctionHandoffCommit": "0437c149cc32b41c3351c2671bcdd4e476c397fe"
+        "reviewSourceCommit": "bda29901e9ffc06a61632da171ce853bd9708261"
       }
     },
     "D-02": {
@@ -1466,7 +1476,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete X-04 correction round three and independent D-01 round-thirteen review",
+  "nextAction": "Complete D-01 correction round fourteen and X-04 correction round three review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
