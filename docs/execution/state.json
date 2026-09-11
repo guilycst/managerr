@@ -981,7 +981,7 @@
       ]
     },
     "X-03": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "71cb511a5f03727f56d4c534be7c47e8e56b9595",
       "integratedSha": null,
@@ -1003,14 +1003,20 @@
         "ad3fb145cf746580c9416aa365d4de7e41787133 X-03 review round-three receipt",
         "docs/execution/handoffs/X-03-review-round3.md",
         "7c2c3712fd69865d03f0a13308633fadc7ba7228 X-03 correction round-four product",
-        "37e501801c6d6d66735913e03d5997e56c9eaa38 X-03 correction round-four handoff"
+        "37e501801c6d6d66735913e03d5997e56c9eaa38 X-03 correction round-four handoff",
+        "51113716a3b9fccc20df26a097d634f758b78704 X-03 review round-four receipt",
+        "docs/execution/handoffs/X-03-review-round4.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "51113716a3b9fccc20df26a097d634f758b78704",
+        "findings": [
+          "P1: unpinned snapshotId/snapshotToken/snapshotRevision fields can falsely certify deletion-drifted offset history complete",
+          "P1: shared Radarr/Sonarr quality validation rejects valid pinned Sonarr source=web and direct video reprocess allows missing quality to POST null",
+          "P1: one Sonarr episode identity can still be accepted on two distinct physical files"
+        ],
         "round": 4
       },
       "dispatch": {
@@ -1029,7 +1035,7 @@
           "A-11",
           "A-16"
         ],
-        "reviewPath": "docs/execution/handoffs/X-03-review-round4.md",
+        "reviewPath": "docs/execution/handoffs/X-03-review-round5.md",
         "handoffPath": "docs/execution/handoffs/X-03.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
@@ -1037,14 +1043,12 @@
         },
         "implementationCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
         "handoffCommit": "37e501801c6d6d66735913e03d5997e56c9eaa38",
-        "reviewSourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
-        "reviewCommit": "ad3fb145cf746580c9416aa365d4de7e41787133",
-        "correctionRound": 4,
+        "reviewSourceCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
+        "reviewCommit": "51113716a3b9fccc20df26a097d634f758b78704",
+        "correctionRound": 5,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
-        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round4.md",
-        "correctionImplementationCommit": "e01deb6d90662e34d67cbd8190daf1c553035217",
-        "correctionHandoffCommit": "29768b68238cc2023af7149592da7b0bd4fa192a"
+        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round5.md"
       },
       "reviewHistory": [
         {
@@ -1070,6 +1074,14 @@
           "status": "changes_requested",
           "sourceCommit": "e01deb6d90662e34d67cbd8190daf1c553035217",
           "receipt": "docs/execution/handoffs/X-03-review-round3.md"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "51113716a3b9fccc20df26a097d634f758b78704",
+          "status": "changes_requested",
+          "sourceCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
+          "receipt": "docs/execution/handoffs/X-03-review-round4.md"
         }
       ]
     },
@@ -1347,7 +1359,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-ten and X-03 round-four reviews while X-04 builds",
+  "nextAction": "Complete D-01 round-ten review, X-03 correction round five, and X-04 build",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
