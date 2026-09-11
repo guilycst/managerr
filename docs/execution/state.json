@@ -501,11 +501,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
+      "implementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -551,17 +551,18 @@
         "c07ba01410949a052ad5276c5f9a48406b49a6a7 D-01 correction round-twelve handoff",
         "docs/execution/handoffs/D-01-round12.md",
         "825f2c694372fb0d1a9f0e336b8adc1353f3161f D-01 round-twelve review receipt",
-        "docs/execution/handoffs/D-01-review-round12.md"
+        "docs/execution/handoffs/D-01-review-round12.md",
+        "bda29901e9ffc06a61632da171ce853bd9708261 D-01 correction round-thirteen product",
+        "0437c149cc32b41c3351c2671bcdd4e476c397fe D-01 correction round-thirteen handoff",
+        "docs/execution/handoffs/D-01-round13.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
-        "findings": [
-          "P2: julianday(requested_at) accepts non-Timestamp values such as 1, 12:34, date-only strings, and impossible calendar dates, persisting them and advancing the cancellation generation"
-        ],
-        "round": 12
+        "commit": null,
+        "findings": [],
+        "round": 13
       },
       "reviewHistory": [
         {
@@ -679,11 +680,13 @@
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round13.md",
-        "implementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
-        "handoffCommit": "c07ba01410949a052ad5276c5f9a48406b49a6a7",
+        "implementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
+        "handoffCommit": "0437c149cc32b41c3351c2671bcdd4e476c397fe",
         "reviewCommit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73"
+        "reviewSourceCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
+        "correctionImplementationCommit": "bda29901e9ffc06a61632da171ce853bd9708261",
+        "correctionHandoffCommit": "0437c149cc32b41c3351c2671bcdd4e476c397fe"
       }
     },
     "D-02": {
@@ -1453,7 +1456,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent X-04 round-two review and D-01 correction round-thirteen",
+  "nextAction": "Complete independent D-01 round-thirteen and X-04 round-two reviews",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
