@@ -561,16 +561,25 @@
       "review": null
     },
     "U-00": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/u00_implementer",
       "baseSha": "5108e8b86000a8f916852f4614a9e4e10c868016",
       "integratedSha": null,
-      "evidence": [],
+      "implementationCommit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
+      "evidence": [
+        "docs/execution/handoffs/U-00.md",
+        "docs/research/ui-components.md",
+        "GOWORK=off go mod verify (ui)",
+        "GOWORK=off go test ./... (ui, no packages expected before U-01)",
+        "GOWORK=off go vet ./... (ui, no packages expected before U-01)",
+        "synthetic public Goshtoso/App Shell consumer build and render probe",
+        "git diff --check"
+      ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/u00_reviewer",
-        "commit": null,
+        "commit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
         "findings": [],
         "round": 1
       },
