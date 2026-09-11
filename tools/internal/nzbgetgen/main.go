@@ -235,15 +235,40 @@ func validateServers(servers []server) error {
 		return errors.New("OpenRPC servers is empty")
 	}
 	for index, current := range servers {
-		if current.URL == "" || strings.TrimSpace(current.URL) != current.URL || strings.ContainsAny(current.URL, "{}") {
+		if !validServerURIInput(current.URL) {
 			return fmt.Errorf("server %d has an invalid URI", index)
 		}
 		parsed, err := url.ParseRequestURI(current.URL)
-		if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || !asciiString(parsed.Host) || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery || parsed.String() != current.URL {
 			return fmt.Errorf("server %d has an invalid URI", index)
 		}
 	}
 	return nil
+}
+
+func asciiString(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+func validServerURIInput(value string) bool {
+	if value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "{}") {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character >= 0x80 || character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	// These characters either delimit a component that this compatibility
+	// contract intentionally forbids or are not valid raw URI characters. A
+	// percent-encoded form remains available where URI syntax permits it.
+	return !strings.ContainsAny(value, ` \|[]#?`)
 }
 
 func rejectOpenAPINullable(data []byte) error {

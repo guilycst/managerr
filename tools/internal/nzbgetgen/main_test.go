@@ -166,7 +166,13 @@ func TestGenerateValidatesServerURIContract(t *testing.T) {
 	if server["url"] != "https://nzbget.invalid/jsonrpc" {
 		t.Fatalf("server URL = %#v", server["url"])
 	}
-	for _, value := range []string{"not a uri", "{endpoint}/jsonrpc", "relative/path"} {
+	for _, value := range []string{
+		"not a uri", "{endpoint}/jsonrpc", "relative/path", "https://nzbget.invalid/json rpc",
+		"https://nzbget.invalid/json\\rpc", "https://nzbget.invalid/json|rpc",
+		"https://nzbget.invalid/json[rpc", "https://éxample.invalid/jsonrpc",
+		"https://%C3%A9xample.invalid/jsonrpc", "https://nzbget.invalid/jsonrpc#fragment",
+		"https://nzbget.invalid/jsonrpc?", "https://nzbget.invalid/jsonrpc?query=value",
+	} {
 		server["url"] = value
 		mutated, err := json.Marshal(document)
 		if err != nil {
@@ -184,6 +190,21 @@ func TestGenerateValidatesServerURIContract(t *testing.T) {
 	}
 	if _, err := Generate(mutated); err == nil {
 		t.Fatal("generator accepted a document without servers")
+	}
+
+	for _, value := range []string{
+		"https://nzbget.invalid/proxy%20rpc", "https://nzbget.invalid/jsonrpc%23fragment",
+		"https://nzbget.invalid/jsonrpc%3Fquery", "https://nzbget.invalid/jsonrpc;version=1",
+	} {
+		server["url"] = value
+		document["servers"] = []any{server}
+		mutated, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Generate(mutated); err != nil {
+			t.Fatalf("generator rejected valid URI %q: %v", value, err)
+		}
 	}
 }
 
