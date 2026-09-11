@@ -1127,12 +1127,16 @@
       ]
     },
     "X-04": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
       "integratedSha": null,
-      "implementationCommit": null,
-      "evidence": [],
+      "implementationCommit": "82a8a80b05cd150716dcdc1f41965f30148cbbdc",
+      "evidence": [
+        "82a8a80b05cd150716dcdc1f41965f30148cbbdc X-04 product",
+        "9ea995a2b7eaeae35a9ae8663ccf75cb4cd08972 X-04 handoff",
+        "docs/execution/handoffs/X-04.md"
+      ],
       "review": {
         "status": "pending",
         "decision": "pending",
@@ -1169,7 +1173,9 @@
         "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
         "attempt": 2,
         "reviewerReassignedFrom": "/root/f01_reviewer",
-        "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review"
+        "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review",
+        "implementationCommit": "82a8a80b05cd150716dcdc1f41965f30148cbbdc",
+        "handoffCommit": "9ea995a2b7eaeae35a9ae8663ccf75cb4cd08972"
       }
     },
     "X-05": {
@@ -1400,7 +1406,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete D-01 correction round twelve, X-03 correction round six, and X-04 build",
+  "nextAction": "Complete independent D-01 round-eleven, X-03 round-five, and X-04 round-one reviews while D-01/X-03 corrections continue",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
