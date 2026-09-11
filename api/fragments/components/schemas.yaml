@@ -15,9 +15,10 @@ components:
       type: string
       format: date-time
     NullableTimestamp:
-      type: string
+      type:
+      - string
+      - 'null'
       format: date-time
-      nullable: true
     MediaKind:
       type: string
       enum:
@@ -115,8 +116,9 @@ components:
       - observedAt
       properties:
         nextCursor:
-          type: string
-          nullable: true
+          type:
+          - string
+          - 'null'
         coverage:
           type: array
           items:
@@ -1951,8 +1953,9 @@ components:
           items:
             type: string
         currentStep:
-          type: string
-          nullable: true
+          type:
+          - string
+          - 'null'
         state:
           "$ref": "#/components/schemas/WorkflowState"
         deadlineAt:

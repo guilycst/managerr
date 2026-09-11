@@ -2096,7 +2096,7 @@ type OptionItem struct {
 // Page defines model for Page.
 type Page struct {
 	Coverage   []Coverage `json:"coverage"`
-	NextCursor string     `json:"nextCursor"`
+	NextCursor *string    `json:"nextCursor"`
 	ObservedAt Timestamp  `json:"observedAt"`
 }
 
@@ -2387,17 +2387,17 @@ type WatchSettings struct {
 
 // WorkflowRun defines model for WorkflowRun.
 type WorkflowRun struct {
-	AggregateEffectCount *int              `json:"aggregateEffectCount,omitempty"`
-	ApprovalGates        *[]string         `json:"approvalGates,omitempty"`
-	Cancellation         *Cancellation     `json:"cancellation,omitempty"`
-	CurrentStep          string            `json:"currentStep"`
-	DeadlineAt           NullableTimestamp `json:"deadlineAt"`
-	Id                   Id                `json:"id"`
-	Name                 string            `json:"name"`
-	RecipeVersion        *string           `json:"recipeVersion,omitempty"`
-	State                WorkflowState     `json:"state"`
-	Steps                []WorkflowStep    `json:"steps"`
-	UnresolvedCount      *int              `json:"unresolvedCount,omitempty"`
+	AggregateEffectCount *int               `json:"aggregateEffectCount,omitempty"`
+	ApprovalGates        *[]string          `json:"approvalGates,omitempty"`
+	Cancellation         *Cancellation      `json:"cancellation,omitempty"`
+	CurrentStep          *string            `json:"currentStep"`
+	DeadlineAt           *NullableTimestamp `json:"deadlineAt"`
+	Id                   Id                 `json:"id"`
+	Name                 string             `json:"name"`
+	RecipeVersion        *string            `json:"recipeVersion,omitempty"`
+	State                WorkflowState      `json:"state"`
+	Steps                []WorkflowStep     `json:"steps"`
+	UnresolvedCount      *int               `json:"unresolvedCount,omitempty"`
 }
 
 // WorkflowRunCreate defines model for WorkflowRunCreate.

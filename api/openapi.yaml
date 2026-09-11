@@ -1619,8 +1619,9 @@ components:
             type: object
         NullableTimestamp:
             format: date-time
-            nullable: true
-            type: string
+            type:
+                - string
+                - "null"
         OptionItem:
             additionalProperties: false
             properties:
@@ -1642,8 +1643,9 @@ components:
                         $ref: '#/components/schemas/Coverage'
                     type: array
                 nextCursor:
-                    nullable: true
-                    type: string
+                    type:
+                        - string
+                        - "null"
                 observedAt:
                     $ref: '#/components/schemas/Timestamp'
             required:
@@ -2251,8 +2253,9 @@ components:
                 cancellation:
                     $ref: '#/components/schemas/Cancellation'
                 currentStep:
-                    nullable: true
-                    type: string
+                    type:
+                        - string
+                        - "null"
                 deadlineAt:
                     $ref: '#/components/schemas/NullableTimestamp'
                 id:
