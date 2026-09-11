@@ -401,6 +401,14 @@ func TestRound12CancellationRejectsMissingOrInvalidRequestedAt(t *testing.T) {
 		{name: "null", requestedAt: sql.NullString{}},
 		{name: "blank", requestedAt: sql.NullString{String: "   ", Valid: true}},
 		{name: "invalid", requestedAt: sql.NullString{String: "not-a-timestamp", Valid: true}},
+		{name: "numeric", requestedAt: sql.NullString{String: "1", Valid: true}},
+		{name: "time-only", requestedAt: sql.NullString{String: "12:34", Valid: true}},
+		{name: "date-only", requestedAt: sql.NullString{String: "2026-09-11", Valid: true}},
+		{name: "impossible-date", requestedAt: sql.NullString{String: "2026-02-30T00:00:00Z", Valid: true}},
+		{name: "invalid-leap-day", requestedAt: sql.NullString{String: "2026-02-29T00:00:00Z", Valid: true}},
+		{name: "trailing-data", requestedAt: sql.NullString{String: "2026-09-11T00:01:13Ztrailing", Valid: true}},
+		{name: "invalid-hour", requestedAt: sql.NullString{String: "2026-09-11T24:00:00Z", Valid: true}},
+		{name: "invalid-offset", requestedAt: sql.NullString{String: "2026-09-11T00:01:13+99:99", Valid: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, fixture := seedRound7ApprovedPurge(t,
@@ -509,5 +517,47 @@ func TestRound12CancellationRejectsInvalidRequestedAtForUnboundAction(t *testing
 	}
 	if action.Version != 1 || action.CancellationRequestedAt.Valid || action.UpdatedAt != createdAt || !action.ClaimedBy.Valid || !action.LeaseUntil.Valid {
 		t.Fatalf("invalid unbound cancellation changed action = %+v", action)
+	}
+}
+
+func TestRound13CancellationAcceptsStrictRFC3339DateTimes(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		requestedAt string
+	}{
+		{name: "utc", requestedAt: "2026-09-11T00:01:13Z"},
+		{name: "offset", requestedAt: "2026-09-11T00:01:13+05:30"},
+		{name: "fractional-offset", requestedAt: "2026-09-11T00:01:13.123456789-04:00"},
+		{name: "leap-day", requestedAt: "2024-02-29T23:59:59Z"},
+		{name: "leap-day-offset", requestedAt: "2024-02-29T00:00:00+00:00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, fixture := seedRound7ApprovedPurge(t,
+				filepath.Join(t.TempDir(), "valid-cancellation.sqlite"), "round13-valid-cancel-"+tc.name)
+			defer store.Close()
+			ctx := context.Background()
+
+			cancelled, err := store.Queries().RequestActionCancellation(ctx, &sqlc.RequestActionCancellationParams{
+				RequestedAt: sql.NullString{String: tc.requestedAt, Valid: true},
+				UpdatedAt:   "2026-09-11T00:02:00Z", ID: fixture.actionRunID,
+			})
+			if err != nil {
+				t.Fatalf("valid RFC3339 cancellation: %v", err)
+			}
+			if cancelled.Version != 3 || !cancelled.CancellationRequestedAt.Valid || cancelled.CancellationRequestedAt.String != tc.requestedAt {
+				t.Fatalf("valid cancellation = %+v, want version 3 and marker %q", cancelled, tc.requestedAt)
+			}
+
+			repeated, err := store.Queries().RequestActionCancellation(ctx, &sqlc.RequestActionCancellationParams{
+				RequestedAt: sql.NullString{String: "2026-09-11T00:02:01Z", Valid: true},
+				UpdatedAt:   "2026-09-11T00:02:01Z", ID: fixture.actionRunID,
+			})
+			if err != nil {
+				t.Fatalf("repeat valid RFC3339 cancellation: %v", err)
+			}
+			if repeated.Version != cancelled.Version || repeated.CancellationRequestedAt.String != tc.requestedAt {
+				t.Fatalf("repeat valid cancellation = %+v, initial=%+v", repeated, cancelled)
+			}
+		})
 	}
 }

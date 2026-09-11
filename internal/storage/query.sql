@@ -1010,7 +1010,60 @@ UPDATE action_runs SET
 WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded')
   AND sqlc.arg(requested_at) IS NOT NULL
   AND length(trim(sqlc.arg(requested_at))) > 0
-  AND julianday(sqlc.arg(requested_at)) IS NOT NULL
+  -- Match the API's RFC3339 date-time contract instead of SQLite's broad
+  -- date/time grammar. The fixed-width fields and canonical date round-trip
+  -- reject date-only, time-only, impossible dates, and trailing data.
+  AND length(sqlc.arg(requested_at)) >= 20
+  AND substr(sqlc.arg(requested_at), 1, 4) NOT GLOB '*[^0-9]*'
+  AND substr(sqlc.arg(requested_at), 5, 1) = '-'
+  AND substr(sqlc.arg(requested_at), 6, 2) NOT GLOB '*[^0-9]*'
+  AND substr(sqlc.arg(requested_at), 8, 1) = '-'
+  AND substr(sqlc.arg(requested_at), 9, 2) NOT GLOB '*[^0-9]*'
+  AND substr(sqlc.arg(requested_at), 11, 1) = 'T'
+  AND substr(sqlc.arg(requested_at), 12, 2) NOT GLOB '*[^0-9]*'
+  AND substr(sqlc.arg(requested_at), 14, 1) = ':'
+  AND substr(sqlc.arg(requested_at), 15, 2) NOT GLOB '*[^0-9]*'
+  AND substr(sqlc.arg(requested_at), 17, 1) = ':'
+  AND substr(sqlc.arg(requested_at), 18, 2) NOT GLOB '*[^0-9]*'
+  AND CAST(substr(sqlc.arg(requested_at), 6, 2) AS INTEGER) BETWEEN 1 AND 12
+  AND CAST(substr(sqlc.arg(requested_at), 9, 2) AS INTEGER) BETWEEN 1 AND 31
+  AND CAST(substr(sqlc.arg(requested_at), 12, 2) AS INTEGER) BETWEEN 0 AND 23
+  AND CAST(substr(sqlc.arg(requested_at), 15, 2) AS INTEGER) BETWEEN 0 AND 59
+  AND CAST(substr(sqlc.arg(requested_at), 18, 2) AS INTEGER) BETWEEN 0 AND 59
+  AND strftime('%Y-%m-%d', substr(sqlc.arg(requested_at), 1, 10)) = substr(sqlc.arg(requested_at), 1, 10)
+  AND (
+      (
+          substr(sqlc.arg(requested_at), -1, 1) = 'Z'
+          AND (
+              length(sqlc.arg(requested_at)) = 20
+              OR (
+                  substr(sqlc.arg(requested_at), 20, 1) = '.'
+                  AND length(sqlc.arg(requested_at)) > 21
+                  AND substr(sqlc.arg(requested_at), 21, length(sqlc.arg(requested_at)) - 21) NOT GLOB '*[^0-9]*'
+              )
+          )
+      )
+      OR (
+          length(sqlc.arg(requested_at)) >= 25
+          AND (
+              sqlc.arg(requested_at) GLOB '*+[0-9][0-9]:[0-9][0-9]'
+              OR sqlc.arg(requested_at) GLOB '*-[0-9][0-9]:[0-9][0-9]'
+          )
+          AND substr(sqlc.arg(requested_at), -3, 1) = ':'
+          AND substr(sqlc.arg(requested_at), -5, 2) NOT GLOB '*[^0-9]*'
+          AND substr(sqlc.arg(requested_at), -2, 2) NOT GLOB '*[^0-9]*'
+          AND CAST(substr(sqlc.arg(requested_at), -5, 2) AS INTEGER) BETWEEN 0 AND 23
+          AND CAST(substr(sqlc.arg(requested_at), -2, 2) AS INTEGER) BETWEEN 0 AND 59
+          AND (
+              length(sqlc.arg(requested_at)) = 25
+              OR (
+                  substr(sqlc.arg(requested_at), 20, 1) = '.'
+                  AND length(sqlc.arg(requested_at)) > 26
+                  AND substr(sqlc.arg(requested_at), 21, length(sqlc.arg(requested_at)) - 26) NOT GLOB '*[^0-9]*'
+              )
+          )
+      )
+  )
 RETURNING *;
 
 -- name: CreateActionAttempt :one

@@ -4739,7 +4739,60 @@ UPDATE action_runs SET
 WHERE id = ?3 AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded')
   AND ?1 IS NOT NULL
   AND length(trim(?1)) > 0
-  AND julianday(?1) IS NOT NULL
+  -- Match the API's RFC3339 date-time contract instead of SQLite's broad
+  -- date/time grammar. The fixed-width fields and canonical date round-trip
+  -- reject date-only, time-only, impossible dates, and trailing data.
+  AND length(?1) >= 20
+  AND substr(?1, 1, 4) NOT GLOB '*[^0-9]*'
+  AND substr(?1, 5, 1) = '-'
+  AND substr(?1, 6, 2) NOT GLOB '*[^0-9]*'
+  AND substr(?1, 8, 1) = '-'
+  AND substr(?1, 9, 2) NOT GLOB '*[^0-9]*'
+  AND substr(?1, 11, 1) = 'T'
+  AND substr(?1, 12, 2) NOT GLOB '*[^0-9]*'
+  AND substr(?1, 14, 1) = ':'
+  AND substr(?1, 15, 2) NOT GLOB '*[^0-9]*'
+  AND substr(?1, 17, 1) = ':'
+  AND substr(?1, 18, 2) NOT GLOB '*[^0-9]*'
+  AND CAST(substr(?1, 6, 2) AS INTEGER) BETWEEN 1 AND 12
+  AND CAST(substr(?1, 9, 2) AS INTEGER) BETWEEN 1 AND 31
+  AND CAST(substr(?1, 12, 2) AS INTEGER) BETWEEN 0 AND 23
+  AND CAST(substr(?1, 15, 2) AS INTEGER) BETWEEN 0 AND 59
+  AND CAST(substr(?1, 18, 2) AS INTEGER) BETWEEN 0 AND 59
+  AND strftime('%Y-%m-%d', substr(?1, 1, 10)) = substr(?1, 1, 10)
+  AND (
+      (
+          substr(?1, -1, 1) = 'Z'
+          AND (
+              length(?1) = 20
+              OR (
+                  substr(?1, 20, 1) = '.'
+                  AND length(?1) > 21
+                  AND substr(?1, 21, length(?1) - 21) NOT GLOB '*[^0-9]*'
+              )
+          )
+      )
+      OR (
+          length(?1) >= 25
+          AND (
+              ?1 GLOB '*+[0-9][0-9]:[0-9][0-9]'
+              OR ?1 GLOB '*-[0-9][0-9]:[0-9][0-9]'
+          )
+          AND substr(?1, -3, 1) = ':'
+          AND substr(?1, -5, 2) NOT GLOB '*[^0-9]*'
+          AND substr(?1, -2, 2) NOT GLOB '*[^0-9]*'
+          AND CAST(substr(?1, -5, 2) AS INTEGER) BETWEEN 0 AND 23
+          AND CAST(substr(?1, -2, 2) AS INTEGER) BETWEEN 0 AND 59
+          AND (
+              length(?1) = 25
+              OR (
+                  substr(?1, 20, 1) = '.'
+                  AND length(?1) > 26
+                  AND substr(?1, 21, length(?1) - 26) NOT GLOB '*[^0-9]*'
+              )
+          )
+      )
+  )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
 
