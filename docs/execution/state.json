@@ -1592,7 +1592,7 @@
       ]
     },
     "X-11": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1605,19 +1605,18 @@
         "889c3fdeb6558096e0480e1c1597a8c1aa03c152 X-11 correction round 2 product",
         "ed93915dfcf5858f84ad8c505331da51909e7a33 X-11 correction round 2 handoff",
         "docs/execution/handoffs/X-11-correction-round2.md",
-        "147494c3dea44fd7e62f94c41d20ccd512b3eb6f X-11 review round 2"
+        "147494c3dea44fd7e62f94c41d20ccd512b3eb6f X-11 review round 2",
+        "fcaed0489bd22692d1a0bae7ea9b8b96ad439453 X-11 correction round 3 product",
+        "41f10c9c4386bd3afab13fa93804f2681be26c8a X-11 correction round 3 handoff",
+        "docs/execution/handoffs/X-11-correction-round3.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "147494c3dea44fd7e62f94c41d20ccd512b3eb6f",
-        "findings": [
-          "P2 HTTP 408 classified as rate_limited instead of timeout",
-          "P2 OpenRPC server URI is invalid under the official 1.2.6 meta-schema and generator ignores invalid server URIs",
-          "P2 endpoint validator fails open after layered decoding and accepts encoded controls or invalid UTF-8"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1637,26 +1636,26 @@
           "deterministic OpenRPC generation",
           "synthetic JSON-RPC httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-11-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-11-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-11.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
-        "implementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
-        "handoffCommit": "ed93915dfcf5858f84ad8c505331da51909e7a33",
-        "reviewSourceCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
+        "implementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
+        "handoffCommit": "41f10c9c4386bd3afab13fa93804f2681be26c8a",
+        "reviewSourceCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
         "reviewCommit": "147494c3dea44fd7e62f94c41d20ccd512b3eb6f",
         "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
         "correctionReviewPath": "docs/execution/handoffs/X-11-review-round2.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
-        "correctionHandoffCommit": "ed93915dfcf5858f84ad8c505331da51909e7a33"
+        "correctionImplementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
+        "correctionHandoffCommit": "41f10c9c4386bd3afab13fa93804f2681be26c8a"
       },
-      "implementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
+      "implementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
       "reviewHistory": [
         {
           "round": 1,
@@ -1693,7 +1692,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 3 and X-11 correction round 3 are in independent review; do not dispatch C-05 until both approvals are recorded.",
+  "nextAction": "X-10 correction round 3 and X-11 correction round 3 are in independent review; after both approvals, dispatch C-05 generation/CI wiring.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
