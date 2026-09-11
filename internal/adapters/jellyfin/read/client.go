@@ -761,7 +761,8 @@ func (client *Client) observeItem(item itemDTO, libraryID, libraryName string) (
 	if title == "" {
 		result.Evidence = appendReason(result.Evidence, "title_unknown")
 	}
-	if strings.EqualFold(item.LocationType, "Virtual") || strings.EqualFold(item.LocationType, "Offline") {
+	itemLocationType := strings.TrimSpace(item.LocationType)
+	if itemLocationType != "" && !strings.EqualFold(itemLocationType, "FileSystem") {
 		result.UnavailableReason = "location_not_playable"
 		result.Evidence = appendReason(result.Evidence, "location_not_playable")
 	} else {
@@ -781,13 +782,15 @@ func (client *Client) observeItem(item itemDTO, libraryID, libraryName string) (
 				break
 			}
 			observed, playable := client.observeMediaSource(source)
-			if pathOnly && playable && observed.MappedTarget == nil {
+			if pathOnly {
 				// An item-level Path is useful correlation evidence, but it is
-				// not the versioned MediaSources evidence needed to claim that
-				// Jellyfin can play the item. A configured, unambiguous mapping
-				// is the only local proof available for this fallback shape.
+				// not native MediaSources evidence and cannot claim playability,
+				// even when a configured mapping can translate the path.
 				playable = false
 				observed.PlayableEvidence = appendReason(observed.PlayableEvidence, "media_source_path_only_unverified")
+			} else if reason := nativeItemMediaTypeReason(item, source); reason != "" {
+				playable = false
+				observed.PlayableEvidence = appendReason(observed.PlayableEvidence, reason)
 			}
 			result.MediaSources = append(result.MediaSources, observed)
 			result.Evidence = appendReasons(result.Evidence, observed.PlayableEvidence...)
@@ -812,9 +815,16 @@ func (client *Client) observeMediaSource(source mediaSourceDTO) (MediaSourceObse
 		Protocol: boundedText(source.Protocol, maxVersionLength), LocationType: boundedText(source.LocationType, maxVersionLength),
 		MediaType: boundedText(source.MediaType, maxVersionLength),
 	}
+	if reason := nativeMediaSourceReason(source); reason != "" {
+		result.PlayableEvidence = appendReason(result.PlayableEvidence, reason)
+		if pathValue := normalizeRemotePath(source.Path); pathValue != "" {
+			result.Path = pathValue
+		}
+		return result, false
+	}
 	pathValue := normalizeRemotePath(source.Path)
 	if pathValue == "" {
-		result.PlayableEvidence = appendReason(result.PlayableEvidence, "media_source_path_missing")
+		result.PlayableEvidence = appendReason(result.PlayableEvidence, "media_source_path_invalid")
 		return result, false
 	}
 	result.Path = pathValue
@@ -838,6 +848,57 @@ func (client *Client) observeMediaSource(source mediaSourceDTO) (MediaSourceObse
 	result.MappedTarget = &target
 	result.PlayableEvidence = appendReason(result.PlayableEvidence, "media_source_mapped")
 	return result, true
+}
+
+// nativeMediaSourceReason validates the fields that make a Jellyfin source a
+// local video source. A path by itself, or a source with metadata omitted or
+// outside the tested File/FileSystem/Video shape, is observation evidence but
+// cannot establish playability.
+func nativeMediaSourceReason(source mediaSourceDTO) string {
+	if strings.TrimSpace(source.ID) == "" {
+		return "media_source_id_missing"
+	}
+	if strings.TrimSpace(source.Protocol) == "" {
+		return "media_source_protocol_missing"
+	}
+	if !strings.EqualFold(strings.TrimSpace(source.Protocol), "File") {
+		return "media_source_protocol_unsupported"
+	}
+	if strings.TrimSpace(source.LocationType) == "" {
+		return "media_source_location_missing"
+	}
+	if !strings.EqualFold(strings.TrimSpace(source.LocationType), "FileSystem") {
+		return "media_source_location_unsupported"
+	}
+	if strings.TrimSpace(source.MediaType) == "" {
+		return "media_source_media_type_missing"
+	}
+	if strings.TrimSpace(source.Path) == "" {
+		return "media_source_path_missing"
+	}
+	if normalizeRemotePath(source.Path) == "" {
+		return "media_source_path_invalid"
+	}
+	return ""
+}
+
+func nativeItemMediaTypeReason(item itemDTO, source mediaSourceDTO) string {
+	itemMediaType := strings.TrimSpace(item.MediaType)
+	sourceMediaType := strings.TrimSpace(source.MediaType)
+	if itemMediaType == "" {
+		return "item_media_type_missing"
+	}
+	if sourceMediaType == "" {
+		// nativeMediaSourceReason reports the more specific source omission.
+		return ""
+	}
+	if !strings.EqualFold(itemMediaType, sourceMediaType) {
+		return "media_source_media_type_mismatch"
+	}
+	if !strings.EqualFold(itemMediaType, "Video") {
+		return "item_media_type_unsupported"
+	}
+	return ""
 }
 
 func (client *Client) mapPath(remote string) (domain.FileTarget, bool, bool) {

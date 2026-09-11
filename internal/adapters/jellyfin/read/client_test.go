@@ -18,14 +18,15 @@ import (
 )
 
 type jellyfinFixture struct {
-	System             json.RawMessage `json:"system"`
-	Libraries          json.RawMessage `json:"libraries"`
-	DuplicateLibraries json.RawMessage `json:"duplicateLibraries"`
-	EmptyItems         json.RawMessage `json:"emptyItems"`
-	MovieItems         json.RawMessage `json:"movieItems"`
-	SeriesItems        json.RawMessage `json:"seriesItems"`
-	SingleItem         json.RawMessage `json:"singleItem"`
-	PathOnlyItem       json.RawMessage `json:"pathOnlyItem"`
+	System             json.RawMessage            `json:"system"`
+	Libraries          json.RawMessage            `json:"libraries"`
+	DuplicateLibraries json.RawMessage            `json:"duplicateLibraries"`
+	EmptyItems         json.RawMessage            `json:"emptyItems"`
+	SourceVariants     map[string]json.RawMessage `json:"sourceVariants"`
+	MovieItems         json.RawMessage            `json:"movieItems"`
+	SeriesItems        json.RawMessage            `json:"seriesItems"`
+	SingleItem         json.RawMessage            `json:"singleItem"`
+	PathOnlyItem       json.RawMessage            `json:"pathOnlyItem"`
 }
 
 type jellyfinFixtureHandler struct {
@@ -76,6 +77,10 @@ func (handler *jellyfinFixtureHandler) ServeHTTP(response http.ResponseWriter, r
 			return
 		}
 		if query.Get("Ids") != "" {
+			if variant, ok := handler.fixture.SourceVariants[query.Get("Ids")]; ok {
+				writeJellyfinRaw(response, variant)
+				return
+			}
 			if query.Get("Ids") == "jf-path-only" {
 				writeJellyfinRaw(response, handler.fixture.PathOnlyItem)
 				return
@@ -203,6 +208,10 @@ func TestJellyfinLibrariesItemsProvidersAndMappedAvailability(t *testing.T) {
 	if err != nil || pathOnly.Item.Playable || !hasJellyfinReason(pathOnly.Evidence, "media_source_from_item_path") || !hasJellyfinReason(pathOnly.Evidence, "media_source_path_only_unverified") {
 		t.Fatalf("path-only item = %+v, err %v", pathOnly, err)
 	}
+	mappedPathOnly, err := client.ObserveItem(context.Background(), "jellyfin-main", "jf-path-only")
+	if err != nil || mappedPathOnly.Item.Playable || len(mappedPathOnly.MediaSources) != 1 || mappedPathOnly.MediaSources[0].MappedTarget == nil || !hasJellyfinReason(mappedPathOnly.Evidence, "media_source_path_only_unverified") {
+		t.Fatalf("mapped path-only item = %+v, err %v", mappedPathOnly, err)
+	}
 
 	first, err := client.ListDetailed(context.Background(), "jellyfin-main", "", 1)
 	if err != nil {
@@ -303,6 +312,62 @@ func TestJellyfinDuplicateLibraryIdentityIsPartial(t *testing.T) {
 	}
 	if len(page.Items) != 0 || page.Coverage.Completeness != domain.CompletenessPartial || !hasJellyfinReason(page.Coverage.ReasonCodes, "library_identity_duplicate") {
 		t.Fatalf("duplicate library coverage = %+v", page.Coverage)
+	}
+}
+
+func TestJellyfinUnsupportedNativeSourceShapesRemainUnavailable(t *testing.T) {
+	fixture := loadJellyfinFixture(t)
+	client, server := newJellyfinFixtureClient(t, &jellyfinFixtureHandler{fixture: fixture}, "jellyfin-main", []domain.PathMapping{{
+		ConnectionID: "jellyfin-main", SourcePrefix: "/fixture/media", RootID: "library",
+	}})
+	defer server.Close()
+	cases := []struct {
+		id                string
+		reason            string
+		unavailableReason string
+	}{
+		{id: "jf-source-remote", reason: "media_source_location_unsupported", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-virtual", reason: "media_source_location_unsupported", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-offline", reason: "media_source_location_unsupported", unavailableReason: "playable_media_unverified"},
+		{id: "jf-item-remote", reason: "location_not_playable", unavailableReason: "location_not_playable"},
+		{id: "jf-item-virtual", reason: "location_not_playable", unavailableReason: "location_not_playable"},
+		{id: "jf-item-offline", reason: "location_not_playable", unavailableReason: "location_not_playable"},
+		{id: "jf-source-http", reason: "media_source_protocol_unsupported", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-missing-protocol", reason: "media_source_protocol_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-missing-location", reason: "media_source_location_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-missing-media-type", reason: "media_source_media_type_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-item-missing-media-type", reason: "item_media_type_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-missing-path", reason: "media_source_path_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-invalid-path", reason: "media_source_path_invalid", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-missing-id", reason: "media_source_id_missing", unavailableReason: "playable_media_unverified"},
+		{id: "jf-source-mismatch", reason: "media_source_media_type_mismatch", unavailableReason: "playable_media_unverified"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.id, func(t *testing.T) {
+			item, err := client.ObserveItem(context.Background(), "jellyfin-main", testCase.id)
+			if err != nil {
+				t.Fatalf("ObserveItem: %v", err)
+			}
+			if item.Item.Playable || !hasJellyfinReason(item.Evidence, testCase.reason) || item.UnavailableReason != testCase.unavailableReason {
+				t.Fatalf("unsupported source = %+v, want reason %q", item, testCase.reason)
+			}
+		})
+	}
+}
+
+func TestJellyfinAmbiguousMappingRemainsUnavailable(t *testing.T) {
+	fixture := loadJellyfinFixture(t)
+	client, server := newJellyfinFixtureClient(t, &jellyfinFixtureHandler{fixture: fixture}, "jellyfin-main", []domain.PathMapping{
+		{ConnectionID: "jellyfin-main", SourcePrefix: "/fixture/media", RootID: "library-a"},
+		{ConnectionID: "jellyfin-main", SourcePrefix: "/fixture/media", RootID: "library-b"},
+	})
+	defer server.Close()
+	item, err := client.ObserveItem(context.Background(), "jellyfin-main", "jf-film-101")
+	if err != nil {
+		t.Fatalf("ObserveItem: %v", err)
+	}
+	if item.Item.Playable || item.UnavailableReason != "playable_media_unverified" || !hasJellyfinReason(item.Evidence, "media_source_mapping_ambiguous") {
+		t.Fatalf("ambiguous mapping item = %+v", item)
 	}
 }
 
