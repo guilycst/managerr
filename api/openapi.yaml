@@ -2,6 +2,9 @@ openapi: 3.0.3
 info:
   title: Managerr API
   version: 0.0.1
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
   description: >-
     Contract-first API for reviewing downloaded media and reconciling it with
     configured Arr, download-client, Jellyfin, Seerr and filesystem state.
@@ -51,10 +54,15 @@ paths:
       responses:
         '200':
           description: Configured integration connections.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConnectionList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createConnection
       tags: [configuration]
@@ -82,6 +90,8 @@ paths:
           $ref: '#/components/responses/Problem400'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
         '422':
           $ref: '#/components/responses/Problem422'
   /api/v1/connections/{connectionId}:
@@ -93,6 +103,11 @@ paths:
       responses:
         '200':
           description: Managed connection.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -129,6 +144,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
     delete:
       operationId: retireConnection
       tags: [configuration]
@@ -144,6 +161,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
 
   /api/v1/connection-checks:
     get:
@@ -155,10 +174,15 @@ paths:
       responses:
         '200':
           description: Connection checks.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConnectionCheckList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createConnectionCheck
       tags: [observations]
@@ -184,6 +208,12 @@ paths:
           $ref: '#/components/responses/Problem400'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
+        '503':
+          $ref: '#/components/responses/Problem503'
   /api/v1/connection-checks/{connectionCheckId}:
     parameters:
       - $ref: '#/components/parameters/ConnectionCheckId'
@@ -193,6 +223,9 @@ paths:
       responses:
         '200':
           description: Connection check result.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -210,10 +243,15 @@ paths:
       responses:
         '200':
           description: Configured storage roots.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/StorageRootList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createStorageRoot
       tags: [configuration]
@@ -241,6 +279,8 @@ paths:
           $ref: '#/components/responses/Problem400'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
         '422':
           $ref: '#/components/responses/Problem422'
   /api/v1/storage-roots/{storageRootId}:
@@ -252,6 +292,11 @@ paths:
       responses:
         '200':
           description: Storage root.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -288,6 +333,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
     delete:
       operationId: retireStorageRoot
       tags: [configuration]
@@ -303,6 +350,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
 
   /api/v1/path-mappings:
     get:
@@ -314,10 +363,15 @@ paths:
       responses:
         '200':
           description: Explicit upstream path mappings.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PathMappingList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createPathMapping
       tags: [configuration]
@@ -345,6 +399,8 @@ paths:
           $ref: '#/components/responses/Problem400'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
         '422':
           $ref: '#/components/responses/Problem422'
   /api/v1/path-mappings/{pathMappingId}:
@@ -356,6 +412,11 @@ paths:
       responses:
         '200':
           description: Path mapping.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -392,6 +453,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
     delete:
       operationId: retirePathMapping
       tags: [configuration]
@@ -407,6 +470,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '412':
           $ref: '#/components/responses/Problem412'
+        '428':
+          $ref: '#/components/responses/Problem428'
 
   /api/v1/configuration:
     get:
@@ -415,6 +480,11 @@ paths:
       responses:
         '200':
           description: Effective non-secret configuration.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
@@ -430,10 +500,15 @@ paths:
       responses:
         '200':
           description: Scan jobs.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ScanList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createScan
       tags: [observations]
@@ -459,6 +534,8 @@ paths:
           $ref: '#/components/responses/Problem400'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
   /api/v1/scans/{scanId}:
     parameters:
       - $ref: '#/components/parameters/ScanId'
@@ -468,6 +545,9 @@ paths:
       responses:
         '200':
           description: Scan progress and coverage.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -485,12 +565,19 @@ paths:
       responses:
         '202':
           description: Cancellation requested.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Cancellation'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
 
   /api/v1/discoveries:
     get:
@@ -503,10 +590,15 @@ paths:
       responses:
         '200':
           description: Observed file groups.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DiscoveryList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/discoveries/{discoveryId}:
     parameters:
       - $ref: '#/components/parameters/DiscoveryId'
@@ -516,6 +608,9 @@ paths:
       responses:
         '200':
           description: Discovery with provenance and candidates.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -534,10 +629,15 @@ paths:
       responses:
         '200':
           description: Aggregated media identities and tracking observations.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MediaList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/media/{mediaId}:
     parameters:
       - $ref: '#/components/parameters/MediaId'
@@ -547,6 +647,9 @@ paths:
       responses:
         '200':
           description: Media identity and all instance observations.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -565,10 +668,15 @@ paths:
       responses:
         '200':
           description: Download-client observations.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DownloadList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/downloads/{downloadId}:
     parameters:
       - $ref: '#/components/parameters/DownloadId'
@@ -578,6 +686,9 @@ paths:
       responses:
         '200':
           description: Download provenance and descriptor links.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -594,7 +705,7 @@ paths:
           in: query
           required: true
           schema:
-            $ref: '#/components/schemas/Id'
+            $ref: '#/components/schemas/ConfigId'
         - name: kind
           in: query
           required: true
@@ -603,13 +714,17 @@ paths:
         - name: query
           in: query
           required: true
-          minLength: 1
           schema:
             type: string
+            minLength: 1
         - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
           description: Suggestions from a selected Arr instance.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -618,6 +733,10 @@ paths:
           $ref: '#/components/responses/Problem400'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
+        '503':
+          $ref: '#/components/responses/Problem503'
 
   /api/v1/connections/{connectionId}/options:
     parameters:
@@ -628,12 +747,17 @@ paths:
       responses:
         '200':
           description: Current typed options for a selected upstream.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConnectionOptions'
         '404':
           $ref: '#/components/responses/Problem404'
+        '503':
+          $ref: '#/components/responses/Problem503'
 
   /api/v1/action-plans:
     get:
@@ -645,10 +769,15 @@ paths:
       responses:
         '200':
           description: Immutable action plan revisions.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionPlanList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createActionPlan
       tags: [plans]
@@ -676,6 +805,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '413':
           $ref: '#/components/responses/Problem413'
+        '429':
+          $ref: '#/components/responses/Problem429'
         '422':
           $ref: '#/components/responses/Problem422'
   /api/v1/action-plans/{actionPlanId}:
@@ -687,6 +818,9 @@ paths:
       responses:
         '200':
           description: Immutable action plan.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -721,6 +855,8 @@ paths:
           $ref: '#/components/responses/Problem404'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
         '422':
           $ref: '#/components/responses/Problem422'
 
@@ -752,6 +888,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '422':
           $ref: '#/components/responses/Problem422'
+        '429':
+          $ref: '#/components/responses/Problem429'
   /api/v1/review-decisions/{reviewDecisionId}:
     parameters:
       - $ref: '#/components/parameters/ReviewDecisionId'
@@ -761,6 +899,9 @@ paths:
       responses:
         '200':
           description: Recorded review decision.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -778,10 +919,15 @@ paths:
       responses:
         '200':
           description: Durable action runs.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionRunList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/action-runs/{actionRunId}:
     parameters:
       - $ref: '#/components/parameters/ActionRunId'
@@ -791,6 +937,9 @@ paths:
       responses:
         '200':
           description: Action state, effects and unresolved observations.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -809,10 +958,15 @@ paths:
       responses:
         '200':
           description: Sanitized attempt journal.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttemptList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
         '404':
           $ref: '#/components/responses/Problem404'
   /api/v1/action-runs/{actionRunId}/cancellations:
@@ -832,12 +986,19 @@ paths:
       responses:
         '202':
           description: Durable cancellation request.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Cancellation'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
   /api/v1/action-runs/{actionRunId}/reconciliations:
     parameters:
       - $ref: '#/components/parameters/ActionRunId'
@@ -855,12 +1016,19 @@ paths:
       responses:
         '202':
           description: Read-only reconciliation queued.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AsyncAccepted'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
   /api/v1/action-runs/{actionRunId}/retry-requests:
     parameters:
       - $ref: '#/components/parameters/ActionRunId'
@@ -878,6 +1046,9 @@ paths:
       responses:
         '202':
           description: Explicit retry request queued after validation.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
@@ -886,6 +1057,8 @@ paths:
           $ref: '#/components/responses/Problem404'
         '409':
           $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
 
   /api/v1/workflow-runs:
     get:
@@ -897,10 +1070,15 @@ paths:
       responses:
         '200':
           description: Ordered workflow runs.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkflowRunList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
     post:
       operationId: createWorkflowRun
       tags: [execution]
@@ -928,6 +1106,8 @@ paths:
           $ref: '#/components/responses/Problem409'
         '422':
           $ref: '#/components/responses/Problem422'
+        '429':
+          $ref: '#/components/responses/Problem429'
   /api/v1/workflow-runs/{workflowRunId}:
     parameters:
       - $ref: '#/components/parameters/WorkflowRunId'
@@ -937,6 +1117,9 @@ paths:
       responses:
         '200':
           description: Workflow progress and step state.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -960,12 +1143,19 @@ paths:
       responses:
         '202':
           description: Workflow cancellation requested.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Cancellation'
         '404':
           $ref: '#/components/responses/Problem404'
+        '409':
+          $ref: '#/components/responses/Problem409'
+        '429':
+          $ref: '#/components/responses/Problem429'
 
   /api/v1/trash:
     get:
@@ -977,10 +1167,15 @@ paths:
       responses:
         '200':
           description: Trash manifests and retention state.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TrashList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/trash/{trashId}:
     parameters:
       - $ref: '#/components/parameters/TrashId'
@@ -990,6 +1185,9 @@ paths:
       responses:
         '200':
           description: Trash entry.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -1007,10 +1205,15 @@ paths:
       responses:
         '200':
           description: Descriptor metadata.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DescriptorList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
   /api/v1/descriptors/{descriptorId}:
     parameters:
       - $ref: '#/components/parameters/DescriptorId'
@@ -1020,6 +1223,9 @@ paths:
       responses:
         '200':
           description: Descriptor metadata without content.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
@@ -1036,6 +1242,8 @@ paths:
         '200':
           description: Original descriptor bytes.
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
             Content-Disposition:
               schema:
                 type: string
@@ -1061,10 +1269,15 @@ paths:
       responses:
         '200':
           description: Cursor-paginated audit events.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditEventList'
+        '409':
+          $ref: '#/components/responses/ProblemSnapshotExpired'
 
 components:
   headers:
@@ -1078,6 +1291,11 @@ components:
       schema:
         type: string
         minLength: 1
+    Cache-Control:
+      description: Responses containing inventory, credentials metadata, actions or descriptor bytes are never cached.
+      schema:
+        type: string
+        enum: [no-store]
   parameters:
     Cursor:
       name: cursor
@@ -1115,7 +1333,7 @@ components:
       in: path
       required: true
       schema:
-        $ref: '#/components/schemas/Id'
+        $ref: '#/components/schemas/ConfigId'
     ConnectionCheckId:
       name: connectionCheckId
       in: path
@@ -1127,13 +1345,13 @@ components:
       in: path
       required: true
       schema:
-        $ref: '#/components/schemas/Id'
+        $ref: '#/components/schemas/ConfigId'
     PathMappingId:
       name: pathMappingId
       in: path
       required: true
       schema:
-        $ref: '#/components/schemas/Id'
+        $ref: '#/components/schemas/ConfigId'
     ScanId:
       name: scanId
       in: path
@@ -1199,7 +1417,7 @@ components:
       in: query
       required: false
       schema:
-        $ref: '#/components/schemas/Id'
+        $ref: '#/components/schemas/ConfigId'
     MediaKindFilter:
       name: kind
       in: query
@@ -1211,7 +1429,7 @@ components:
       in: query
       required: false
       schema:
-        $ref: '#/components/schemas/Id'
+        $ref: '#/components/schemas/ConfigId'
   responses:
     Problem400:
       description: Invalid request.
@@ -1227,6 +1445,18 @@ components:
             $ref: '#/components/schemas/Problem'
     Problem409:
       description: State, plan or idempotency conflict.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Problem428:
+      description: Required If-Match precondition was not supplied.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProblemSnapshotExpired:
+      description: Cursor snapshot has expired and must be restarted.
       content:
         application/problem+json:
           schema:
@@ -1267,8 +1497,15 @@ components:
             $ref: '#/components/schemas/Problem'
   schemas:
     Id:
+      $ref: '#/components/schemas/RuntimeId'
+    RuntimeId:
       type: string
       format: uuid
+    ConfigId:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: '^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$'
     Timestamp:
       type: string
       format: date-time
@@ -1290,11 +1527,16 @@ components:
     SourceMetadata:
       type: object
       additionalProperties: false
-      required: [source, revision]
+      required: [source, editable, documentId, revision, startupAt, reloadPolicy]
       properties:
         source:
           type: string
-          enum: [static_file, api, default]
+          enum: [yaml, api]
+        editable:
+          type: boolean
+        documentId:
+          type: string
+          minLength: 1
         revision:
           type: string
           minLength: 1
@@ -1311,9 +1553,9 @@ components:
         sourceId:
           $ref: '#/components/schemas/Id'
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         rootId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         completeness:
           type: string
           enum: [complete, partial, unknown]
@@ -1388,14 +1630,52 @@ components:
         message:
           type: string
     CredentialInput:
+      oneOf:
+        - $ref: '#/components/schemas/ApiKeyCredential'
+        - $ref: '#/components/schemas/UsernamePasswordCredential'
+        - $ref: '#/components/schemas/TokenCredential'
+      discriminator:
+        propertyName: kind
+        mapping:
+          api_key: '#/components/schemas/ApiKeyCredential'
+          username_password: '#/components/schemas/UsernamePasswordCredential'
+          token: '#/components/schemas/TokenCredential'
+    ApiKeyCredential:
       type: object
       additionalProperties: false
-      required: [username, secret]
+      required: [kind, apiKey]
       properties:
+        kind:
+          type: string
+          enum: [api_key]
+        apiKey:
+          type: string
+          minLength: 1
+          writeOnly: true
+    UsernamePasswordCredential:
+      type: object
+      additionalProperties: false
+      required: [kind, username, password]
+      properties:
+        kind:
+          type: string
+          enum: [username_password]
         username:
           type: string
           minLength: 1
-        secret:
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+    TokenCredential:
+      type: object
+      additionalProperties: false
+      required: [kind, token]
+      properties:
+        kind:
+          type: string
+          enum: [token]
+        token:
           type: string
           minLength: 1
           writeOnly: true
@@ -1405,7 +1685,7 @@ components:
       required: [id, kind, label, endpoint, source, revision, health, credentialState]
       properties:
         id:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         kind:
           type: string
           enum: [qbittorrent, nzbget, radarr, sonarr, jellyfin, seerr]
@@ -1435,8 +1715,10 @@ components:
     ConnectionCreate:
       type: object
       additionalProperties: false
-      required: [kind, label, endpoint]
+      required: [id, kind, label, endpoint]
       properties:
+        id:
+          $ref: '#/components/schemas/ConfigId'
         kind:
           type: string
           enum: [qbittorrent, nzbget, radarr, sonarr, jellyfin, seerr]
@@ -1478,7 +1760,7 @@ components:
       required: [connectionId]
       properties:
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
     ConnectionCheck:
       type: object
       additionalProperties: false
@@ -1487,9 +1769,9 @@ components:
         id:
           $ref: '#/components/schemas/Id'
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/CheckState'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
         completedAt:
@@ -1514,17 +1796,31 @@ components:
     StoragePurpose:
       type: string
       enum: [download, library, descriptor, trash]
+    WatchSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, intervalSeconds]
+      properties:
+        enabled:
+          type: boolean
+        intervalSeconds:
+          type: integer
+          minimum: 1
     StorageRoot:
       type: object
       additionalProperties: false
-      required: [id, label, purpose, source, revision, capabilities]
+      required: [id, label, purpose, path, source, revision, capabilities, watch]
       properties:
         id:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         label:
           type: string
         purpose:
           $ref: '#/components/schemas/StoragePurpose'
+        path:
+          type: string
+          minLength: 1
+          description: Effective host path for this root. The server never accepts this value in an action target.
         source:
           $ref: '#/components/schemas/SourceMetadata'
         revision:
@@ -1536,13 +1832,17 @@ components:
         permission:
           type: string
           enum: [read_only, read_write, unavailable, unknown]
+        watch:
+          $ref: '#/components/schemas/WatchSettings'
         retiredAt:
           $ref: '#/components/schemas/Timestamp'
     StorageRootCreate:
       type: object
       additionalProperties: false
-      required: [label, purpose, path]
+      required: [id, label, purpose, path]
       properties:
+        id:
+          $ref: '#/components/schemas/ConfigId'
         label:
           type: string
           minLength: 1
@@ -1560,8 +1860,14 @@ components:
         label:
           type: string
           minLength: 1
+        path:
+          type: string
+          minLength: 1
         watchEnabled:
           type: boolean
+        watchIntervalSeconds:
+          type: integer
+          minimum: 1
     StorageRootList:
       type: object
       additionalProperties: false
@@ -1579,13 +1885,13 @@ components:
       required: [id, connectionId, sourcePrefix, rootId, destinationPrefix, source, revision]
       properties:
         id:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         sourcePrefix:
           type: string
         rootId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         destinationPrefix:
           type: string
         source:
@@ -1595,14 +1901,16 @@ components:
     PathMappingCreate:
       type: object
       additionalProperties: false
-      required: [connectionId, sourcePrefix, rootId, destinationPrefix]
+      required: [id, connectionId, sourcePrefix, rootId, destinationPrefix]
       properties:
+        id:
+          $ref: '#/components/schemas/ConfigId'
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         sourcePrefix:
           type: string
         rootId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         destinationPrefix:
           type: string
     PathMappingPatch:
@@ -1662,11 +1970,11 @@ components:
         rootIds:
           type: array
           items:
-            $ref: '#/components/schemas/Id'
+            $ref: '#/components/schemas/ConfigId'
         connectionIds:
           type: array
           items:
-            $ref: '#/components/schemas/Id'
+            $ref: '#/components/schemas/ConfigId'
     Scan:
       type: object
       additionalProperties: false
@@ -1677,7 +1985,7 @@ components:
         scope:
           type: string
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/ScanState'
         coverage:
           type: array
           items:
@@ -1705,22 +2013,24 @@ components:
       required: [rootId, relativePath]
       properties:
         rootId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         relativePath:
           type: string
           minLength: 1
-          pattern: '^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$'
+          pattern: '^[^/\x00].*$'
+          description: Root-relative path. The server rejects dot-dot components, root targets and symlink escapes.
     FileManifestEntry:
       type: object
       additionalProperties: false
       required: [rootId, relativePath, type, size]
       properties:
         rootId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         relativePath:
           type: string
           minLength: 1
-          pattern: '^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+$'
+          pattern: '^[^/\x00].*$'
+          description: Root-relative path. The server rejects dot-dot components, root targets and symlink escapes.
         type:
           type: string
           enum: [file, directory, subtitle, companion]
@@ -1742,7 +2052,7 @@ components:
       required: [connectionId, dimension, value, observedAt]
       properties:
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         dimension:
           type: string
           enum: [registration, import, availability, request]
@@ -1766,7 +2076,7 @@ components:
       additionalProperties: false
       properties:
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         clientItemId:
           type: string
         hash:
@@ -1856,7 +2166,7 @@ components:
         id:
           $ref: '#/components/schemas/Id'
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         state:
           type: string
           enum: [queued, downloading, seeding, complete, processing, failed, unknown]
@@ -1930,16 +2240,105 @@ components:
       required: [connectionId, observedAt, options]
       properties:
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         observedAt:
           $ref: '#/components/schemas/Timestamp'
         options:
-          type: object
-          additionalProperties: true
+          oneOf:
+            - $ref: '#/components/schemas/ArrOptions'
+            - $ref: '#/components/schemas/DownloadClientOptions'
+            - $ref: '#/components/schemas/JellyfinOptions'
+            - $ref: '#/components/schemas/SeerrOptions'
+          discriminator:
+            propertyName: kind
+            mapping:
+              arr: '#/components/schemas/ArrOptions'
+              download_client: '#/components/schemas/DownloadClientOptions'
+              jellyfin: '#/components/schemas/JellyfinOptions'
+              seerr: '#/components/schemas/SeerrOptions'
+    OptionItem:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+    ArrOptions:
+      type: object
+      additionalProperties: false
+      required: [kind, rootFolders, qualityProfiles, seriesTypes, seasons, episodes]
+      properties:
+        kind:
+          type: string
+          enum: [arr]
+        rootFolders:
+          type: array
+          items:
+            type: string
+        qualityProfiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        seriesTypes:
+          type: array
+          items:
+            type: string
+        seasons:
+          type: array
+          items:
+            type: integer
+        episodes:
+          type: array
+          items:
+            type: integer
+    DownloadClientOptions:
+      type: object
+      additionalProperties: false
+      required: [kind, categories, tags]
+      properties:
+        kind:
+          type: string
+          enum: [download_client]
+        categories:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+    JellyfinOptions:
+      type: object
+      additionalProperties: false
+      required: [kind, libraries]
+      properties:
+        kind:
+          type: string
+          enum: [jellyfin]
+        libraries:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+    SeerrOptions:
+      type: object
+      additionalProperties: false
+      required: [kind, statuses]
+      properties:
+        kind:
+          type: string
+          enum: [seerr]
+        statuses:
+          type: array
+          items:
+            type: string
     ActionPlan:
       type: object
       additionalProperties: false
-      required: [id, revision, digest, kind, status, action, desiredState, manifest, preconditions, capabilities, requiredApproval]
+      required: [id, revision, digest, status, action, desiredState, manifest, preconditions, capabilities, requiredApproval]
       properties:
         id:
           $ref: '#/components/schemas/Id'
@@ -1947,8 +2346,6 @@ components:
           type: integer
           minimum: 1
         digest:
-          type: string
-        kind:
           type: string
         status:
           type: string
@@ -1995,7 +2392,7 @@ components:
           minimum: 0
         requiredApproval:
           type: string
-          enum: [none, review, irreversible]
+          enum: [review, irreversible]
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
         createdAt:
@@ -2068,9 +2465,27 @@ components:
           $ref: '#/components/schemas/Id'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
-    JobState:
+    AsyncState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled, deadline_exceeded]
+    CheckState:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+    ScanState:
       type: string
       enum: [queued, running, waiting, succeeded, failed, cancelled, deadline_exceeded]
+    ActionState:
+      type: string
+      enum: [queued, running, waiting_dependency, reconciling, needs_review, succeeded, failed, cancelled, deadline_exceeded]
+    WorkflowState:
+      type: string
+      enum: [awaiting_approval, running, waiting_dependency, needs_review, succeeded, failed, cancelled, deadline_exceeded]
+    StepState:
+      type: string
+      enum: [queued, running, succeeded, failed, blocked, skipped, cancelled]
+    AttemptState:
+      type: string
+      enum: [running, reconciling, succeeded, failed, cancelled]
     ActionInput:
       oneOf:
         - $ref: '#/components/schemas/ArrRegistrationInput'
@@ -2088,16 +2503,30 @@ components:
         - $ref: '#/components/schemas/JellyfinRefreshInput'
       discriminator:
         propertyName: kind
+        mapping:
+          arr.registration: '#/components/schemas/ArrRegistrationInput'
+          arr.import: '#/components/schemas/ArrImportInput'
+          fs.copy: '#/components/schemas/FsCopyInput'
+          fs.hardlink: '#/components/schemas/FsHardlinkInput'
+          fs.move: '#/components/schemas/FsMoveInput'
+          fs.rename: '#/components/schemas/FsRenameInput'
+          client.stop: '#/components/schemas/ClientStopInput'
+          client.remove: '#/components/schemas/ClientRemoveInput'
+          fs.trash: '#/components/schemas/FsTrashInput'
+          fs.restore: '#/components/schemas/FsRestoreInput'
+          fs.delete: '#/components/schemas/FsDeleteInput'
+          descriptor.delete: '#/components/schemas/DescriptorDeleteInput'
+          jellyfin.refresh: '#/components/schemas/JellyfinRefreshInput'
     ArrRegistrationInput:
       type: object
       additionalProperties: false
-      required: [kind, connectionId, mediaKind, providerId]
+      required: [kind, connectionId, mediaKind, providerId, fields]
       properties:
         kind:
           type: string
           enum: [arr.registration]
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         mediaKind:
           $ref: '#/components/schemas/MediaKind'
         providerId:
@@ -2105,6 +2534,7 @@ components:
         fields:
           type: object
           additionalProperties: false
+          minProperties: 1
           properties:
             rootFolder:
               type: string
@@ -2123,13 +2553,13 @@ components:
     ArrImportInput:
       type: object
       additionalProperties: false
-      required: [kind, connectionId, registeredExternalId, files, previewRevision]
+      required: [kind, connectionId, registeredExternalId, files, previewRevision, transfer]
       properties:
         kind:
           type: string
           enum: [arr.import]
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         registeredExternalId:
           type: string
         files:
@@ -2197,7 +2627,7 @@ components:
     FsMoveInput:
       type: object
       additionalProperties: false
-      required: [kind, files]
+      required: [kind, files, executor]
       properties:
         kind:
           type: string
@@ -2207,10 +2637,13 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/FileMap'
+        executor:
+          type: string
+          enum: [managerr, native_client]
     FsRenameInput:
       type: object
       additionalProperties: false
-      required: [kind, files]
+      required: [kind, files, executor]
       properties:
         kind:
           type: string
@@ -2220,6 +2653,9 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/FileMap'
+        executor:
+          type: string
+          enum: [managerr, native_client]
     ClientStopInput:
       type: object
       additionalProperties: false
@@ -2229,7 +2665,7 @@ components:
           type: string
           enum: [client.stop]
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         clientItemIds:
           type: array
           minItems: 1
@@ -2244,7 +2680,7 @@ components:
           type: string
           enum: [client.remove]
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         clientItemIds:
           type: array
           minItems: 1
@@ -2324,6 +2760,10 @@ components:
           type: boolean
           enum: [true]
     JellyfinRefreshInput:
+      oneOf:
+        - $ref: '#/components/schemas/JellyfinLibraryRefreshInput'
+        - $ref: '#/components/schemas/JellyfinItemRefreshInput'
+    JellyfinLibraryRefreshInput:
       type: object
       additionalProperties: false
       required: [kind, connectionId, scope]
@@ -2332,16 +2772,44 @@ components:
           type: string
           enum: [jellyfin.refresh]
         connectionId:
-          $ref: '#/components/schemas/Id'
+          $ref: '#/components/schemas/ConfigId'
         scope:
           type: string
-          enum: [library, item]
+          enum: [library]
+    JellyfinItemRefreshInput:
+      type: object
+      additionalProperties: false
+      required: [kind, connectionId, scope, itemId]
+      properties:
+        kind:
+          type: string
+          enum: [jellyfin.refresh]
+        connectionId:
+          $ref: '#/components/schemas/ConfigId'
+        scope:
+          type: string
+          enum: [item]
         itemId:
           type: string
+          minLength: 1
+    RetryPolicy:
+      type: object
+      additionalProperties: false
+      required: [maxAttempts, backoffSeconds, inactivityTimeoutSeconds]
+      properties:
+        maxAttempts:
+          type: integer
+          minimum: 0
+        backoffSeconds:
+          type: integer
+          minimum: 0
+        inactivityTimeoutSeconds:
+          type: integer
+          minimum: 1
     ActionRun:
       type: object
       additionalProperties: false
-      required: [id, planId, revision, state, outcome, attempts, effects, unresolvedEffects]
+      required: [id, planId, revision, state, outcome, attempts, effects, unresolvedEffects, retryPolicy]
       properties:
         id:
           $ref: '#/components/schemas/Id'
@@ -2354,7 +2822,7 @@ components:
         stepId:
           type: string
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/ActionState'
         outcome:
           type: string
           enum: [pending, applied, already_satisfied, failed, cancelled, unknown]
@@ -2373,6 +2841,10 @@ components:
           $ref: '#/components/schemas/Timestamp'
         deadlineAt:
           $ref: '#/components/schemas/Timestamp'
+        retryPolicy:
+          $ref: '#/components/schemas/RetryPolicy'
+        retryReason:
+          type: string
         cancellation:
           $ref: '#/components/schemas/Cancellation'
         lastObservation:
@@ -2401,7 +2873,7 @@ components:
           type: integer
           minimum: 1
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/AttemptState'
         startedAt:
           $ref: '#/components/schemas/Timestamp'
         completedAt:
@@ -2435,9 +2907,11 @@ components:
     Cancellation:
       type: object
       additionalProperties: false
-      required: [id, state, requestedAt]
+      required: [id, parentId, state, requestedAt]
       properties:
         id:
+          $ref: '#/components/schemas/Id'
+        parentId:
           $ref: '#/components/schemas/Id'
         state:
           type: string
@@ -2468,16 +2942,17 @@ components:
     WorkflowStep:
       type: object
       additionalProperties: false
-      required: [id, actionPlanId, approvalRequired, state]
+      required: [id, actionPlanId, state]
       properties:
         id:
           type: string
         actionPlanId:
           $ref: '#/components/schemas/Id'
-        approvalRequired:
-          type: boolean
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/StepState'
+        approvalGate:
+          type: string
+          description: Server-derived approval requirement from the referenced immutable plan.
         actionRunId:
           $ref: '#/components/schemas/Id'
     WorkflowRunCreate:
@@ -2499,18 +2974,16 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [id, actionPlanId, approvalRequired]
+            required: [id, actionPlanId]
             properties:
               id:
                 type: string
               actionPlanId:
                 $ref: '#/components/schemas/Id'
-              approvalRequired:
-                type: boolean
     WorkflowRun:
       type: object
       additionalProperties: false
-      required: [id, name, steps, state, currentStep]
+      required: [id, name, steps, state, currentStep, deadlineAt]
       properties:
         id:
           $ref: '#/components/schemas/Id'
@@ -2530,7 +3003,9 @@ components:
           type: string
           nullable: true
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/WorkflowState'
+        deadlineAt:
+          $ref: '#/components/schemas/Timestamp'
         aggregateEffectCount:
           type: integer
           minimum: 0
@@ -2663,13 +3138,13 @@ components:
     AsyncAccepted:
       type: object
       additionalProperties: false
-      required: [id, state]
+      required: [id, parentId, state]
       properties:
         id:
           $ref: '#/components/schemas/Id'
         parentId:
           $ref: '#/components/schemas/Id'
         state:
-          $ref: '#/components/schemas/JobState'
+          $ref: '#/components/schemas/AsyncState'
         nextAttemptAt:
           $ref: '#/components/schemas/Timestamp'

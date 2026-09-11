@@ -8,9 +8,10 @@ before regenerating consumers.
 ## Conventions
 
 - Base path `/api/v1`; JSON requests/responses, UTF-8. Dates are RFC 3339 UTC.
-- Resource IDs are opaque UUID strings. Upstream IDs are strings scoped by
-  connectionId. File targets use rootId plus relativePath; never accept an
-  unrestricted host path for an action.
+- Runtime resource IDs are opaque UUID strings. Configuration connection, root
+  and mapping IDs are stable constrained strings such as `radarr-main`; upstream
+  IDs remain strings scoped by connectionId. File targets use a configured
+  rootId plus relativePath; never accept an unrestricted host path for an action.
 - GET is read-only. POST creates resources or durable requests. PATCH changes
   application-owned configuration with an explicit field mask/merge contract.
   DELETE removes application config only, never implicitly deletes media.
@@ -32,6 +33,10 @@ before regenerating consumers.
   unsupported discriminators. Read responses may add optional fields compatibly.
 - `Cache-Control: no-store` for inventory, credentials metadata, actions, and BFF
   pages. Descriptors never appear inline in ordinary resource responses.
+- Configuration responses expose source metadata (`yaml` or `api`, editable flag,
+  source document identity, revision, startup time and restart-required reload
+  policy) and ETags for optimistic concurrency. Effective storage-root path and
+  watch settings are returned, while credential values are never returned.
 
 ## Resources
 
@@ -55,7 +60,7 @@ before regenerating consumers.
 | GET `/downloads`, `/downloads/{id}` | Client-scoped records, seeding/completion metadata, descriptor links and observations. |
 | GET `/metadata-candidates` | Search via chosen Arr instance, kind and text/provider ID. Suggestions only; no search-for-release operation. |
 | GET `/connections/{id}/options` | Current valid root folders, profiles, series types, seasons/episodes as supported; typed and timestamped. |
-| POST/GET `/action-plans` | Create read-only exact preview or list plans. May return pending plan while evidence collection completes. |
+| POST/GET `/action-plans` | Create read-only exact preview or list plans. May return pending plan while evidence collection completes. Every mutation plan requires review or irreversible approval. |
 | GET `/action-plans/{id}` | Immutable revision once ready; failed preview has issues and no executable approval. |
 | POST `/action-plans/{id}/revisions` | Create a new immutable preview using corrected input. Does not alter an approved revision. |
 | POST `/review-decisions` | Approve/reject a ready exact revision; creates action-run atomically on approval and returns its ID. |
@@ -65,7 +70,7 @@ before regenerating consumers.
 | POST `/action-runs/{id}/cancellations` | Durable cancellation resource, 202 even when external outcome still unresolved. |
 | POST `/action-runs/{id}/reconciliations` | Request fresh read-only evidence; cannot authorize mutation or broaden a plan. |
 | POST `/action-runs/{id}/retry-requests` | Explicit retry request for a retryable unchanged intent. API revalidates; uncertain writes reconcile first. |
-| GET/POST `/workflow-runs` | List/create an ordered recipe with explicit action-plan references and approval gates. No blanket execution approval. |
+| GET/POST `/workflow-runs` | List/create an ordered recipe with explicit saved action-plan references. The server derives approval gates from those plans; the client cannot mark a step approved. |
 | GET `/workflow-runs/{id}` | Ordered steps, decisions needed, completed/failed/blocked state and current observations. |
 | POST `/workflow-runs/{id}/cancellations` | Cancel undispatched steps, pending retries and future mutations; preserve observations. |
 | GET `/trash`, `/trash/{id}` | Manifest, original paths, expiration, client associations, holds and restore/purge capabilities. |
@@ -86,6 +91,10 @@ converges on one effective request.
 `Coverage`: source/connection/root IDs, startedAt, completedAt, completeness
 `complete|partial|unknown`, reason codes, observed count, snapshot revision.
 
+`CredentialInput` accepts one typed variant, `api_key`, `username_password` or
+`token`. Secret fields are write-only and only credential state metadata appears
+in responses.
+
 `TrackingObservation`: connectionId, dimension
 `registration|import|availability|request`, value `present|absent|unknown`,
 external IDs, provider IDs, observedAt, coverageId, evidence summaries.
@@ -95,7 +104,7 @@ content digest when required, mtime as observation, selected role
 `video|subtitle|companion`, association IDs. Internal file descriptors are not
 wire values. Manifests are exact, bounded lists, never wildcard promises.
 
-`ActionPlan`: id, revision, digest, kind, status `preparing|ready|invalid|expired`,
+`ActionPlan`: id, revision, digest, status `preparing|ready|invalid|expired`,
 createdAt, expiresAt, inputs, desiredState, manifest, preconditions,
 connectionRevisions, mappingRevisions, capabilities, impacts, conflicts,
 blockingIssues, estimatedBytes and requiredApproval. Conflicts prohibit ready
@@ -106,14 +115,16 @@ but includes every authority-bearing input and relevant configuration revision.
 explicit irreversible acknowledgement where needed, createdAt, actor,
 unverifiedLabel, resultingActionRunId. Client cannot set authoritative actor.
 
-`ActionRun`: id, plan reference, optional workflow/step ID, state, outcome,
-retryPolicy, deadline, cancellation, effects, unresolvedEffects, lastObservation,
-nextAttemptAt, attempts URL. Outcome `applied|already_satisfied` is populated only
+`ActionRun`: id, plan reference, optional workflow/step ID, state
+`queued|running|waiting_dependency|reconciling|needs_review|succeeded|failed|cancelled|deadline_exceeded`,
+outcome, retryPolicy, retryReason, deadline, cancellation, effects,
+unresolvedEffects, lastObservation, nextAttemptAt, attempts URL. Outcome `applied|already_satisfied` is populated only
 when desired-state evidence supports success. A cancellation can coexist with
 verified effects; no rollback claim is encoded in a terminal label.
 
-`WorkflowRun`: id, recipe name/version, ordered step IDs, approval gates,
-currentStep, state, aggregate effect count and unresolved count. Supported
+`WorkflowRun`: id, recipe name/version, ordered step IDs, server-derived approval
+gates, currentStep, deadlineAt, state
+`awaiting_approval|running|waiting_dependency|needs_review|succeeded|failed|cancelled|deadline_exceeded`, aggregate effect count and unresolved count. Supported
 recipes are Arr import, library placement, organize, trash, restore and purge.
 A client may compose supported action kinds in an ordered list. API rejects
 invalid dependencies, unapproved destructive steps and an import preapproved
@@ -123,18 +134,18 @@ before a missing title's registration/preview phase is resolved.
 
 | Kind | Required intent | Additional boundary |
 | --- | --- | --- |
-| `arr.registration` | connectionId, mediaKind, providerId, explicitly desired registration fields | New monitoring defaults false; never search automatically. |
-| `arr.import` | connectionId, registered external title ID, exact file/episode map, native preview revision, transfer behavior | No arbitrary upstream command payload; require tested capabilities. |
+| `arr.registration` | connectionId, mediaKind, providerId, and a nonempty explicitly desired registration fields object | New monitoring defaults false; never search automatically. |
+| `arr.import` | connectionId, registered external title ID, exact file/episode map, native preview revision, and required transfer behavior | No arbitrary upstream command payload; require tested capabilities. |
 | `fs.copy` | source manifest and exact destinations | Verify content; preserve source. |
 | `fs.hardlink` | selected regular files and destinations | Same filesystem; never copy fallback. |
-| `fs.move` / `fs.rename` | exact source/destination map, selected executor | Linked torrents use supported native API; cross-device requires separate approved copy/delete steps. |
+| `fs.move` / `fs.rename` | exact source/destination map and selected executor (`managerr` or `native_client`) | Linked torrents use supported native API; cross-device requires separate approved copy/delete steps. |
 | `client.stop` | qBittorrent connection/item IDs | Independent action; verify stopped state. Zero upload speed is insufficient. |
 | `client.remove` | qBittorrent connection/item IDs, retainPayload=true | Metadata-only removal, explicit lost-tracking impact. No deleteFiles=true. |
 | `fs.trash` | exact payload manifest, original paths, retention, proven stopped-client prerequisites | Creates per-volume trash entries. Original approval includes expiry purge policy. |
 | `fs.restore` | trash entry/manifest, exact destinations | Check collisions; leave clients stopped. |
 | `fs.delete` | exact live or trash manifest, permanent=true, irreversible acknowledgement | UI restricts to trash; API permits live scope. Required client removal is explicit dependent work. |
 | `descriptor.delete` | exact retained descriptor IDs, irreversible acknowledgement | Separate from payload deletion; retain minimal audit metadata. |
-| `jellyfin.refresh` | connectionId, supported library/item scope | Does not claim scan completion or availability. |
+| `jellyfin.refresh` | connectionId and exactly one closed scope variant: `scope: library`, or `scope: item` with required itemId | Does not claim scan completion or availability. |
 
 Typed action handlers implement plan, observe, execute, reconcile and capability
 checks. Add new typed action kinds through contracts and acceptance cases. Do not
