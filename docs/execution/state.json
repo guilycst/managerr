@@ -28,10 +28,11 @@
   ],
   "tasks": {
     "C-00": {
-      "status": "assigned",
-      "owner": "/root/c00_implementer_retry",
+      "status": "in_review",
+      "owner": "/root/c00_reviewer",
       "baseSha": "ef4fbc3668e3f021b24c8e6c0e7ecbe0704b5bd0",
       "integratedSha": null,
+      "implementationCommit": "7ed5f6c",
       "evidence": [],
       "review": null,
       "dispatch": {
@@ -50,7 +51,7 @@
           "A-54",
           "A-55"
         ],
-        "reviewPath": "independent reviewer after implementation handoff",
+        "reviewPath": "docs/execution/handoffs/C-00-review.md",
         "previousAttempt": {
           "owner": "/root/c00_implementer",
           "status": "interrupted",
@@ -355,7 +356,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete C-00 evidence, then assign independent review before opening C-01",
+  "nextAction": "Complete independent C-00 review before opening C-01",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
