@@ -464,24 +464,38 @@
       "review": null
     },
     "F-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
       "implementationCommit": "68d5508c0cbc455ac22f835a1767b2a973dd160b",
       "evidence": [
         "docs/execution/handoffs/F-01.md",
+        "docs/execution/handoffs/F-01-review-round1.md",
         "internal/filesystem/observe/observe_test.go",
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "e8c58fea5253720524e7c60955ecc07bc4080059",
+        "findings": [
+          "P1: cumulative enumeration cursor must enforce the total bound without a late per-page error",
+          "P1: unsupported child entries must remain visible with a reason instead of aborting the whole page",
+          "P1: capability output must preserve configured evidence and read-only unsupported states"
+        ],
         "round": 1
       },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "e8c58fea5253720524e7c60955ecc07bc4080059",
+          "status": "changes_requested",
+          "correctionCommit": null
+        }
+      ],
       "dispatch": {
         "assignedAt": "2026-09-11",
         "model": "gpt-5.6-luna",
