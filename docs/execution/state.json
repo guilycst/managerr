@@ -1512,7 +1512,7 @@
     "X-10": {
       "status": "assigned",
       "owner": "/root/c01_implementer",
-      "baseSha": "2b94fbfc044e52d8d0a49eb0a0a0e46a88557a57",
+      "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
       "evidence": [],
       "review": {
@@ -1546,13 +1546,13 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "baseSha": "2b94fbfc044e52d8d0a49eb0a0a0e46a88557a57"
+        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77"
       }
     },
     "X-11": {
       "status": "assigned",
       "owner": "/root/d01_implementer",
-      "baseSha": "2b94fbfc044e52d8d0a49eb0a0a0e46a88557a57",
+      "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
       "evidence": [],
       "review": {
@@ -1587,7 +1587,7 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "baseSha": "2b94fbfc044e52d8d0a49eb0a0a0e46a88557a57"
+        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77"
       }
     },
     "X-12": {
@@ -1607,7 +1607,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 and X-11 are assigned in parallel; wait for their product and handoff commits, then review each module independently before C-05 CI wiring.",
+  "nextAction": "X-10 and X-11 are assigned in parallel from the recorded base; wait for their product and handoff commits, then review each module independently before C-05 CI wiring.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
