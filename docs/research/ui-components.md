@@ -34,11 +34,11 @@ Goshtoso head metadata contract. This is a compatibility baseline, not a
 claim that App Shells has published a matching stable release. Browser and
 container verification remain release gates.
 
-The Go proxy metadata is the checksum-locked dependency identity. During this
-recheck, a direct Git ref query returned a different hash for the Goshtoso
-`v0.3.0` tag than the proxy origin record. The committed `go.sum` pins the
-proxy module bytes; recheck that upstream tag provenance before release if
-the source ref is used as an additional provenance requirement.
+The Goshtoso `v0.3.0` tag is annotated. Its tag object is
+`6b6374f6f9112e98a3ccbdf9d7fbc7121f591a1e`, which peels to commit
+`2c4e86ab838868335e99f485bbab8caa88b54c8b`. That peeled commit matches the Go
+proxy `Origin.Hash`; there is no tag/proxy mismatch. The committed `go.sum`
+still pins the module bytes used by the build.
 
 ## Runtime and shell contract
 
@@ -61,11 +61,13 @@ will configure:
   `net/http` mux. Neither handler is wrapped in `http.StripPrefix`.
 
 `LocalRuntime: true` makes the v0.0.1 container self-host its exact Goshtoso
-CSS and JavaScript. `head.Dependencies(head.WithLocalRuntime())` supplies the
-embedded dependency loader and ordered HTMX 4/Alpine 3 assets. The selected
-Goshtoso runtime metadata reports HTMX `4.0.0`, Alpine.js `3.17.2`, Alpine
-collapse/focus/mask `3.17.2`, and the matching `hx-alpine-compat` extension.
-The BFF must not add a second runtime or manually initialize swapped trees.
+CSS and JavaScript. `head.Dependencies(head.WithLocalRuntime())` emits direct,
+version-matched local script tags for the ordered HTMX 4, Alpine 3 and Goshtoso
+runtime assets. It does not emit a dependency loader or a fallback CDN path.
+The selected Goshtoso runtime metadata reports HTMX `4.0.0`, Alpine.js `3.17.2`,
+Alpine collapse/focus/mask `3.17.2`, and the matching `hx-alpine-compat`
+extension. The BFF must not add a second runtime or manually initialize swapped
+trees.
 
 `themes.BuiltIn()` in Goshtoso `v0.3.0` includes both `goshtoso` and `minimal`.
 The browser task still must exercise both themes, plus light, dark and system
