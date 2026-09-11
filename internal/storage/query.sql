@@ -1,0 +1,647 @@
+-- Configuration snapshots and source-owned resources.
+
+-- name: CreateConfigSnapshot :one
+INSERT INTO config_snapshots (
+    id, source, document_id, revision, startup_at, effective_json, created_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(source), sqlc.arg(document_id), sqlc.arg(revision),
+    sqlc.arg(startup_at), sqlc.arg(effective_json), sqlc.arg(created_at)
+)
+RETURNING *;
+
+-- name: GetConfigSnapshot :one
+SELECT * FROM config_snapshots WHERE id = sqlc.arg(id);
+
+-- name: ListConfigSnapshots :many
+SELECT * FROM config_snapshots ORDER BY created_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: CreateConnection :one
+INSERT INTO connections (
+    id, kind, label, endpoint, source, source_snapshot_id, revision,
+    retired_at, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(kind), sqlc.arg(label), sqlc.arg(endpoint),
+    sqlc.arg(source), sqlc.arg(source_snapshot_id), sqlc.arg(revision),
+    sqlc.arg(retired_at), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetConnection :one
+SELECT * FROM connections WHERE id = sqlc.arg(id);
+
+-- name: ListConnections :many
+SELECT * FROM connections
+WHERE (sqlc.arg(include_retired) = 1 OR retired_at IS NULL)
+ORDER BY id LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: RetireConnection :one
+UPDATE connections
+SET retired_at = sqlc.arg(retired_at), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND retired_at IS NULL
+RETURNING *;
+
+-- name: CreateStorageRoot :one
+INSERT INTO storage_roots (
+    id, label, purpose, path, source, source_snapshot_id, revision,
+    read_only, watch_enabled, watch_interval_seconds, capabilities_json,
+    retired_at, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(label), sqlc.arg(purpose), sqlc.arg(path),
+    sqlc.arg(source), sqlc.arg(source_snapshot_id), sqlc.arg(revision),
+    sqlc.arg(read_only), sqlc.arg(watch_enabled), sqlc.arg(watch_interval_seconds),
+    sqlc.arg(capabilities_json), sqlc.arg(retired_at), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetStorageRoot :one
+SELECT * FROM storage_roots WHERE id = sqlc.arg(id);
+
+-- name: ListStorageRoots :many
+SELECT * FROM storage_roots
+WHERE (sqlc.arg(include_retired) = 1 OR retired_at IS NULL)
+ORDER BY id LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: RetireStorageRoot :one
+UPDATE storage_roots
+SET retired_at = sqlc.arg(retired_at), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND retired_at IS NULL
+RETURNING *;
+
+-- name: CreatePathMapping :one
+INSERT INTO path_mappings (
+    id, connection_id, root_id, source_prefix, destination_prefix, source,
+    source_snapshot_id, revision, retired_at, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(connection_id), sqlc.arg(root_id),
+    sqlc.arg(source_prefix), sqlc.arg(destination_prefix), sqlc.arg(source),
+    sqlc.arg(source_snapshot_id), sqlc.arg(revision), sqlc.arg(retired_at),
+    sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetPathMapping :one
+SELECT * FROM path_mappings WHERE id = sqlc.arg(id);
+
+-- name: ListPathMappings :many
+SELECT * FROM path_mappings
+WHERE (sqlc.arg(include_retired) = 1 OR retired_at IS NULL)
+ORDER BY id LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: RetirePathMapping :one
+UPDATE path_mappings
+SET retired_at = sqlc.arg(retired_at), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND retired_at IS NULL
+RETURNING *;
+
+-- name: PutEncryptedCredential :one
+INSERT INTO encrypted_credentials (
+    connection_id, name, envelope_version, nonce, ciphertext, key_fingerprint,
+    created_at, updated_at
+) VALUES (
+    sqlc.arg(connection_id), sqlc.arg(name), sqlc.arg(envelope_version),
+    sqlc.arg(nonce), sqlc.arg(ciphertext), sqlc.arg(key_fingerprint),
+    sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+ON CONFLICT (connection_id, name) DO UPDATE SET
+    envelope_version = excluded.envelope_version,
+    nonce = excluded.nonce,
+    ciphertext = excluded.ciphertext,
+    key_fingerprint = excluded.key_fingerprint,
+    updated_at = excluded.updated_at
+RETURNING *;
+
+-- name: GetEncryptedCredential :one
+SELECT * FROM encrypted_credentials
+WHERE connection_id = sqlc.arg(connection_id) AND name = sqlc.arg(name);
+
+-- name: ListEncryptedCredentials :many
+SELECT connection_id, name, envelope_version, key_fingerprint, created_at, updated_at
+FROM encrypted_credentials WHERE connection_id = sqlc.arg(connection_id) ORDER BY name;
+
+-- Discovery and coverage observations.
+
+-- name: CreateScan :one
+INSERT INTO scans (
+    id, scope_kind, scope_id, state, completeness, cursor, observed_count,
+    started_at, completed_at, config_revision, error_code, error_detail,
+    created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(scope_kind), sqlc.arg(scope_id), sqlc.arg(state),
+    sqlc.arg(completeness), sqlc.arg(cursor), sqlc.arg(observed_count),
+    sqlc.arg(started_at), sqlc.arg(completed_at), sqlc.arg(config_revision),
+    sqlc.arg(error_code), sqlc.arg(error_detail), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetScan :one
+SELECT * FROM scans WHERE id = sqlc.arg(id);
+
+-- name: UpdateScan :one
+UPDATE scans SET
+    state = sqlc.arg(state), completeness = sqlc.arg(completeness),
+    cursor = sqlc.arg(cursor), observed_count = sqlc.arg(observed_count),
+    started_at = sqlc.arg(started_at), completed_at = sqlc.arg(completed_at),
+    error_code = sqlc.arg(error_code), error_detail = sqlc.arg(error_detail),
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: CreateCoverageSnapshot :one
+INSERT INTO coverage_snapshots (
+    id, scan_id, source_id, connection_id, root_id, completeness,
+    reason_codes_json, observed_count, snapshot_revision, started_at,
+    completed_at, observed_at, created_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(scan_id), sqlc.arg(source_id), sqlc.arg(connection_id),
+    sqlc.arg(root_id), sqlc.arg(completeness), sqlc.arg(reason_codes_json),
+    sqlc.arg(observed_count), sqlc.arg(snapshot_revision), sqlc.arg(started_at),
+    sqlc.arg(completed_at), sqlc.arg(observed_at), sqlc.arg(created_at)
+)
+RETURNING *;
+
+-- name: GetCoverageSnapshot :one
+SELECT * FROM coverage_snapshots WHERE id = sqlc.arg(id);
+
+-- name: ListCoverageSnapshots :many
+SELECT * FROM coverage_snapshots
+WHERE (sqlc.arg(connection_id) IS NULL OR connection_id = sqlc.arg(connection_id))
+  AND (sqlc.arg(root_id) IS NULL OR root_id = sqlc.arg(root_id))
+ORDER BY observed_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: CreateDiscovery :one
+INSERT INTO discoveries (
+    id, root_id, relative_path, entry_type, size_bytes, digest, file_identity,
+    role, observed_at, first_seen_at, last_seen_at, manifest_revision,
+    child_manifest_json, deleted_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(root_id), sqlc.arg(relative_path), sqlc.arg(entry_type),
+    sqlc.arg(size_bytes), sqlc.arg(digest), sqlc.arg(file_identity), sqlc.arg(role),
+    sqlc.arg(observed_at), sqlc.arg(first_seen_at), sqlc.arg(last_seen_at),
+    sqlc.arg(manifest_revision), sqlc.arg(child_manifest_json), sqlc.arg(deleted_at)
+)
+RETURNING *;
+
+-- name: GetDiscovery :one
+SELECT * FROM discoveries WHERE id = sqlc.arg(id);
+
+-- name: ListDiscoveries :many
+SELECT * FROM discoveries
+WHERE (sqlc.arg(root_id) IS NULL OR root_id = sqlc.arg(root_id))
+ORDER BY last_seen_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: CreateFileObservation :one
+INSERT INTO file_observations (
+    id, discovery_id, root_id, relative_path, entry_type, size_bytes, digest,
+    file_identity, role, observed_at, manifest_revision, child_manifest_json,
+    first_seen_at, last_seen_at, deleted_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(discovery_id), sqlc.arg(root_id), sqlc.arg(relative_path),
+    sqlc.arg(entry_type), sqlc.arg(size_bytes), sqlc.arg(digest),
+    sqlc.arg(file_identity), sqlc.arg(role), sqlc.arg(observed_at),
+    sqlc.arg(manifest_revision), sqlc.arg(child_manifest_json),
+    sqlc.arg(first_seen_at), sqlc.arg(last_seen_at), sqlc.arg(deleted_at)
+)
+RETURNING *;
+
+-- name: ListFileObservations :many
+SELECT * FROM file_observations
+WHERE discovery_id = sqlc.arg(discovery_id)
+ORDER BY observed_at ASC, id ASC;
+
+-- Download provenance and descriptors.
+
+-- name: CreateDownload :one
+INSERT INTO downloads (
+    id, connection_id, external_id, protocol, name, content_hash, nzb_id,
+    state, completed_at, seeding_state, payload_json, history_json,
+    first_seen_at, last_seen_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(connection_id), sqlc.arg(external_id), sqlc.arg(protocol),
+    sqlc.arg(name), sqlc.arg(content_hash), sqlc.arg(nzb_id), sqlc.arg(state),
+    sqlc.arg(completed_at), sqlc.arg(seeding_state), sqlc.arg(payload_json),
+    sqlc.arg(history_json), sqlc.arg(first_seen_at), sqlc.arg(last_seen_at)
+)
+RETURNING *;
+
+-- name: GetDownload :one
+SELECT * FROM downloads WHERE id = sqlc.arg(id);
+
+-- name: GetDownloadByExternalID :one
+SELECT * FROM downloads
+WHERE connection_id = sqlc.arg(connection_id) AND external_id = sqlc.arg(external_id);
+
+-- name: ListDownloads :many
+SELECT * FROM downloads
+WHERE (sqlc.arg(connection_id) IS NULL OR connection_id = sqlc.arg(connection_id))
+ORDER BY last_seen_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: CreateProvenanceLink :one
+INSERT INTO provenance_links (
+    id, discovery_id, download_id, evidence_json, observed_at, first_seen_at, last_seen_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(discovery_id), sqlc.arg(download_id), sqlc.arg(evidence_json),
+    sqlc.arg(observed_at), sqlc.arg(first_seen_at), sqlc.arg(last_seen_at)
+)
+ON CONFLICT (discovery_id, download_id) DO UPDATE SET
+    evidence_json = excluded.evidence_json,
+    observed_at = excluded.observed_at,
+    last_seen_at = excluded.last_seen_at
+RETURNING *;
+
+-- name: ListProvenanceForDiscovery :many
+SELECT pl.*, d.connection_id, d.external_id, d.protocol, d.state
+FROM provenance_links AS pl
+JOIN downloads AS d ON d.id = pl.download_id
+WHERE pl.discovery_id = sqlc.arg(discovery_id)
+ORDER BY pl.last_seen_at DESC;
+
+-- name: CreateDescriptor :one
+INSERT INTO descriptors (
+    id, download_id, descriptor_type, storage_path, original_digest,
+    capture_source, captured_at, retention, unavailable_reason, deleted_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(download_id), sqlc.arg(descriptor_type), sqlc.arg(storage_path),
+    sqlc.arg(original_digest), sqlc.arg(capture_source), sqlc.arg(captured_at),
+    sqlc.arg(retention), sqlc.arg(unavailable_reason), sqlc.arg(deleted_at)
+)
+RETURNING *;
+
+-- name: GetDescriptor :one
+SELECT * FROM descriptors WHERE id = sqlc.arg(id);
+
+-- Media identities and all per-instance upstream records.
+
+-- name: CreateMediaIdentity :one
+INSERT INTO media_identities (
+    id, kind, provider_namespace, provider_id, title, year, canonical_key,
+    created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(kind), sqlc.arg(provider_namespace), sqlc.arg(provider_id),
+    sqlc.arg(title), sqlc.arg(year), sqlc.arg(canonical_key), sqlc.arg(created_at),
+    sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetMediaIdentity :one
+SELECT * FROM media_identities WHERE id = sqlc.arg(id);
+
+-- name: CreateExternalRecord :one
+INSERT INTO external_records (
+    id, connection_id, media_identity_id, record_kind, external_id, title,
+    payload_json, observed_at, first_seen_at, last_seen_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(connection_id), sqlc.arg(media_identity_id),
+    sqlc.arg(record_kind), sqlc.arg(external_id), sqlc.arg(title),
+    sqlc.arg(payload_json), sqlc.arg(observed_at), sqlc.arg(first_seen_at),
+    sqlc.arg(last_seen_at)
+)
+ON CONFLICT (connection_id, record_kind, external_id) DO UPDATE SET
+    media_identity_id = excluded.media_identity_id,
+    title = excluded.title,
+    payload_json = excluded.payload_json,
+    observed_at = excluded.observed_at,
+    last_seen_at = excluded.last_seen_at
+RETURNING *;
+
+-- name: ListExternalRecords :many
+SELECT * FROM external_records
+WHERE connection_id = sqlc.arg(connection_id)
+ORDER BY last_seen_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- name: CreateTrackingObservation :one
+INSERT INTO tracking_observations (
+    id, external_record_id, media_identity_id, connection_id, dimension, status,
+    evidence_json, coverage_id, observed_at, registered_at, imported_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(external_record_id), sqlc.arg(media_identity_id),
+    sqlc.arg(connection_id), sqlc.arg(dimension), sqlc.arg(status),
+    sqlc.arg(evidence_json), sqlc.arg(coverage_id), sqlc.arg(observed_at),
+    sqlc.arg(registered_at), sqlc.arg(imported_at)
+)
+RETURNING *;
+
+-- name: ListTrackingObservations :many
+SELECT * FROM tracking_observations
+WHERE (sqlc.arg(external_record_id) IS NULL OR external_record_id = sqlc.arg(external_record_id))
+  AND (sqlc.arg(media_identity_id) IS NULL OR media_identity_id = sqlc.arg(media_identity_id))
+  AND (sqlc.arg(connection_id) IS NULL OR connection_id = sqlc.arg(connection_id))
+ORDER BY observed_at DESC, id DESC;
+
+-- Immutable plans, exact manifests, approvals and durable execution records.
+
+-- name: CreateActionPlan :one
+INSERT INTO action_plans (
+    id, kind, state, current_revision, current_digest, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(kind), sqlc.arg(state), sqlc.arg(current_revision),
+    sqlc.arg(current_digest), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetActionPlan :one
+SELECT * FROM action_plans WHERE id = sqlc.arg(id);
+
+-- name: UpdateActionPlanState :one
+UPDATE action_plans SET state = sqlc.arg(state), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: CreateActionPlanRevision :one
+INSERT INTO action_plan_revisions (
+    plan_id, revision, digest, state, input_json, preconditions_json,
+    capabilities_json, manifest_json, created_at, expires_at, ready_at
+) VALUES (
+    sqlc.arg(plan_id), sqlc.arg(revision), sqlc.arg(digest), sqlc.arg(state),
+    sqlc.arg(input_json), sqlc.arg(preconditions_json), sqlc.arg(capabilities_json),
+    sqlc.arg(manifest_json), sqlc.arg(created_at), sqlc.arg(expires_at), sqlc.arg(ready_at)
+)
+RETURNING *;
+
+-- name: GetActionPlanRevision :one
+SELECT * FROM action_plan_revisions
+WHERE plan_id = sqlc.arg(plan_id) AND revision = sqlc.arg(revision);
+
+-- name: GetActionPlanRevisionByDigest :one
+SELECT * FROM action_plan_revisions
+WHERE plan_id = sqlc.arg(plan_id) AND revision = sqlc.arg(revision) AND digest = sqlc.arg(digest);
+
+-- name: ListActionPlanRevisions :many
+SELECT * FROM action_plan_revisions
+WHERE plan_id = sqlc.arg(plan_id) ORDER BY revision DESC;
+
+-- name: CreatePlanManifest :one
+INSERT INTO plan_manifests (
+    plan_id, revision, ordinal, root_id, relative_path, entry_type, size_bytes,
+    digest, file_identity, role, manifest_json
+) VALUES (
+    sqlc.arg(plan_id), sqlc.arg(revision), sqlc.arg(ordinal), sqlc.arg(root_id),
+    sqlc.arg(relative_path), sqlc.arg(entry_type), sqlc.arg(size_bytes),
+    sqlc.arg(digest), sqlc.arg(file_identity), sqlc.arg(role), sqlc.arg(manifest_json)
+)
+RETURNING *;
+
+-- name: ListPlanManifests :many
+SELECT * FROM plan_manifests
+WHERE plan_id = sqlc.arg(plan_id) AND revision = sqlc.arg(revision)
+ORDER BY ordinal;
+
+-- name: CreateReviewDecision :one
+INSERT INTO review_decisions (
+    id, plan_id, plan_revision, plan_digest, decision, actor, caller_label,
+    reason, idempotency_scope, idempotency_key, created_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(plan_id), sqlc.arg(plan_revision), sqlc.arg(plan_digest),
+    sqlc.arg(decision), sqlc.arg(actor), sqlc.arg(caller_label), sqlc.arg(reason),
+    sqlc.arg(idempotency_scope), sqlc.arg(idempotency_key), sqlc.arg(created_at)
+)
+RETURNING *;
+
+-- name: GetReviewDecision :one
+SELECT * FROM review_decisions WHERE id = sqlc.arg(id);
+
+-- name: CreateWorkflowRun :one
+INSERT INTO workflow_runs (
+    id, recipe_kind, recipe_version, state, deadline_at,
+    cancellation_requested_at, current_step, recipe_json, outcome_json,
+    created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(recipe_kind), sqlc.arg(recipe_version), sqlc.arg(state),
+    sqlc.arg(deadline_at), sqlc.arg(cancellation_requested_at), sqlc.arg(current_step),
+    sqlc.arg(recipe_json), sqlc.arg(outcome_json), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetWorkflowRun :one
+SELECT * FROM workflow_runs WHERE id = sqlc.arg(id);
+
+-- name: UpdateWorkflowRunState :one
+UPDATE workflow_runs SET
+    state = sqlc.arg(state), current_step = sqlc.arg(current_step),
+    cancellation_requested_at = sqlc.arg(cancellation_requested_at),
+    outcome_json = sqlc.arg(outcome_json), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: CreateWorkflowStep :one
+INSERT INTO workflow_steps (
+    id, workflow_id, step_index, kind, state, action_plan_id,
+    action_plan_revision, gate_kind, outcome_json, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(workflow_id), sqlc.arg(step_index), sqlc.arg(kind),
+    sqlc.arg(state), sqlc.arg(action_plan_id), sqlc.arg(action_plan_revision),
+    sqlc.arg(gate_kind), sqlc.arg(outcome_json), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: ListWorkflowSteps :many
+SELECT * FROM workflow_steps
+WHERE workflow_id = sqlc.arg(workflow_id) ORDER BY step_index;
+
+-- name: CreateActionRun :one
+INSERT INTO action_runs (
+    id, plan_id, plan_revision, plan_digest, state, desired_state_json,
+    next_attempt_at, deadline_at, cancellation_requested_at, claimed_by,
+    lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(plan_id), sqlc.arg(plan_revision), sqlc.arg(plan_digest),
+    sqlc.arg(state), sqlc.arg(desired_state_json), sqlc.arg(next_attempt_at),
+    sqlc.arg(deadline_at), sqlc.arg(cancellation_requested_at), sqlc.arg(claimed_by),
+    sqlc.arg(lease_until), sqlc.arg(version), sqlc.arg(outcome_json),
+    sqlc.arg(unresolved_count), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetActionRun :one
+SELECT * FROM action_runs WHERE id = sqlc.arg(id);
+
+-- name: ListDueActionRuns :many
+SELECT * FROM action_runs
+WHERE state IN ('queued', 'waiting_dependency')
+  AND cancellation_requested_at IS NULL
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (deadline_at IS NULL OR deadline_at > sqlc.arg(now))
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
+LIMIT sqlc.arg(limit);
+
+-- name: ClaimActionRun :one
+UPDATE action_runs SET
+    state = 'running', claimed_by = sqlc.arg(worker_id),
+    lease_until = sqlc.arg(lease_until), version = version + 1,
+    updated_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id)
+  AND version = sqlc.arg(version)
+  AND state IN ('queued', 'waiting_dependency')
+  AND cancellation_requested_at IS NULL
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (deadline_at IS NULL OR deadline_at > sqlc.arg(now))
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;
+
+-- name: UpdateActionRunOutcome :one
+UPDATE action_runs SET
+    state = sqlc.arg(state), next_attempt_at = sqlc.arg(next_attempt_at),
+    claimed_by = sqlc.arg(claimed_by), lease_until = sqlc.arg(lease_until),
+    outcome_json = sqlc.arg(outcome_json), unresolved_count = sqlc.arg(unresolved_count),
+    version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
+RETURNING *;
+
+-- name: RequestActionCancellation :one
+UPDATE action_runs SET cancellation_requested_at = sqlc.arg(requested_at), version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded')
+RETURNING *;
+
+-- name: CreateActionAttempt :one
+INSERT INTO action_attempts (
+    id, action_run_id, attempt_number, phase, state, started_at, finished_at,
+    error_code, error_detail, outcome_certainty, external_id, evidence_json
+) VALUES (
+    sqlc.arg(id), sqlc.arg(action_run_id), sqlc.arg(attempt_number), sqlc.arg(phase),
+    sqlc.arg(state), sqlc.arg(started_at), sqlc.arg(finished_at), sqlc.arg(error_code),
+    sqlc.arg(error_detail), sqlc.arg(outcome_certainty), sqlc.arg(external_id),
+    sqlc.arg(evidence_json)
+)
+RETURNING *;
+
+-- name: UpdateActionAttempt :one
+UPDATE action_attempts SET
+    state = sqlc.arg(state), finished_at = sqlc.arg(finished_at),
+    error_code = sqlc.arg(error_code), error_detail = sqlc.arg(error_detail),
+    outcome_certainty = sqlc.arg(outcome_certainty), external_id = sqlc.arg(external_id),
+    evidence_json = sqlc.arg(evidence_json)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: ListActionAttempts :many
+SELECT * FROM action_attempts
+WHERE action_run_id = sqlc.arg(action_run_id) ORDER BY attempt_number;
+
+-- name: CreateActionEffect :one
+INSERT INTO action_effects (
+    id, action_run_id, attempt_id, ordinal, target_kind, target_id, effect_kind,
+    state, evidence_json, observed_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(action_run_id), sqlc.arg(attempt_id), sqlc.arg(ordinal),
+    sqlc.arg(target_kind), sqlc.arg(target_id), sqlc.arg(effect_kind),
+    sqlc.arg(state), sqlc.arg(evidence_json), sqlc.arg(observed_at)
+)
+RETURNING *;
+
+-- name: UpdateActionEffect :one
+UPDATE action_effects SET
+    state = sqlc.arg(state), evidence_json = sqlc.arg(evidence_json),
+    observed_at = sqlc.arg(observed_at), attempt_id = sqlc.arg(attempt_id)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: ListActionEffects :many
+SELECT * FROM action_effects
+WHERE action_run_id = sqlc.arg(action_run_id) ORDER BY ordinal;
+
+-- Idempotency and audit are intentionally append-only.
+
+-- name: CreateIdempotencyRecord :one
+INSERT INTO idempotency_records (
+    scope, idempotency_key, request_digest, status_code, resource_kind,
+    resource_id, response_json, created_at, expires_at
+) VALUES (
+    sqlc.arg(scope), sqlc.arg(idempotency_key), sqlc.arg(request_digest),
+    sqlc.arg(status_code), sqlc.arg(resource_kind), sqlc.arg(resource_id),
+    sqlc.arg(response_json), sqlc.arg(created_at), sqlc.arg(expires_at)
+)
+RETURNING *;
+
+-- name: GetIdempotencyRecord :one
+SELECT * FROM idempotency_records
+WHERE scope = sqlc.arg(scope) AND idempotency_key = sqlc.arg(idempotency_key);
+
+-- name: CreateAuditEvent :one
+INSERT INTO audit_events (
+    event_id, occurred_at, actor, action, resource_kind, resource_id,
+    plan_digest, outcome, metadata_json, redacted
+) VALUES (
+    sqlc.arg(event_id), sqlc.arg(occurred_at), sqlc.arg(actor), sqlc.arg(action),
+    sqlc.arg(resource_kind), sqlc.arg(resource_id), sqlc.arg(plan_digest),
+    sqlc.arg(outcome), sqlc.arg(metadata_json), sqlc.arg(redacted)
+)
+RETURNING *;
+
+-- name: ListAuditEvents :many
+SELECT * FROM audit_events
+ORDER BY occurred_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset);
+
+-- Trash and janitor journal.
+
+-- name: CreateTrashEntry :one
+INSERT INTO trash_entries (
+    id, root_id, state, original_prefix, trash_prefix, manifest_json,
+    retention_seconds, trashed_at, expires_at, hold_reason, client_state_json,
+    purge_claimed_at, restore_requested_at, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(root_id), sqlc.arg(state), sqlc.arg(original_prefix),
+    sqlc.arg(trash_prefix), sqlc.arg(manifest_json), sqlc.arg(retention_seconds),
+    sqlc.arg(trashed_at), sqlc.arg(expires_at), sqlc.arg(hold_reason),
+    sqlc.arg(client_state_json), sqlc.arg(purge_claimed_at),
+    sqlc.arg(restore_requested_at), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetTrashEntry :one
+SELECT * FROM trash_entries WHERE id = sqlc.arg(id);
+
+-- name: ListDueTrashEntries :many
+SELECT * FROM trash_entries
+WHERE state = 'trashed' AND expires_at <= sqlc.arg(now)
+ORDER BY expires_at, id LIMIT sqlc.arg(limit);
+
+-- name: UpdateTrashEntryState :one
+UPDATE trash_entries SET
+    state = sqlc.arg(state), trashed_at = sqlc.arg(trashed_at),
+    hold_reason = sqlc.arg(hold_reason), client_state_json = sqlc.arg(client_state_json),
+    purge_claimed_at = sqlc.arg(purge_claimed_at), restore_requested_at = sqlc.arg(restore_requested_at),
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- name: CreateTrashItem :one
+INSERT INTO trash_items (
+    id, entry_id, root_id, original_relative_path, trash_relative_path,
+    entry_type, size_bytes, digest, file_identity, client_connection_id,
+    client_external_id, state, trashed_at, restored_at, purged_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(entry_id), sqlc.arg(root_id), sqlc.arg(original_relative_path),
+    sqlc.arg(trash_relative_path), sqlc.arg(entry_type), sqlc.arg(size_bytes),
+    sqlc.arg(digest), sqlc.arg(file_identity), sqlc.arg(client_connection_id),
+    sqlc.arg(client_external_id), sqlc.arg(state), sqlc.arg(trashed_at),
+    sqlc.arg(restored_at), sqlc.arg(purged_at)
+)
+RETURNING *;
+
+-- name: ListTrashItems :many
+SELECT * FROM trash_items WHERE entry_id = sqlc.arg(entry_id) ORDER BY original_relative_path, id;
+
+-- name: CreateJanitorRecord :one
+INSERT INTO janitor_records (
+    id, trash_entry_id, operation, state, next_attempt_at, claimed_by,
+    lease_until, outcome_json, created_at, updated_at
+) VALUES (
+    sqlc.arg(id), sqlc.arg(trash_entry_id), sqlc.arg(operation), sqlc.arg(state),
+    sqlc.arg(next_attempt_at), sqlc.arg(claimed_by), sqlc.arg(lease_until),
+    sqlc.arg(outcome_json), sqlc.arg(created_at), sqlc.arg(updated_at)
+)
+RETURNING *;
+
+-- name: GetJanitorRecord :one
+SELECT * FROM janitor_records
+WHERE trash_entry_id = sqlc.arg(trash_entry_id) AND operation = sqlc.arg(operation);
+
+-- name: ClaimJanitorRecord :one
+UPDATE janitor_records SET
+    state = 'running', claimed_by = sqlc.arg(worker_id), lease_until = sqlc.arg(lease_until),
+    updated_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id)
+  AND state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;

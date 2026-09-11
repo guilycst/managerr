@@ -1,0 +1,18 @@
+version: "2"
+
+sql:
+  - engine: sqlite
+    schema:
+      - migrations/000001_initial.up.sql
+      - migrations/000002_indexes.up.sql
+    queries: internal/storage/query.sql
+    gen:
+      go:
+        package: sqlc
+        out: internal/storage/sqlc
+        sql_package: database/sql
+        emit_empty_slices: true
+        emit_json_tags: true
+        emit_interface: true
+        emit_result_struct_pointers: true
+        emit_params_struct_pointers: true
