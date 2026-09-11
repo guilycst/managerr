@@ -1605,7 +1605,7 @@
       ]
     },
     "X-11": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1622,17 +1622,18 @@
         "fcaed0489bd22692d1a0bae7ea9b8b96ad439453 X-11 correction round 3 product",
         "41f10c9c4386bd3afab13fa93804f2681be26c8a X-11 correction round 3 handoff",
         "docs/execution/handoffs/X-11-correction-round3.md",
-        "806cce9de10fc66146d4720cebceea53b78e89d0 X-11 review round 3"
+        "806cce9de10fc66146d4720cebceea53b78e89d0 X-11 review round 3",
+        "1b9b3f9c425e56a7a3be6dfb43829157d08877c9 X-11 correction round 4 product",
+        "284b2c511ed10d4c39de621049b9728d7bfd9a52 X-11 correction round 4 handoff",
+        "docs/execution/handoffs/X-11-correction-round4.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "806cce9de10fc66146d4720cebceea53b78e89d0",
-        "findings": [
-          "P2 generator URI validation accepts strings rejected by the official OpenRPC meta-schema, including raw unsafe characters, fragments and empty-query delimiters"
-        ],
-        "round": 3
+        "commit": null,
+        "findings": [],
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1652,8 +1653,8 @@
           "deterministic OpenRPC generation",
           "synthetic JSON-RPC httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-11-review-round3.md",
-        "handoffPath": "docs/execution/handoffs/X-11.md",
+        "reviewPath": "docs/execution/handoffs/X-11-review-round4.md",
+        "handoffPath": "docs/execution/handoffs/X-11-correction-round4.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -1661,17 +1662,17 @@
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
         "implementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
         "handoffCommit": "41f10c9c4386bd3afab13fa93804f2681be26c8a",
-        "reviewSourceCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
-        "reviewCommit": "806cce9de10fc66146d4720cebceea53b78e89d0",
+        "reviewSourceCommit": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
+        "reviewCommit": "pending",
         "correctionRound": 4,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
         "correctionReviewPath": "docs/execution/handoffs/X-11-review-round3.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
-        "correctionHandoffCommit": "41f10c9c4386bd3afab13fa93804f2681be26c8a"
+        "correctionImplementationCommit": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
+        "correctionHandoffCommit": "284b2c511ed10d4c39de621049b9728d7bfd9a52"
       },
-      "implementationCommit": "fcaed0489bd22692d1a0bae7ea9b8b96ad439453",
+      "implementationCommit": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
       "reviewHistory": [
         {
           "round": 1,
