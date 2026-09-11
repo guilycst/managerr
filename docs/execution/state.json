@@ -96,7 +96,7 @@
       }
     },
     "C-01": {
-      "status": "assigned",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "6a8b9e94558cd991d03f95160b4bcf2d71a597de",
       "integratedSha": null,
