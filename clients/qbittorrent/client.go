@@ -1,0 +1,844 @@
+// Package qbittorrent implements the small, read-only qBittorrent WebUI
+// compatibility boundary used by Mastarr. It owns its HTTP session, cookie
+// handling and upstream DTOs so the client can be tested and versioned without
+// importing Mastarr's root module.
+package qbittorrent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	generated "github.com/guilycst/mastarr/clients/qbittorrent/generated"
+)
+
+const (
+	defaultMaxResponseBytes int64 = 8 << 20
+	defaultMaxItems               = 10_000
+	defaultMaxFiles               = 100_000
+	defaultHTTPTimeout            = 15 * time.Second
+	maxVersionBytes               = 128
+	maxHashBytes                  = 128
+	maxQueryTextBytes             = 4 << 10
+	maxCredentialBytes            = 4 << 10
+)
+
+const (
+	apiLogin       = "/api/v2/auth/login"
+	apiAppVersion  = "/api/v2/app/version"
+	apiWebAPI      = "/api/v2/app/webapiVersion"
+	apiTorrentInfo = "/api/v2/torrents/info"
+	apiProperties  = "/api/v2/torrents/properties"
+	apiFiles       = "/api/v2/torrents/files"
+	apiCategories  = "/api/v2/torrents/categories"
+	apiTags        = "/api/v2/torrents/tags"
+)
+
+// ErrorCode classifies a sanitized qBittorrent failure. Error messages never
+// include the endpoint, credentials or upstream response body.
+type ErrorCode string
+
+const (
+	ErrorUnavailable  ErrorCode = "unavailable"
+	ErrorRateLimited  ErrorCode = "rate_limited"
+	ErrorUnauthorized ErrorCode = "unauthorized"
+	ErrorInvalidInput ErrorCode = "invalid_input"
+	ErrorConflict     ErrorCode = "conflict"
+	ErrorUnsupported  ErrorCode = "unsupported"
+	ErrorUnknown      ErrorCode = "unknown"
+)
+
+// UpstreamError is returned for failures originating at the qBittorrent
+// boundary. It deliberately omits response text because upstream bodies can
+// contain credentials, private paths or other sensitive information.
+type UpstreamError struct {
+	Code      ErrorCode
+	Operation string
+	Status    int
+	Retryable bool
+}
+
+func (e UpstreamError) Error() string {
+	operation := e.Operation
+	if operation == "" {
+		operation = "request"
+	}
+	if e.Status > 0 {
+		return fmt.Sprintf("qBittorrent %s failed (%s, status %d)", operation, e.Code, e.Status)
+	}
+	return fmt.Sprintf("qBittorrent %s failed (%s)", operation, e.Code)
+}
+
+// IsCode reports whether err, including a wrapped error, has the requested
+// sanitized upstream code.
+func IsCode(err error, code ErrorCode) bool {
+	var upstream UpstreamError
+	return errors.As(err, &upstream) && upstream.Code == code
+}
+
+// Config controls one qBittorrent WebUI connection. Username and Password are
+// used only for the in-memory login request and are never copied into an
+// observation or error. HTTPClient is cloned and receives an isolated cookie
+// jar. Redirects are rejected to prevent a SID-bearing request from leaving
+// the configured origin.
+type Config struct {
+	Endpoint string
+	Username string
+	Password string
+
+	HTTPClient *http.Client
+
+	// MaxResponseBytes bounds every upstream response body. A non-positive
+	// value uses the safe default of 8 MiB.
+	MaxResponseBytes int64
+	// MaxItems and MaxFiles reject valid JSON arrays that exceed the caller's
+	// memory bound instead of silently truncating inventory evidence.
+	MaxItems int
+	MaxFiles int
+}
+
+// Client is a cookie-authenticated, read-only qBittorrent WebUI client.
+type Client struct {
+	endpoint *url.URL
+	http     *http.Client
+	config   Config
+
+	authMu        sync.Mutex
+	authenticated bool
+}
+
+// Versions contains both read-only version probes.
+type Versions struct {
+	Application string
+	WebAPI      string
+}
+
+// TorrentListOptions is passed through to qBittorrent's /torrents/info
+// endpoint. A zero value requests the complete upstream list, subject to the
+// configured response and item bounds.
+type TorrentListOptions struct {
+	Filter   string
+	Category string
+	Tag      string
+	Sort     string
+	Reverse  bool
+	Limit    int
+	Offset   int
+	Hashes   []string
+}
+
+// Torrent is the normalized qBittorrent inventory record. Timestamp and
+// counter fields retain the upstream Unix or sentinel values (qBittorrent uses
+// -1 when an integer is unknown).
+type Torrent struct {
+	AddedOn           int64
+	AmountLeft        int64
+	AutoTMM           bool
+	Availability      float64
+	Category          string
+	Completed         int64
+	CompletionOn      int64
+	ContentPath       string
+	DLLimit           int64
+	DLSpeed           int64
+	Downloaded        int64
+	DownloadedSession int64
+	ETA               int64
+	FLPiecePrio       bool
+	ForceStart        bool
+	Hash              string
+	IsPrivate         bool
+	LastActivity      int64
+	MagnetURI         string
+	MaxRatio          float64
+	MaxSeedingTime    int64
+	Name              string
+	NumComplete       int64
+	NumIncomplete     int64
+	NumLeechs         int64
+	NumSeeds          int64
+	Priority          int64
+	Progress          float64
+	Ratio             float64
+	RatioLimit        float64
+	Reannounce        int64
+	SavePath          string
+	SeedingTime       int64
+	SeedingTimeLimit  int64
+	SeenComplete      int64
+	SeqDL             bool
+	Size              int64
+	State             string
+	SuperSeeding      bool
+	Tags              string
+	TimeActive        int64
+	TotalSize         int64
+	Tracker           string
+	UpLimit           int64
+	Uploaded          int64
+	UploadedSession   int64
+	UpSpeed           int64
+}
+
+// TorrentProperties contains qBittorrent's generic properties response.
+type TorrentProperties struct {
+	SavePath               string
+	CreationDate           int64
+	PieceSize              int64
+	Comment                string
+	TotalWasted            int64
+	TotalUploaded          int64
+	TotalUploadedSession   int64
+	TotalDownloaded        int64
+	TotalDownloadedSession int64
+	UpLimit                int64
+	DLLimit                int64
+	TimeElapsed            int64
+	SeedingTime            int64
+	NbConnections          int64
+	NbConnectionsLimit     int64
+	ShareRatio             float64
+	AdditionDate           int64
+	CompletionDate         int64
+	CreatedBy              string
+	DLSpeedAvg             int64
+	DLSpeed                int64
+	ETA                    int64
+	LastSeen               int64
+	Peers                  int64
+	PeersTotal             int64
+	PiecesHave             int64
+	PiecesNum              int64
+	Reannounce             int64
+	Seeds                  int64
+	SeedsTotal             int64
+	TotalSize              int64
+	UpSpeedAvg             int64
+	UpSpeed                int64
+	IsPrivate              bool
+}
+
+// TorrentFile is one file from qBittorrent's torrent contents response.
+type TorrentFile struct {
+	Index        int64
+	Name         string
+	Size         int64
+	Progress     float64
+	Priority     int64
+	IsSeed       bool
+	PieceRange   []int64
+	Availability float64
+}
+
+// Category is one value from the qBittorrent category map. The map key is the
+// authoritative category identifier and is retained by Categories.
+type Category struct {
+	Name     string
+	SavePath string
+}
+
+// New validates the endpoint and prepares an isolated cookie session without
+// making a network request.
+func New(config Config) (*Client, error) {
+	endpoint, err := parseEndpoint(config.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if config.MaxResponseBytes <= 0 {
+		config.MaxResponseBytes = defaultMaxResponseBytes
+	}
+	if config.MaxResponseBytes >= math.MaxInt64 {
+		return nil, errors.New("qBittorrent response bound is invalid")
+	}
+	if config.MaxItems <= 0 {
+		config.MaxItems = defaultMaxItems
+	}
+	if config.MaxFiles <= 0 {
+		config.MaxFiles = defaultMaxFiles
+	}
+	if config.MaxItems > defaultMaxItems || config.MaxFiles > defaultMaxFiles {
+		return nil, errors.New("qBittorrent item bound exceeds compatibility ceiling")
+	}
+	if len(config.Username) > maxCredentialBytes || len(config.Password) > maxCredentialBytes {
+		return nil, errors.New("qBittorrent credential exceeds compatibility bound")
+	}
+
+	baseClient := http.DefaultClient
+	if config.HTTPClient != nil {
+		baseClient = config.HTTPClient
+	}
+	clientCopy := *baseClient
+	if clientCopy.Timeout == 0 {
+		clientCopy.Timeout = defaultHTTPTimeout
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, errors.New("qBittorrent session cookie setup failed")
+	}
+	clientCopy.Jar = jar
+	// qBittorrent's login response establishes the SID cookie. Refusing every
+	// redirect makes the origin boundary explicit and keeps POST login bodies
+	// from being replayed by net/http at another location.
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	return &Client{
+		endpoint: endpoint,
+		http:     &clientCopy,
+		config:   config,
+	}, nil
+}
+
+// NewClient is an explicit constructor alias.
+func NewClient(config Config) (*Client, error) { return New(config) }
+
+// Login establishes the qBittorrent SID session. It is the sole POST made by
+// this module; all other methods are GET-only reads.
+func (c *Client) Login(ctx context.Context) error {
+	return c.ensureSession(ctx)
+}
+
+// ApplicationVersion reads /api/v2/app/version.
+func (c *Client) ApplicationVersion(ctx context.Context) (string, error) {
+	return c.readVersion(ctx, "qbit.app.version", apiAppVersion)
+}
+
+// GetApplicationVersion is an explicit method-name alias.
+func (c *Client) GetApplicationVersion(ctx context.Context) (string, error) {
+	return c.ApplicationVersion(ctx)
+}
+
+// WebAPIVersion reads /api/v2/app/webapiVersion.
+func (c *Client) WebAPIVersion(ctx context.Context) (string, error) {
+	return c.readVersion(ctx, "qbit.app.webapi_version", apiWebAPI)
+}
+
+// GetWebAPIVersion is an explicit method-name alias.
+func (c *Client) GetWebAPIVersion(ctx context.Context) (string, error) {
+	return c.WebAPIVersion(ctx)
+}
+
+// Versions reads both qBittorrent version endpoints in order.
+func (c *Client) Versions(ctx context.Context) (Versions, error) {
+	application, err := c.ApplicationVersion(ctx)
+	if err != nil {
+		return Versions{}, err
+	}
+	webAPI, err := c.WebAPIVersion(ctx)
+	if err != nil {
+		return Versions{}, err
+	}
+	return Versions{Application: application, WebAPI: webAPI}, nil
+}
+
+// ListTorrents reads /api/v2/torrents/info and preserves the upstream order.
+func (c *Client) ListTorrents(ctx context.Context, options TorrentListOptions) ([]Torrent, error) {
+	query, err := listQuery(options)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.get(ctx, "qbit.torrents.info", apiTorrentInfo, query)
+	if err != nil {
+		return nil, err
+	}
+	var records []generated.TorrentInfo
+	if err := decodeJSON(body, &records); err != nil {
+		return nil, malformed("qbit.torrents.info")
+	}
+	if len(records) > c.config.MaxItems {
+		return nil, bounded("qbit.torrents.info", c.config.MaxItems)
+	}
+	result := make([]Torrent, len(records))
+	for i := range records {
+		result[i] = normalizeTorrent(records[i])
+	}
+	return result, nil
+}
+
+// Torrents is a concise alias for ListTorrents.
+func (c *Client) Torrents(ctx context.Context, options TorrentListOptions) ([]Torrent, error) {
+	return c.ListTorrents(ctx, options)
+}
+
+// GetTorrentProperties reads generic properties for one torrent.
+func (c *Client) GetTorrentProperties(ctx context.Context, hash string) (TorrentProperties, error) {
+	if err := validateHash(hash); err != nil {
+		return TorrentProperties{}, err
+	}
+	body, err := c.get(ctx, "qbit.torrents.properties", apiProperties, url.Values{"hash": {hash}})
+	if err != nil {
+		return TorrentProperties{}, err
+	}
+	var properties generated.TorrentProperties
+	if err := decodeJSON(body, &properties); err != nil {
+		return TorrentProperties{}, malformed("qbit.torrents.properties")
+	}
+	return normalizeProperties(properties), nil
+}
+
+// TorrentProperties is a method-name alias for GetTorrentProperties.
+func (c *Client) TorrentProperties(ctx context.Context, hash string) (TorrentProperties, error) {
+	return c.GetTorrentProperties(ctx, hash)
+}
+
+// GetTorrentFiles reads torrent contents for one hash.
+func (c *Client) GetTorrentFiles(ctx context.Context, hash string) ([]TorrentFile, error) {
+	if err := validateHash(hash); err != nil {
+		return nil, err
+	}
+	body, err := c.get(ctx, "qbit.torrents.files", apiFiles, url.Values{"hash": {hash}})
+	if err != nil {
+		return nil, err
+	}
+	var files []generated.TorrentFile
+	if err := decodeJSON(body, &files); err != nil {
+		return nil, malformed("qbit.torrents.files")
+	}
+	if len(files) > c.config.MaxFiles {
+		return nil, bounded("qbit.torrents.files", c.config.MaxFiles)
+	}
+	result := make([]TorrentFile, len(files))
+	for i := range files {
+		if len(files[i].PieceRange) != 2 {
+			return nil, malformed("qbit.torrents.files")
+		}
+		result[i] = normalizeFile(files[i])
+	}
+	return result, nil
+}
+
+// TorrentFiles is a method-name alias for GetTorrentFiles.
+func (c *Client) TorrentFiles(ctx context.Context, hash string) ([]TorrentFile, error) {
+	return c.GetTorrentFiles(ctx, hash)
+}
+
+// Categories reads the map returned by /api/v2/torrents/categories. The map
+// key is retained even when an upstream value's name differs.
+func (c *Client) Categories(ctx context.Context) (map[string]Category, error) {
+	body, err := c.get(ctx, "qbit.torrents.categories", apiCategories, nil)
+	if err != nil {
+		return nil, err
+	}
+	var categories generated.CategoryMap
+	if err := decodeJSON(body, &categories); err != nil {
+		return nil, malformed("qbit.torrents.categories")
+	}
+	if len(categories) > c.config.MaxItems {
+		return nil, bounded("qbit.torrents.categories", c.config.MaxItems)
+	}
+	result := make(map[string]Category, len(categories))
+	for name, category := range categories {
+		result[name] = Category{Name: category.Name, SavePath: category.SavePath}
+	}
+	return result, nil
+}
+
+// GetCategories is a method-name alias for Categories.
+func (c *Client) GetCategories(ctx context.Context) (map[string]Category, error) {
+	return c.Categories(ctx)
+}
+
+// Tags reads all tag names. qBittorrent returns a JSON array rather than a
+// map, so order is preserved for callers that present upstream evidence.
+func (c *Client) Tags(ctx context.Context) ([]string, error) {
+	body, err := c.get(ctx, "qbit.torrents.tags", apiTags, nil)
+	if err != nil {
+		return nil, err
+	}
+	var tags []string
+	if err := decodeJSON(body, &tags); err != nil {
+		return nil, malformed("qbit.torrents.tags")
+	}
+	if len(tags) > c.config.MaxItems {
+		return nil, bounded("qbit.torrents.tags", c.config.MaxItems)
+	}
+	for _, tag := range tags {
+		if len(tag) > maxQueryTextBytes || !utf8.ValidString(tag) {
+			return nil, malformed("qbit.torrents.tags")
+		}
+	}
+	return tags, nil
+}
+
+// GetTags is a method-name alias for Tags.
+func (c *Client) GetTags(ctx context.Context) ([]string, error) { return c.Tags(ctx) }
+
+func (c *Client) readVersion(ctx context.Context, operation, endpoint string) (string, error) {
+	body, err := c.get(ctx, operation, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	version := strings.TrimSpace(string(body))
+	if version == "" || len(version) > maxVersionBytes || !utf8.ValidString(version) {
+		return "", malformed(operation)
+	}
+	return version, nil
+}
+
+func (c *Client) ensureSession(ctx context.Context) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.authenticated {
+		return nil
+	}
+	form := url.Values{}
+	form.Set("username", c.config.Username)
+	form.Set("password", c.config.Password)
+	body, status, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	if err != nil {
+		return err
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return statusError("qbit.auth.login", status)
+	}
+	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
+		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+	}
+	c.authenticated = true
+	return nil
+}
+
+func (c *Client) invalidateSession() {
+	c.authMu.Lock()
+	c.authenticated = false
+	c.authMu.Unlock()
+}
+
+func (c *Client) get(ctx context.Context, operation, endpoint string, query url.Values) ([]byte, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	if err := c.ensureSession(ctx); err != nil {
+		return nil, err
+	}
+	return c.getAfterSession(ctx, operation, endpoint, query, true)
+}
+
+func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool) ([]byte, error) {
+	body, status, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, nil, "", c.config.MaxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		if retryAuth {
+			c.invalidateSession()
+			if err := c.ensureSession(ctx); err != nil {
+				return nil, err
+			}
+			return c.getAfterSession(ctx, operation, endpoint, query, false)
+		}
+		return nil, statusError(operation, status)
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return nil, statusError(operation, status)
+	}
+	return body, nil
+}
+
+func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, body io.Reader, contentType string, maxBytes int64) ([]byte, int, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, 0, err
+	}
+	requestURL := *c.endpoint
+	requestURL.Path = strings.TrimRight(c.endpoint.Path, "/") + endpoint
+	requestURL.RawPath = ""
+	requestURL.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
+	if err != nil {
+		return nil, 0, UpstreamError{Code: ErrorInvalidInput, Operation: operation}
+	}
+	request.Header.Set("Accept", "application/json, text/plain")
+	request.Header.Set("User-Agent", "mastarr-qbittorrent-client/0.0.1")
+	request.Header.Set("Referer", c.origin()+"/")
+	request.Header.Set("Origin", c.origin())
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, 0, ctxErr
+		}
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+		}
+		return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+	}
+	defer response.Body.Close()
+	data, err := readBounded(response.Body, maxBytes)
+	if err != nil {
+		return nil, response.StatusCode, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
+	}
+	return data, response.StatusCode, nil
+}
+
+func (c *Client) origin() string {
+	return c.endpoint.Scheme + "://" + c.endpoint.Host
+}
+
+func parseEndpoint(raw string) (*url.URL, error) {
+	if strings.TrimSpace(raw) != raw || raw == "" {
+		return nil, errors.New("qBittorrent endpoint is invalid")
+	}
+	endpoint, err := url.Parse(raw)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return nil, errors.New("qBittorrent endpoint is invalid")
+	}
+	if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+		return nil, errors.New("qBittorrent endpoint scheme is unsupported")
+	}
+	if !utf8.ValidString(endpoint.Host) {
+		return nil, errors.New("qBittorrent endpoint is invalid")
+	}
+	return endpoint, nil
+}
+
+func listQuery(options TorrentListOptions) (url.Values, error) {
+	query := url.Values{}
+	for key, value := range map[string]string{
+		"filter":   options.Filter,
+		"category": options.Category,
+		"tag":      options.Tag,
+		"sort":     options.Sort,
+	} {
+		if err := validateQueryText(value); err != nil {
+			return nil, err
+		}
+		if value != "" {
+			query.Set(key, value)
+		}
+	}
+	if options.Reverse {
+		query.Set("reverse", strconv.FormatBool(options.Reverse))
+	}
+	if options.Limit < 0 || options.Limit > defaultMaxItems || options.Offset < -defaultMaxItems || options.Offset > defaultMaxItems {
+		return nil, invalidInput("qbit.torrents.info")
+	}
+	if options.Limit > 0 {
+		query.Set("limit", strconv.Itoa(options.Limit))
+	}
+	if options.Offset != 0 {
+		query.Set("offset", strconv.Itoa(options.Offset))
+	}
+	if len(options.Hashes) > 0 {
+		hashes := make([]string, len(options.Hashes))
+		for i, hash := range options.Hashes {
+			if err := validateHash(hash); err != nil {
+				return nil, err
+			}
+			hashes[i] = hash
+		}
+		query.Set("hashes", strings.Join(hashes, "|"))
+	}
+	return query, nil
+}
+
+func validateHash(hash string) error {
+	if hash == "" || len(hash) > maxHashBytes || !utf8.ValidString(hash) || strings.IndexFunc(hash, unicode.IsControl) >= 0 {
+		return invalidInput("qbit.torrents.hash")
+	}
+	return nil
+}
+
+func validateQueryText(value string) error {
+	if len(value) > maxQueryTextBytes || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return invalidInput("qbit.torrents.info")
+	}
+	return nil
+}
+
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
+func decodeJSON(data []byte, target any) error {
+	if len(bytes.TrimSpace(data)) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return errors.New("empty JSON response")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return errors.New("trailing JSON response data")
+	}
+	return nil
+}
+
+func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxResponseBytes
+	}
+	if maxBytes >= math.MaxInt64 {
+		return nil, errors.New("response bound is invalid")
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	if err != nil {
+		return nil, errors.New("response could not be read")
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, errors.New("response exceeds configured bound")
+	}
+	return data, nil
+}
+
+func statusError(operation string, status int) UpstreamError {
+	code := ErrorUnknown
+	retryable := false
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		code = ErrorUnauthorized
+	case status == http.StatusBadRequest:
+		code = ErrorInvalidInput
+	case status == http.StatusNotFound:
+		code = ErrorUnavailable
+	case status == http.StatusConflict:
+		code = ErrorConflict
+	case status == http.StatusTooManyRequests:
+		code = ErrorRateLimited
+		retryable = true
+	case status >= http.StatusInternalServerError:
+		code = ErrorUnavailable
+		retryable = true
+	}
+	return UpstreamError{Code: code, Operation: operation, Status: status, Retryable: retryable}
+}
+
+func invalidInput(operation string) UpstreamError {
+	return UpstreamError{Code: ErrorInvalidInput, Operation: operation}
+}
+
+func malformed(operation string) UpstreamError {
+	return UpstreamError{Code: ErrorUnknown, Operation: operation}
+}
+
+func bounded(operation string, _ int) UpstreamError {
+	return UpstreamError{Code: ErrorUnknown, Operation: operation, Retryable: false}
+}
+
+func normalizeTorrent(record generated.TorrentInfo) Torrent {
+	return Torrent{
+		AddedOn:           record.AddedOn,
+		AmountLeft:        record.AmountLeft,
+		AutoTMM:           record.AutoTmm,
+		Availability:      record.Availability,
+		Category:          record.Category,
+		Completed:         record.Completed,
+		CompletionOn:      record.CompletionOn,
+		ContentPath:       record.ContentPath,
+		DLLimit:           record.DlLimit,
+		DLSpeed:           record.Dlspeed,
+		Downloaded:        record.Downloaded,
+		DownloadedSession: record.DownloadedSession,
+		ETA:               record.Eta,
+		FLPiecePrio:       record.FLPiecePrio,
+		ForceStart:        record.ForceStart,
+		Hash:              record.Hash,
+		IsPrivate:         record.IsPrivate,
+		LastActivity:      record.LastActivity,
+		MagnetURI:         record.MagnetUri,
+		MaxRatio:          record.MaxRatio,
+		MaxSeedingTime:    record.MaxSeedingTime,
+		Name:              record.Name,
+		NumComplete:       record.NumComplete,
+		NumIncomplete:     record.NumIncomplete,
+		NumLeechs:         record.NumLeechs,
+		NumSeeds:          record.NumSeeds,
+		Priority:          record.Priority,
+		Progress:          record.Progress,
+		Ratio:             record.Ratio,
+		RatioLimit:        record.RatioLimit,
+		Reannounce:        record.Reannounce,
+		SavePath:          record.SavePath,
+		SeedingTime:       record.SeedingTime,
+		SeedingTimeLimit:  record.SeedingTimeLimit,
+		SeenComplete:      record.SeenComplete,
+		SeqDL:             record.SeqDl,
+		Size:              record.Size,
+		State:             record.State,
+		SuperSeeding:      record.SuperSeeding,
+		Tags:              record.Tags,
+		TimeActive:        record.TimeActive,
+		TotalSize:         record.TotalSize,
+		Tracker:           record.Tracker,
+		UpLimit:           record.UpLimit,
+		Uploaded:          record.Uploaded,
+		UploadedSession:   record.UploadedSession,
+		UpSpeed:           record.Upspeed,
+	}
+}
+
+func normalizeProperties(properties generated.TorrentProperties) TorrentProperties {
+	return TorrentProperties{
+		SavePath:               properties.SavePath,
+		CreationDate:           properties.CreationDate,
+		PieceSize:              properties.PieceSize,
+		Comment:                properties.Comment,
+		TotalWasted:            properties.TotalWasted,
+		TotalUploaded:          properties.TotalUploaded,
+		TotalUploadedSession:   properties.TotalUploadedSession,
+		TotalDownloaded:        properties.TotalDownloaded,
+		TotalDownloadedSession: properties.TotalDownloadedSession,
+		UpLimit:                properties.UpLimit,
+		DLLimit:                properties.DlLimit,
+		TimeElapsed:            properties.TimeElapsed,
+		SeedingTime:            properties.SeedingTime,
+		NbConnections:          properties.NbConnections,
+		NbConnectionsLimit:     properties.NbConnectionsLimit,
+		ShareRatio:             properties.ShareRatio,
+		AdditionDate:           properties.AdditionDate,
+		CompletionDate:         properties.CompletionDate,
+		CreatedBy:              properties.CreatedBy,
+		DLSpeedAvg:             properties.DlSpeedAvg,
+		DLSpeed:                properties.DlSpeed,
+		ETA:                    properties.Eta,
+		LastSeen:               properties.LastSeen,
+		Peers:                  properties.Peers,
+		PeersTotal:             properties.PeersTotal,
+		PiecesHave:             properties.PiecesHave,
+		PiecesNum:              properties.PiecesNum,
+		Reannounce:             properties.Reannounce,
+		Seeds:                  properties.Seeds,
+		SeedsTotal:             properties.SeedsTotal,
+		TotalSize:              properties.TotalSize,
+		UpSpeedAvg:             properties.UpSpeedAvg,
+		UpSpeed:                properties.UpSpeed,
+		IsPrivate:              properties.IsPrivate,
+	}
+}
+
+func normalizeFile(file generated.TorrentFile) TorrentFile {
+	return TorrentFile{
+		Index:        file.Index,
+		Name:         file.Name,
+		Size:         file.Size,
+		Progress:     file.Progress,
+		Priority:     file.Priority,
+		IsSeed:       file.IsSeed,
+		PieceRange:   append([]int64(nil), file.PieceRange...),
+		Availability: file.Availability,
+	}
+}

@@ -1,0 +1,651 @@
+openapi: 3.0.3
+info:
+  title: Mastarr qBittorrent WebUI compatibility API
+  version: 0.0.1
+  description: |
+    Mastarr-owned compatibility contract for the read surface of the
+    qBittorrent WebUI API v2. It is intentionally versioned separately from
+    the Mastarr HTTP API. The compatibility candidate is qBittorrent 5.0+
+    with WebAPI v2.x; the connected product build remains runtime evidence.
+    Authentication is cookie based. No OpenAPI security scheme is declared so
+    the generated surface cannot be mistaken for Mastarr application auth.
+  x-mastarr-compatibility:
+    upstream: qBittorrent WebUI API v2
+    candidateProductVersions: qBittorrent 5.0+
+    candidateWebAPIVersions: 2.x
+    contractVersion: 0.0.1
+    readOnly: true
+    evidence: docs/research/upstream-evidence.md
+    upstreamDocumentation: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0)?oldformat=true
+paths:
+  /api/v2/auth/login:
+    post:
+      tags: [authentication]
+      operationId: Login
+      summary: Establish a qBittorrent WebUI cookie session
+      description: |
+        The upstream response is text/plain. A successful response contains
+        the literal `Ok.` and sets a SID cookie. Invalid credentials may also
+        return HTTP 200 with a failure body; callers must verify the body.
+      x-mastarr-read-only: session establishment only
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login response; success is the exact text `Ok.`.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: Ok.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/app/version:
+    get:
+      tags: [application]
+      operationId: GetApplicationVersion
+      summary: Read the qBittorrent application version
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      responses:
+        '200':
+          description: Application version as plain text.
+          content:
+            text/plain:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              example: v5.0.0-synthetic
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/app/webapiVersion:
+    get:
+      tags: [application]
+      operationId: GetWebAPIVersion
+      summary: Read the qBittorrent WebAPI version
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      responses:
+        '200':
+          description: WebAPI version as plain text.
+          content:
+            text/plain:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              example: 2.11.3-synthetic
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/info:
+    get:
+      tags: [torrents]
+      operationId: ListTorrents
+      summary: Read torrent inventory
+      description: |
+        Returns the upstream array in the requested order. `limit` and
+        `offset` are passed through to qBittorrent; this compatibility module
+        does not invent pagination semantics for an endpoint that returns an
+        array. A caller must bound the response before decoding it.
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+        - name: reverse
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 10000
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: -10000
+            maximum: 10000
+        - name: hashes
+          in: query
+          required: false
+          description: Pipe-separated upstream torrent hashes.
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        '200':
+          description: Torrent inventory.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 10000
+                items:
+                  $ref: '#/components/schemas/TorrentInfo'
+              example:
+                - added_on: 1700000000
+                  amount_left: 0
+                  auto_tmm: true
+                  availability: 1
+                  category: synthetic
+                  completed: 123456789
+                  completion_on: 1700000100
+                  content_path: /synthetic/downloads/Example
+                  dl_limit: -1
+                  dlspeed: 0
+                  downloaded: 123456789
+                  downloaded_session: 123456789
+                  eta: 8640000
+                  f_l_piece_prio: false
+                  force_start: false
+                  hash: 0123456789abcdef0123456789abcdef01234567
+                  isPrivate: false
+                  last_activity: 1700000100
+                  magnet_uri: magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567
+                  max_ratio: -1
+                  max_seeding_time: -1
+                  name: synthetic-example
+                  num_complete: 1
+                  num_incomplete: 0
+                  num_leechs: 0
+                  num_seeds: 1
+                  priority: 1
+                  progress: 1
+                  ratio: 0.5
+                  ratio_limit: -2
+                  reannounce: 120
+                  save_path: /synthetic/downloads/
+                  seeding_time: 300
+                  seeding_time_limit: -2
+                  seen_complete: 1700000100
+                  seq_dl: false
+                  size: 123456789
+                  state: pausedUP
+                  super_seeding: false
+                  tags: synthetic,verified
+                  time_active: 300
+                  total_size: 123456789
+                  tracker: https://tracker.invalid/announce
+                  up_limit: -1
+                  uploaded: 61728394
+                  uploaded_session: 61728394
+                  upspeed: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/properties:
+    get:
+      tags: [torrents]
+      operationId: GetTorrentProperties
+      summary: Read generic properties for one torrent
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+        - $ref: '#/components/parameters/TorrentHash'
+      responses:
+        '200':
+          description: Generic torrent properties.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TorrentProperties'
+              example:
+                save_path: /synthetic/downloads/
+                creation_date: 1700000000
+                piece_size: 1048576
+                comment: synthetic fixture
+                total_wasted: 0
+                total_uploaded: 61728394
+                total_uploaded_session: 61728394
+                total_downloaded: 123456789
+                total_downloaded_session: 123456789
+                up_limit: -1
+                dl_limit: -1
+                time_elapsed: 600
+                seeding_time: 300
+                nb_connections: 1
+                nb_connections_limit: 100
+                share_ratio: 0.5
+                addition_date: 1700000000
+                completion_date: 1700000100
+                created_by: synthetic
+                dl_speed_avg: 0
+                dl_speed: 0
+                eta: 8640000
+                last_seen: 1700000100
+                peers: 0
+                peers_total: 0
+                pieces_have: 128
+                pieces_num: 128
+                reannounce: 120
+                seeds: 1
+                seeds_total: 1
+                total_size: 123456789
+                up_speed_avg: 0
+                up_speed: 0
+                isPrivate: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/files:
+    get:
+      tags: [torrents]
+      operationId: GetTorrentFiles
+      summary: Read files contained by one torrent
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+        - $ref: '#/components/parameters/TorrentHash'
+        - name: indexes
+          in: query
+          required: false
+          description: Pipe-separated file indexes, supported by WebAPI 2.8.2+.
+          schema:
+            type: string
+            maxLength: 4096
+      responses:
+        '200':
+          description: Torrent files.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100000
+                items:
+                  $ref: '#/components/schemas/TorrentFile'
+              example:
+                - index: 0
+                  name: synthetic-example/video.mkv
+                  size: 123456789
+                  progress: 1
+                  priority: 1
+                  is_seed: true
+                  piece_range: [0, 127]
+                  availability: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/categories:
+    get:
+      tags: [categories]
+      operationId: GetCategories
+      summary: Read all torrent categories and save paths
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      responses:
+        '200':
+          description: Map keyed by upstream category name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryMap'
+              example:
+                synthetic:
+                  name: synthetic
+                  savePath: /synthetic/downloads/
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/tags:
+    get:
+      tags: [tags]
+      operationId: GetTags
+      summary: Read all torrent tags
+      x-mastarr-read-only: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      responses:
+        '200':
+          description: List of upstream tag names.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 10000
+                items:
+                  type: string
+                  maxLength: 512
+              example: [synthetic, verified]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+components:
+  parameters:
+    CookieHeader:
+      name: Cookie
+      in: header
+      required: false
+      description: SID cookie set by the login response; the handwritten client manages it.
+      schema:
+        type: string
+        maxLength: 4096
+    TorrentHash:
+      name: hash
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+  responses:
+    Unauthorized:
+      description: Authentication is missing, expired or rejected.
+      content:
+        text/plain:
+          schema:
+            type: string
+    Forbidden:
+      description: Authentication is forbidden or the WebUI has banned the client IP.
+      content:
+        text/plain:
+          schema:
+            type: string
+    NotFound:
+      description: The requested torrent hash does not exist.
+      content:
+        text/plain:
+          schema:
+            type: string
+    UpstreamFailure:
+      description: An upstream response outside the frozen success surface.
+      content:
+        text/plain:
+          schema:
+            type: string
+
+  schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 256
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+
+    TorrentInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - added_on
+        - amount_left
+        - auto_tmm
+        - availability
+        - category
+        - completed
+        - completion_on
+        - content_path
+        - dl_limit
+        - dlspeed
+        - downloaded
+        - downloaded_session
+        - eta
+        - f_l_piece_prio
+        - force_start
+        - hash
+        - isPrivate
+        - last_activity
+        - magnet_uri
+        - max_ratio
+        - max_seeding_time
+        - name
+        - num_complete
+        - num_incomplete
+        - num_leechs
+        - num_seeds
+        - priority
+        - progress
+        - ratio
+        - ratio_limit
+        - reannounce
+        - save_path
+        - seeding_time
+        - seeding_time_limit
+        - seen_complete
+        - seq_dl
+        - size
+        - state
+        - super_seeding
+        - tags
+        - time_active
+        - total_size
+        - tracker
+        - up_limit
+        - uploaded
+        - uploaded_session
+        - upspeed
+      properties:
+        added_on: {type: integer, format: int64}
+        amount_left: {type: integer, format: int64}
+        auto_tmm: {type: boolean}
+        availability: {type: number, format: double}
+        category: {type: string}
+        completed: {type: integer, format: int64}
+        completion_on: {type: integer, format: int64}
+        content_path: {type: string}
+        dl_limit: {type: integer, format: int64}
+        dlspeed: {type: integer, format: int64}
+        downloaded: {type: integer, format: int64}
+        downloaded_session: {type: integer, format: int64}
+        eta: {type: integer, format: int64}
+        f_l_piece_prio: {type: boolean}
+        force_start: {type: boolean}
+        hash: {type: string}
+        isPrivate: {type: boolean}
+        last_activity: {type: integer, format: int64}
+        magnet_uri: {type: string}
+        max_ratio: {type: number, format: double}
+        max_seeding_time: {type: integer, format: int64}
+        name: {type: string}
+        num_complete: {type: integer, format: int64}
+        num_incomplete: {type: integer, format: int64}
+        num_leechs: {type: integer, format: int64}
+        num_seeds: {type: integer, format: int64}
+        priority: {type: integer, format: int64}
+        progress: {type: number, format: double}
+        ratio: {type: number, format: double}
+        ratio_limit: {type: number, format: double}
+        reannounce: {type: integer, format: int64}
+        save_path: {type: string}
+        seeding_time: {type: integer, format: int64}
+        seeding_time_limit: {type: integer, format: int64}
+        seen_complete: {type: integer, format: int64}
+        seq_dl: {type: boolean}
+        size: {type: integer, format: int64}
+        state: {type: string}
+        super_seeding: {type: boolean}
+        tags: {type: string}
+        time_active: {type: integer, format: int64}
+        total_size: {type: integer, format: int64}
+        tracker: {type: string}
+        up_limit: {type: integer, format: int64}
+        uploaded: {type: integer, format: int64}
+        uploaded_session: {type: integer, format: int64}
+        upspeed: {type: integer, format: int64}
+
+    TorrentProperties:
+      type: object
+      additionalProperties: false
+      required:
+        - save_path
+        - creation_date
+        - piece_size
+        - comment
+        - total_wasted
+        - total_uploaded
+        - total_uploaded_session
+        - total_downloaded
+        - total_downloaded_session
+        - up_limit
+        - dl_limit
+        - time_elapsed
+        - seeding_time
+        - nb_connections
+        - nb_connections_limit
+        - share_ratio
+        - addition_date
+        - completion_date
+        - created_by
+        - dl_speed_avg
+        - dl_speed
+        - eta
+        - last_seen
+        - peers
+        - peers_total
+        - pieces_have
+        - pieces_num
+        - reannounce
+        - seeds
+        - seeds_total
+        - total_size
+        - up_speed_avg
+        - up_speed
+        - isPrivate
+      properties:
+        save_path: {type: string}
+        creation_date: {type: integer, format: int64}
+        piece_size: {type: integer, format: int64}
+        comment: {type: string}
+        total_wasted: {type: integer, format: int64}
+        total_uploaded: {type: integer, format: int64}
+        total_uploaded_session: {type: integer, format: int64}
+        total_downloaded: {type: integer, format: int64}
+        total_downloaded_session: {type: integer, format: int64}
+        up_limit: {type: integer, format: int64}
+        dl_limit: {type: integer, format: int64}
+        time_elapsed: {type: integer, format: int64}
+        seeding_time: {type: integer, format: int64}
+        nb_connections: {type: integer, format: int64}
+        nb_connections_limit: {type: integer, format: int64}
+        share_ratio: {type: number, format: double}
+        addition_date: {type: integer, format: int64}
+        completion_date: {type: integer, format: int64}
+        created_by: {type: string}
+        dl_speed_avg: {type: integer, format: int64}
+        dl_speed: {type: integer, format: int64}
+        eta: {type: integer, format: int64}
+        last_seen: {type: integer, format: int64}
+        peers: {type: integer, format: int64}
+        peers_total: {type: integer, format: int64}
+        pieces_have: {type: integer, format: int64}
+        pieces_num: {type: integer, format: int64}
+        reannounce: {type: integer, format: int64}
+        seeds: {type: integer, format: int64}
+        seeds_total: {type: integer, format: int64}
+        total_size: {type: integer, format: int64}
+        up_speed_avg: {type: integer, format: int64}
+        up_speed: {type: integer, format: int64}
+        isPrivate: {type: boolean}
+
+    TorrentFile:
+      type: object
+      additionalProperties: false
+      required: [index, name, size, progress, priority, is_seed, piece_range, availability]
+      properties:
+        index: {type: integer, format: int64}
+        name: {type: string}
+        size: {type: integer, format: int64}
+        progress: {type: number, format: double}
+        priority: {type: integer, format: int64}
+        is_seed: {type: boolean}
+        piece_range:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: {type: integer, format: int64}
+        availability: {type: number, format: double}
+
+    Category:
+      type: object
+      additionalProperties: false
+      required: [name, savePath]
+      properties:
+        name: {type: string}
+        savePath: {type: string}
+
+    CategoryMap:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/Category'

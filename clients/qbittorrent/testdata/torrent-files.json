@@ -1,0 +1,22 @@
+[
+  {
+    "index": 0,
+    "name": "synthetic-example/video.mkv",
+    "size": 123456789,
+    "progress": 1,
+    "priority": 1,
+    "is_seed": true,
+    "piece_range": [0, 127],
+    "availability": 1
+  },
+  {
+    "index": 1,
+    "name": "synthetic-example/subtitles.srt",
+    "size": 2048,
+    "progress": 1,
+    "priority": 6,
+    "is_seed": true,
+    "piece_range": [128, 128],
+    "availability": 1
+  }
+]

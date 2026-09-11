@@ -1,0 +1,69 @@
+# Mastarr qBittorrent read client
+
+This directory is an independent Go module at
+`github.com/guilycst/mastarr/clients/qbittorrent`. It freezes the small
+qBittorrent WebUI API v2 compatibility surface needed by Mastarr inventory
+work. It does not import the Mastarr root module or any domain, port, storage,
+workflow or adapter package.
+
+The compatibility candidate is qBittorrent **5.0+** with WebAPI **2.x**. The
+connected qBittorrent product build is still runtime evidence; this module does
+not infer a build from the API documentation. The contract is
+[`openapi.yaml`](openapi.yaml), based on the pinned qBittorrent 5 WebUI API
+evidence recorded in `docs/research/upstream-evidence.md` (wiki page commit
+`cc6579ab58f534d03b40ae0deba5755c4a342319`, blob
+`82f67b6f5aa73ef54d4c88dcd38c695ae1191b72`).
+
+The handwritten client exposes only these operations:
+
+- cookie login through `POST /api/v2/auth/login`;
+- application and WebAPI version reads;
+- torrent inventory with qBittorrent's filter, category, tag, sort, reverse,
+  limit, offset and hashes query fields;
+- generic properties and file contents for one torrent hash;
+- all categories and all tags.
+
+Login accepts the upstream `Ok.` body and stores the returned SID in a cookie
+jar isolated to that client instance. Requests carry the configured origin's
+`Origin` and `Referer` headers, and redirects are rejected so a session-bearing
+request cannot be sent to another location. Credentials are held only in the
+client configuration and login form. Upstream body text is never copied to an
+error; failures are classified by the typed `UpstreamError` codes
+`unavailable`, `rate_limited`, `unauthorized`, `invalid_input`, `conflict`,
+`unsupported` and `unknown`.
+
+JSON responses are decoded with unknown-field rejection and trailing-data
+checks. The default response bound is 8 MiB, with at most 10,000 inventory
+records, 100,000 files, or 10,000 category/tag values. Bounds reject an
+over-limit response instead of silently truncating evidence. qBittorrent Unix
+timestamps and its `-1` unknown sentinels are preserved in the normalized
+values.
+
+The generated models and typed operation request builders in
+`generated/client.gen.go` come from oapi-codegen **v2.8.0**. Regenerate from
+this directory with:
+
+```sh
+GOWORK=off go generate ./...
+```
+
+Check reproducibility without modifying the checkout with:
+
+```sh
+./check-generation.sh
+```
+
+Run module checks with:
+
+```sh
+GOWORK=off go test ./...
+GOWORK=off go test -race ./...
+GOWORK=off go vet ./...
+GOWORK=off go mod verify
+```
+
+Mutation routes such as stop, resume, relocation, rename, category/tag
+changes, deletion and torrent creation are intentionally absent. Descriptor
+export, client-specific scope translation and the Mastarr root adapter remain
+separate migration work; this module supplies only typed, read-only upstream
+evidence.
