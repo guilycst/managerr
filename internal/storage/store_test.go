@@ -30,7 +30,7 @@ func migrationsThroughVersion(t *testing.T, max int) fs.FS {
 	t.Helper()
 	files := fstest.MapFS{}
 	for _, name := range []string{
-		"000001_initial.up.sql", "000002_indexes.up.sql", "000003_storage_contract.up.sql",
+		"000001_initial.up.sql", "000002_indexes.up.sql", "000003_storage_contract.up.sql", "000004_storage_compatibility.up.sql",
 	} {
 		var version int
 		if _, err := fmt.Sscanf(name, "%d_", &version); err != nil {
@@ -69,8 +69,8 @@ func TestOpenMigratesCompleteSchema(t *testing.T) {
 	if err := store.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("migration version = %d, want 3", version)
+	if version != 4 {
+		t.Fatalf("migration version = %d, want 4", version)
 	}
 
 	for _, table := range []string{
@@ -125,8 +125,8 @@ func TestMigrationsUpgradeFromVersionOne(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("upgraded migration version = %d, want 3", version)
+	if version != 4 {
+		t.Fatalf("upgraded migration version = %d, want 4", version)
 	}
 	var count int
 	if err := upgraded.DB().QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_due_action_runs_claim'").Scan(&count); err != nil {
@@ -181,8 +181,8 @@ func TestMigrationsUpgradeFromVersionTwo(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Fatalf("v2 upgrade migration version = %d, want 3", version)
+	if version != 4 {
+		t.Fatalf("v2 upgrade migration version = %d, want 4", version)
 	}
 	var state string
 	if err := upgraded.DB().QueryRow("SELECT state FROM downloads WHERE id = 'legacy-v2-download'").Scan(&state); err != nil {
@@ -526,19 +526,19 @@ func TestUnknownTrackingObservationCanBeStoredWithoutExternalRecord(t *testing.T
 
 	if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-null-scope", MediaIdentityID: sql.NullString{String: "media-example", Valid: true},
-		ConnectionID: "", Dimension: "registration", Status: "present", EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
+		ConnectionID: sql.NullString{}, Dimension: "registration", Status: "present", EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
 	}); err == nil {
 		t.Fatal("tracking observation accepted a NULL connection scope")
 	}
 	if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-mismatch", ExternalRecordID: sql.NullString{String: "record-qbt", Valid: true},
-		ConnectionID: "radarr-main", Dimension: "registration", Status: "present", EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
+		ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, Dimension: "registration", Status: "present", EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
 	}); err == nil {
 		t.Fatal("mismatched tracking connection was accepted")
 	}
 	if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-identity-mismatch", ExternalRecordID: sql.NullString{String: "record-qbt", Valid: true},
-		MediaIdentityID: sql.NullString{String: "media-other", Valid: true}, ConnectionID: "qbt-main",
+		MediaIdentityID: sql.NullString{String: "media-other", Valid: true}, ConnectionID: sql.NullString{String: "qbt-main", Valid: true},
 		Dimension: "registration", Status: "present", EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
 	}); err == nil {
 		t.Fatal("mismatched tracking media identity was accepted")
@@ -546,7 +546,7 @@ func TestUnknownTrackingObservationCanBeStoredWithoutExternalRecord(t *testing.T
 	for _, coverageID := range []string{"coverage-other-connection", "coverage-other-root", "coverage-other-media", "coverage-partial", "coverage-unfinished", "coverage-future"} {
 		if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 			ID: "tracking-" + coverageID, MediaIdentityID: sql.NullString{String: "media-example", Valid: true},
-			ConnectionID: "radarr-main", RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
+			ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
 			EvidenceJson: `{}`, CoverageID: sql.NullString{String: coverageID, Valid: true}, CoverageMaxAgeSeconds: sql.NullInt64{Int64: 60, Valid: true}, ObservedAt: "2026-09-11T00:00:05Z",
 		}); err == nil {
 			t.Fatalf("absence accepted invalid coverage %q", coverageID)
@@ -554,37 +554,37 @@ func TestUnknownTrackingObservationCanBeStoredWithoutExternalRecord(t *testing.T
 	}
 	if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-no-coverage", MediaIdentityID: sql.NullString{String: "media-example", Valid: true},
-		ConnectionID: "radarr-main", RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
+		ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
 		EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:05Z",
 	}); err == nil {
 		t.Fatal("absence without coverage was accepted")
 	}
 	if _, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-stale", MediaIdentityID: sql.NullString{String: "media-example", Valid: true},
-		ConnectionID: "radarr-main", RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
+		ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
 		EvidenceJson: `{}`, CoverageID: sql.NullString{String: "coverage-stale", Valid: true}, CoverageMaxAgeSeconds: sql.NullInt64{Int64: 1, Valid: true}, ObservedAt: "2026-09-11T00:00:05Z",
 	}); err == nil {
 		t.Fatal("stale absence coverage was accepted")
 	}
 	abset, err := queries.CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
 		ID: "tracking-absent", MediaIdentityID: sql.NullString{String: "media-example", Valid: true},
-		ConnectionID: "radarr-main", RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
+		ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, RootID: sql.NullString{String: "root-a", Valid: true}, Dimension: "registration", Status: "absent",
 		EvidenceJson: `{}`, CoverageID: sql.NullString{String: "coverage-complete", Valid: true}, CoverageMaxAgeSeconds: sql.NullInt64{Int64: 60, Valid: true}, ObservedAt: "2026-09-11T00:00:05Z",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !abset.MediaIdentityID.Valid || abset.ConnectionID != "radarr-main" || !abset.CoverageID.Valid || abset.ExternalRecordID.Valid || abset.Status != "absent" {
+	if !abset.MediaIdentityID.Valid || !abset.ConnectionID.Valid || abset.ConnectionID.String != "radarr-main" || !abset.CoverageID.Valid || abset.ExternalRecordID.Valid || abset.Status != "absent" {
 		t.Fatalf("unexpected absent observation: %+v", abset)
 	}
 	row, err := store.Queries().CreateTrackingObservation(ctx, &sqlc.CreateTrackingObservationParams{
-		ID: "tracking-unknown", ConnectionID: "radarr-main", Dimension: "registration", Status: "unknown",
+		ID: "tracking-unknown", ConnectionID: sql.NullString{String: "radarr-main", Valid: true}, Dimension: "registration", Status: "unknown",
 		EvidenceJson: `{}`, ObservedAt: "2026-09-11T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.Status != "unknown" || row.ExternalRecordID.Valid || row.ConnectionID != "radarr-main" {
+	if row.Status != "unknown" || row.ExternalRecordID.Valid || !row.ConnectionID.Valid || row.ConnectionID.String != "radarr-main" {
 		t.Fatalf("unexpected unknown observation: %+v", row)
 	}
 }

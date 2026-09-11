@@ -61,6 +61,22 @@ func OpenWithOptions(options Options) (*Store, error) {
 	lockPath := options.LockPath
 	if strings.TrimSpace(lockPath) == "" {
 		lockPath = path + defaultLockSuffix
+	} else if path != ":memory:" {
+		// A persistent database has one executor identity. Allowing callers to
+		// pick a different lock file would let two processes open one journal
+		// concurrently, even when both paths are individually canonical.
+		requestedLockPath, err := normalizeLockPath(lockPath)
+		if err != nil {
+			return nil, err
+		}
+		derivedLockPath, err := normalizeLockPath(path + defaultLockSuffix)
+		if err != nil {
+			return nil, err
+		}
+		if requestedLockPath != derivedLockPath {
+			return nil, fmt.Errorf("custom storage lock path must equal the canonical database lock path %q", derivedLockPath)
+		}
+		lockPath = derivedLockPath
 	}
 	lockPath, err = normalizeLockPath(lockPath)
 	if err != nil {

@@ -11,6 +11,10 @@ import (
 
 type Querier interface {
 	ClaimActionRun(ctx context.Context, arg *ClaimActionRunParams) (*ActionRun, error)
+	// Binds an explicit approval and the exact trash-entry version in the same
+	// claim statement. The migration trigger validates the immutable plan,
+	// decision and action-run identities before it changes the shared entry.
+	ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprovedEarlyPurgeParams) (*JanitorRecord, error)
 	ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecordParams) (*JanitorRecord, error)
 	CreateActionAttempt(ctx context.Context, arg *CreateActionAttemptParams) (*ActionAttempt, error)
 	CreateActionEffect(ctx context.Context, arg *CreateActionEffectParams) (*ActionEffect, error)

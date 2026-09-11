@@ -12,12 +12,178 @@
 PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
 
+-- Do not rebuild child tables until their redundant scope columns have been
+-- checked against the same parent row. Foreign keys are disabled during the
+-- rebuild, so this preflight is the guard against activating old split-scope
+-- evidence. A CHECK failure leaves the migration dirty before any rename.
+CREATE TEMP TABLE d01_scope_preflight (
+    check_name TEXT PRIMARY KEY,
+    ok INTEGER NOT NULL CHECK (ok = 1)
+);
+INSERT INTO d01_scope_preflight (check_name, ok)
+SELECT 'file_observations', CASE WHEN EXISTS (
+    SELECT 1
+    FROM file_observations AS fo
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM discoveries AS d
+        WHERE d.id = fo.discovery_id
+          AND d.root_id = fo.root_id
+          AND d.relative_path = fo.relative_path
+          AND d.manifest_revision = fo.manifest_revision
+    )
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_scope_preflight (check_name, ok)
+SELECT 'action_effects', CASE WHEN EXISTS (
+    SELECT 1
+    FROM action_effects AS ae
+    WHERE ae.attempt_id IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM action_attempts AS aa
+          WHERE aa.id = ae.attempt_id
+            AND aa.action_run_id = ae.action_run_id
+      )
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_scope_preflight (check_name, ok)
+SELECT 'trash_items', CASE WHEN EXISTS (
+    SELECT 1
+    FROM trash_items AS ti
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM trash_entries AS te
+        WHERE te.id = ti.entry_id
+          AND te.root_id = ti.root_id
+    )
+) THEN 0 ELSE 1 END;
+DROP TABLE d01_scope_preflight;
+
 ALTER TABLE coverage_snapshots ADD COLUMN media_identity_id TEXT REFERENCES media_identities(id);
 ALTER TABLE trash_entries ADD COLUMN active_operation TEXT CHECK (active_operation IS NULL OR active_operation IN ('purge', 'restore'));
 ALTER TABLE trash_entries ADD COLUMN operation_claimed_by TEXT;
 ALTER TABLE trash_entries ADD COLUMN operation_lease_until TEXT;
 ALTER TABLE trash_entries ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0);
 ALTER TABLE janitor_records ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0);
+
+-- Older journals can contain an in-flight trash operation without the claim
+-- columns introduced here. Reject dual or terminally contradictory evidence,
+-- then backfill one unambiguous operation so startup recovery can reclaim it.
+CREATE TEMP TABLE d01_janitor_preflight (
+    check_name TEXT PRIMARY KEY,
+    ok INTEGER NOT NULL CHECK (ok = 1)
+);
+INSERT INTO d01_janitor_preflight (check_name, ok)
+SELECT 'dual_active_operation', CASE WHEN EXISTS (
+    SELECT 1
+    FROM janitor_records AS first_record
+    JOIN janitor_records AS second_record
+      ON second_record.trash_entry_id = first_record.trash_entry_id
+     AND second_record.id <> first_record.id
+    WHERE first_record.state IN ('running', 'reconciling')
+      AND second_record.state IN ('running', 'reconciling')
+      AND first_record.operation <> second_record.operation
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_janitor_preflight (check_name, ok)
+SELECT 'active_state_operation_conflict', CASE WHEN EXISTS (
+    SELECT 1
+    FROM trash_entries AS te
+    JOIN janitor_records AS jr ON jr.trash_entry_id = te.id
+    WHERE jr.state IN ('running', 'reconciling')
+      AND ((te.state = 'restoring' AND jr.operation = 'purge')
+        OR (te.state = 'purging' AND jr.operation = 'restore'))
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_janitor_preflight (check_name, ok)
+SELECT 'active_terminal_conflict', CASE WHEN EXISTS (
+    SELECT 1
+    FROM janitor_records AS jr
+    JOIN trash_entries AS te ON te.id = jr.trash_entry_id
+    WHERE jr.state IN ('running', 'reconciling')
+      AND ((jr.operation = 'purge' AND te.state IN ('restored', 'purged', 'held'))
+        OR (jr.operation = 'restore' AND te.state IN ('restored', 'purged')))
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_janitor_preflight (check_name, ok)
+SELECT 'active_trash_row_conflict', CASE WHEN EXISTS (
+    SELECT 1
+    FROM trash_entries AS te
+    JOIN janitor_records AS jr ON jr.trash_entry_id = te.id
+    WHERE te.state IN ('restoring', 'purging')
+      AND jr.state NOT IN ('running', 'reconciling')
+) THEN 0 ELSE 1 END;
+INSERT INTO d01_janitor_preflight (check_name, ok)
+SELECT 'recovery_id_collision', CASE WHEN EXISTS (
+    SELECT 1
+    FROM trash_entries AS te
+    JOIN janitor_records AS jr ON jr.id = 'migration-recovery:' || te.id || ':' ||
+        CASE te.state WHEN 'purging' THEN 'purge' ELSE 'restore' END
+    WHERE te.state IN ('restoring', 'purging')
+      AND NOT EXISTS (
+          SELECT 1 FROM janitor_records AS active_record
+          WHERE active_record.trash_entry_id = te.id
+      )
+) THEN 0 ELSE 1 END;
+DROP TABLE d01_janitor_preflight;
+
+UPDATE trash_entries
+SET active_operation = CASE state
+        WHEN 'purging' THEN 'purge'
+        WHEN 'restoring' THEN 'restore'
+    END,
+    version = version + 1
+WHERE state IN ('purging', 'restoring');
+
+UPDATE trash_entries
+SET active_operation = (
+        SELECT jr.operation
+        FROM janitor_records AS jr
+        WHERE jr.trash_entry_id = trash_entries.id
+          AND jr.state IN ('running', 'reconciling')
+    ),
+    operation_claimed_by = (
+        SELECT jr.claimed_by
+        FROM janitor_records AS jr
+        WHERE jr.trash_entry_id = trash_entries.id
+          AND jr.state IN ('running', 'reconciling')
+    ),
+    operation_lease_until = (
+        SELECT jr.lease_until
+        FROM janitor_records AS jr
+        WHERE jr.trash_entry_id = trash_entries.id
+          AND jr.state IN ('running', 'reconciling')
+    ),
+    state = CASE (
+        SELECT jr.operation
+        FROM janitor_records AS jr
+        WHERE jr.trash_entry_id = trash_entries.id
+          AND jr.state IN ('running', 'reconciling')
+    ) WHEN 'purge' THEN 'purging' ELSE 'restoring' END,
+    version = version + 1
+WHERE EXISTS (
+    SELECT 1
+    FROM janitor_records AS jr
+    WHERE jr.trash_entry_id = trash_entries.id
+      AND jr.state IN ('running', 'reconciling')
+);
+
+UPDATE janitor_records
+SET version = version + 1
+WHERE state IN ('running', 'reconciling');
+
+INSERT INTO janitor_records (
+    id, trash_entry_id, operation, state, next_attempt_at, claimed_by,
+    lease_until, outcome_json, created_at, updated_at
+)
+SELECT 'migration-recovery:' || te.id || ':' ||
+       CASE te.state WHEN 'purging' THEN 'purge' ELSE 'restore' END,
+       te.id,
+       CASE te.state WHEN 'purging' THEN 'purge' ELSE 'restore' END,
+       'reconciling', NULL, NULL, NULL,
+       '{"reason":"legacy_trash_state_recovery"}', te.updated_at, te.updated_at
+FROM trash_entries AS te
+WHERE te.state IN ('purging', 'restoring')
+  AND NOT EXISTS (
+      SELECT 1 FROM janitor_records AS jr
+      WHERE jr.trash_entry_id = te.id
+  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS config_snapshots_id_source
     ON config_snapshots (id, source);
@@ -38,7 +204,7 @@ CREATE TABLE tracking_observations (
     id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
     external_record_id TEXT REFERENCES external_records(id),
     media_identity_id TEXT REFERENCES media_identities(id),
-    connection_id TEXT NOT NULL REFERENCES connections(id),
+    connection_id TEXT REFERENCES connections(id),
     root_id TEXT REFERENCES storage_roots(id),
     dimension TEXT NOT NULL CHECK (dimension IN ('registration', 'import', 'availability', 'request')),
     status TEXT NOT NULL CHECK (status IN ('present', 'absent', 'unknown')),
@@ -49,6 +215,7 @@ CREATE TABLE tracking_observations (
     registered_at TEXT,
     imported_at TEXT,
     CHECK (external_record_id IS NOT NULL OR media_identity_id IS NOT NULL OR status = 'unknown'),
+    CHECK (connection_id IS NOT NULL OR status = 'unknown'),
     CHECK (status <> 'absent' OR (media_identity_id IS NOT NULL AND root_id IS NOT NULL AND coverage_id IS NOT NULL AND coverage_max_age_seconds IS NOT NULL AND coverage_max_age_seconds > 0)),
     UNIQUE (external_record_id, dimension, observed_at)
 );
@@ -57,8 +224,34 @@ INSERT INTO tracking_observations (
     evidence_json, coverage_id, coverage_max_age_seconds, observed_at,
     registered_at, imported_at
 )
-SELECT id, external_record_id, media_identity_id, connection_id, NULL, dimension, status,
-       evidence_json, coverage_id, NULL, observed_at, registered_at, imported_at
+SELECT id, external_record_id, media_identity_id,
+       CASE
+           WHEN connection_id IS NOT NULL THEN connection_id
+           WHEN external_record_id IS NOT NULL THEN (
+               SELECT connection_id
+               FROM external_records
+               WHERE external_records.id = tracking_observations_legacy.external_record_id
+           )
+           ELSE NULL
+       END,
+       NULL,
+       dimension,
+       CASE
+           WHEN status = 'absent' THEN 'unknown'
+           WHEN connection_id IS NULL AND external_record_id IS NULL AND status = 'present' THEN 'unknown'
+           ELSE status
+       END,
+       CASE
+           WHEN status = 'absent'
+             OR (connection_id IS NULL AND external_record_id IS NULL AND status = 'present')
+           THEN json_object(
+               '_managerr_legacy_status', status,
+               '_managerr_legacy_evidence', json(evidence_json),
+               '_managerr_legacy_connection_id', connection_id
+           )
+           ELSE evidence_json
+       END,
+       coverage_id, NULL, observed_at, registered_at, imported_at
 FROM tracking_observations_legacy;
 DROP TABLE tracking_observations_legacy;
 
@@ -258,6 +451,7 @@ END;
 CREATE TRIGGER tracking_observations_connection_scope_insert
 BEFORE INSERT ON tracking_observations
 WHEN NEW.external_record_id IS NOT NULL
+ AND NEW.connection_id IS NOT NULL
  AND NEW.connection_id <> (SELECT connection_id FROM external_records WHERE id = NEW.external_record_id)
 BEGIN
     SELECT RAISE(ABORT, 'tracking observation connection does not match external record');
@@ -266,6 +460,7 @@ END;
 CREATE TRIGGER tracking_observations_connection_scope_update
 BEFORE UPDATE ON tracking_observations
 WHEN NEW.external_record_id IS NOT NULL
+ AND NEW.connection_id IS NOT NULL
  AND NEW.connection_id <> (SELECT connection_id FROM external_records WHERE id = NEW.external_record_id)
 BEGIN
     SELECT RAISE(ABORT, 'tracking observation connection does not match external record');
@@ -431,3 +626,14 @@ WHERE EXISTS (
     WHERE config_snapshots.id = path_mappings.source_snapshot_id
       AND config_snapshots.source <> path_mappings.source
 );
+
+-- SQLite does not retroactively validate rows copied while foreign keys were
+-- disabled. Make the final check part of the migration itself so a successful
+-- schema version always means the rebuilt relationships are valid.
+PRAGMA foreign_keys = ON;
+CREATE TEMP TABLE d01_foreign_key_check (
+    ok INTEGER NOT NULL CHECK (ok = 1)
+);
+INSERT INTO d01_foreign_key_check (ok)
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pragma_foreign_key_check) THEN 0 ELSE 1 END;
+DROP TABLE d01_foreign_key_check;

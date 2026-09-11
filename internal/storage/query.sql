@@ -740,6 +740,25 @@ WHERE id = sqlc.arg(id)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
 RETURNING *;
 
+-- name: ClaimApprovedEarlyPurge :one
+-- Binds an explicit approval and the exact trash-entry version in the same
+-- claim statement. The migration trigger validates the immutable plan,
+-- decision and action-run identities before it changes the shared entry.
+UPDATE janitor_records SET
+    state = 'running', claimed_by = sqlc.arg(worker_id), lease_until = sqlc.arg(lease_until),
+    approval_plan_id = sqlc.arg(approval_plan_id), approval_plan_revision = sqlc.arg(approval_plan_revision),
+    approval_plan_digest = sqlc.arg(approval_plan_digest), approval_decision_id = sqlc.arg(approval_decision_id),
+    approval_action_run_id = sqlc.arg(approval_action_run_id), approved_entry_version = sqlc.arg(approved_entry_version),
+    version = version + 1, updated_at = sqlc.arg(now)
+WHERE id = sqlc.arg(id)
+  AND version = sqlc.arg(version)
+  AND trash_entry_id = sqlc.arg(trash_entry_id)
+  AND operation = 'purge'
+  AND state IN ('queued', 'reconciling')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;
+
 -- name: UpdateJanitorRecord :one
 UPDATE janitor_records SET
     state = sqlc.arg(state), next_attempt_at = sqlc.arg(next_attempt_at),

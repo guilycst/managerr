@@ -235,17 +235,23 @@ type IdempotencyRecord struct {
 }
 
 type JanitorRecord struct {
-	ID            string         `json:"id"`
-	TrashEntryID  string         `json:"trash_entry_id"`
-	Operation     string         `json:"operation"`
-	State         string         `json:"state"`
-	NextAttemptAt sql.NullString `json:"next_attempt_at"`
-	ClaimedBy     sql.NullString `json:"claimed_by"`
-	LeaseUntil    sql.NullString `json:"lease_until"`
-	OutcomeJson   string         `json:"outcome_json"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
-	Version       int64          `json:"version"`
+	ID                   string         `json:"id"`
+	TrashEntryID         string         `json:"trash_entry_id"`
+	Operation            string         `json:"operation"`
+	State                string         `json:"state"`
+	NextAttemptAt        sql.NullString `json:"next_attempt_at"`
+	ClaimedBy            sql.NullString `json:"claimed_by"`
+	LeaseUntil           sql.NullString `json:"lease_until"`
+	OutcomeJson          string         `json:"outcome_json"`
+	CreatedAt            string         `json:"created_at"`
+	UpdatedAt            string         `json:"updated_at"`
+	Version              int64          `json:"version"`
+	ApprovalPlanID       sql.NullString `json:"approval_plan_id"`
+	ApprovalPlanRevision sql.NullInt64  `json:"approval_plan_revision"`
+	ApprovalPlanDigest   sql.NullString `json:"approval_plan_digest"`
+	ApprovalDecisionID   sql.NullString `json:"approval_decision_id"`
+	ApprovalActionRunID  sql.NullString `json:"approval_action_run_id"`
+	ApprovedEntryVersion sql.NullInt64  `json:"approved_entry_version"`
 }
 
 type MediaIdentity struct {
@@ -350,7 +356,7 @@ type TrackingObservation struct {
 	ID                    string         `json:"id"`
 	ExternalRecordID      sql.NullString `json:"external_record_id"`
 	MediaIdentityID       sql.NullString `json:"media_identity_id"`
-	ConnectionID          string         `json:"connection_id"`
+	ConnectionID          sql.NullString `json:"connection_id"`
 	RootID                sql.NullString `json:"root_id"`
 	Dimension             string         `json:"dimension"`
 	Status                string         `json:"status"`

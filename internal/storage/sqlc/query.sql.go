@@ -63,6 +63,79 @@ func (q *Queries) ClaimActionRun(ctx context.Context, arg *ClaimActionRunParams)
 	return &i, err
 }
 
+const claimApprovedEarlyPurge = `-- name: ClaimApprovedEarlyPurge :one
+UPDATE janitor_records SET
+    state = 'running', claimed_by = ?1, lease_until = ?2,
+    approval_plan_id = ?3, approval_plan_revision = ?4,
+    approval_plan_digest = ?5, approval_decision_id = ?6,
+    approval_action_run_id = ?7, approved_entry_version = ?8,
+    version = version + 1, updated_at = ?9
+WHERE id = ?10
+  AND version = ?11
+  AND trash_entry_id = ?12
+  AND operation = 'purge'
+  AND state IN ('queued', 'reconciling')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= ?9)
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?9)
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+`
+
+type ClaimApprovedEarlyPurgeParams struct {
+	WorkerID             sql.NullString `json:"worker_id"`
+	LeaseUntil           sql.NullString `json:"lease_until"`
+	ApprovalPlanID       sql.NullString `json:"approval_plan_id"`
+	ApprovalPlanRevision sql.NullInt64  `json:"approval_plan_revision"`
+	ApprovalPlanDigest   sql.NullString `json:"approval_plan_digest"`
+	ApprovalDecisionID   sql.NullString `json:"approval_decision_id"`
+	ApprovalActionRunID  sql.NullString `json:"approval_action_run_id"`
+	ApprovedEntryVersion sql.NullInt64  `json:"approved_entry_version"`
+	Now                  string         `json:"now"`
+	ID                   string         `json:"id"`
+	Version              int64          `json:"version"`
+	TrashEntryID         string         `json:"trash_entry_id"`
+}
+
+// Binds an explicit approval and the exact trash-entry version in the same
+// claim statement. The migration trigger validates the immutable plan,
+// decision and action-run identities before it changes the shared entry.
+func (q *Queries) ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprovedEarlyPurgeParams) (*JanitorRecord, error) {
+	row := q.db.QueryRowContext(ctx, claimApprovedEarlyPurge,
+		arg.WorkerID,
+		arg.LeaseUntil,
+		arg.ApprovalPlanID,
+		arg.ApprovalPlanRevision,
+		arg.ApprovalPlanDigest,
+		arg.ApprovalDecisionID,
+		arg.ApprovalActionRunID,
+		arg.ApprovedEntryVersion,
+		arg.Now,
+		arg.ID,
+		arg.Version,
+		arg.TrashEntryID,
+	)
+	var i JanitorRecord
+	err := row.Scan(
+		&i.ID,
+		&i.TrashEntryID,
+		&i.Operation,
+		&i.State,
+		&i.NextAttemptAt,
+		&i.ClaimedBy,
+		&i.LeaseUntil,
+		&i.OutcomeJson,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
+	)
+	return &i, err
+}
+
 const claimJanitorRecord = `-- name: ClaimJanitorRecord :one
 UPDATE janitor_records SET
     state = 'running', claimed_by = ?1, lease_until = ?2,
@@ -72,7 +145,7 @@ WHERE id = ?4
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
 `
 
 type ClaimJanitorRecordParams struct {
@@ -104,6 +177,12 @@ func (q *Queries) ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecor
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
 	)
 	return &i, err
 }
@@ -1009,7 +1088,7 @@ INSERT INTO janitor_records (
     ?5, ?6, ?7,
     ?8, ?9, ?10
 )
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
 `
 
 type CreateJanitorRecordParams struct {
@@ -1051,6 +1130,12 @@ func (q *Queries) CreateJanitorRecord(ctx context.Context, arg *CreateJanitorRec
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
 	)
 	return &i, err
 }
@@ -1482,7 +1567,7 @@ type CreateTrackingObservationParams struct {
 	ID                    string         `json:"id"`
 	ExternalRecordID      sql.NullString `json:"external_record_id"`
 	MediaIdentityID       sql.NullString `json:"media_identity_id"`
-	ConnectionID          string         `json:"connection_id"`
+	ConnectionID          sql.NullString `json:"connection_id"`
 	RootID                sql.NullString `json:"root_id"`
 	Dimension             string         `json:"dimension"`
 	Status                string         `json:"status"`
@@ -2317,7 +2402,7 @@ func (q *Queries) GetIdempotencyRecord(ctx context.Context, arg *GetIdempotencyR
 }
 
 const getJanitorRecord = `-- name: GetJanitorRecord :one
-SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version FROM janitor_records
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version FROM janitor_records
 WHERE trash_entry_id = ?1 AND operation = ?2
 `
 
@@ -2341,6 +2426,12 @@ func (q *Queries) GetJanitorRecord(ctx context.Context, arg *GetJanitorRecordPar
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
 	)
 	return &i, err
 }
@@ -2983,7 +3074,7 @@ func (q *Queries) ListDueActionRuns(ctx context.Context, arg *ListDueActionRunsP
 }
 
 const listDueJanitorRecords = `-- name: ListDueJanitorRecords :many
-SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version FROM janitor_records
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version FROM janitor_records
 WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?1)
@@ -3017,6 +3108,12 @@ func (q *Queries) ListDueJanitorRecords(ctx context.Context, arg *ListDueJanitor
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.ApprovalPlanID,
+			&i.ApprovalPlanRevision,
+			&i.ApprovalPlanDigest,
+			&i.ApprovalDecisionID,
+			&i.ApprovalActionRunID,
+			&i.ApprovedEntryVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3666,7 +3763,7 @@ UPDATE janitor_records SET
     version = version + 1, updated_at = ?1
 WHERE state = 'running'
   AND (lease_until IS NULL OR lease_until <= ?1)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
 `
 
 func (q *Queries) RecoverExpiredJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error) {
@@ -3690,6 +3787,12 @@ func (q *Queries) RecoverExpiredJanitorRecords(ctx context.Context, now string) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.ApprovalPlanID,
+			&i.ApprovalPlanRevision,
+			&i.ApprovalPlanDigest,
+			&i.ApprovalDecisionID,
+			&i.ApprovalActionRunID,
+			&i.ApprovedEntryVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3807,7 +3910,7 @@ UPDATE janitor_records SET
     state = 'reconciling', claimed_by = NULL, lease_until = NULL,
     version = version + 1, updated_at = ?1
 WHERE state = 'running'
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
 `
 
 // The trigger on janitor_records releases the worker lease on the shared
@@ -3833,6 +3936,12 @@ func (q *Queries) RecoverRunningJanitorRecords(ctx context.Context, now string) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.ApprovalPlanID,
+			&i.ApprovalPlanRevision,
+			&i.ApprovalPlanDigest,
+			&i.ApprovalDecisionID,
+			&i.ApprovalActionRunID,
+			&i.ApprovedEntryVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -4161,7 +4270,7 @@ UPDATE janitor_records SET
     outcome_json = ?5, version = version + 1,
     updated_at = ?6
 WHERE id = ?7 AND version = ?8
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
 `
 
 type UpdateJanitorRecordParams struct {
@@ -4199,6 +4308,12 @@ func (q *Queries) UpdateJanitorRecord(ctx context.Context, arg *UpdateJanitorRec
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
 	)
 	return &i, err
 }
