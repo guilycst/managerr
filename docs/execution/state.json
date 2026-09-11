@@ -606,12 +606,40 @@
       "review": null
     },
     "X-01": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/f01_implementer",
+      "baseSha": "857cea4",
       "integratedSha": null,
+      "implementationCommit": null,
       "evidence": [],
-      "review": null
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/f01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/adapters/qbittorrent/inventory/",
+          "tests/fixtures/qbittorrent/"
+        ],
+        "expectedChecks": [
+          "A-04",
+          "A-09",
+          "A-28"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-01-review-round1.md",
+        "nextReviewer": "/root/f01_reviewer",
+        "dependencyCommits": {
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        }
+      }
     },
     "X-02": {
       "status": "planned",
