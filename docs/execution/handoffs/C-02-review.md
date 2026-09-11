@@ -18,7 +18,7 @@ module metadata.
 - Reviewed head: `6140a5393a5ec607e14792a4267292bdbd2a3686`.
 - Coordinator state and handoff checkpoint in reviewed ancestry:
   `15da2dc167e28a1478b0c9fc885b42ed5bd05f29`.
-- Target: Git worktree `/Users/guilhermecastro/repos/managerr`.
+- Target: repository checkout (local path redacted for the public repository).
 - Review round: 1.
 - Isolation receipt: producer transcript not read; no thread polling; Git evidence
   and commands inspected directly; no live service, credential, media, release,
