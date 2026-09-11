@@ -271,7 +271,7 @@
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "implementationCommit": "473c11275f529efd0eb9935967b12791303261a7",
+      "implementationCommit": "3d4b38637f83ff2c11ccaaad2e1ac5157783c491",
       "evidence": [
         "docs/execution/handoffs/C-03.md",
         "GOWORK=off go test ./...",
@@ -291,13 +291,14 @@
         "tools go test, go vet, and go mod tidy -diff",
         "python3 scripts/check_planning.py --self-test && python3 scripts/check_planning.py",
         "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..f06110968e9c86c336acbc7bf7dfe21af7137218",
-        "473c11275f529efd0eb9935967b12791303261a7 same-root directory guard and action-specific filesystem validation"
+        "473c11275f529efd0eb9935967b12791303261a7 same-root directory guard and action-specific filesystem validation",
+        "3d4b38637f83ff2c11ccaaad2e1ac5157783c491 complete source/destination alias rejection within and across mappings"
       ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/c03_reviewer",
-        "commit": "473c11275f529efd0eb9935967b12791303261a7",
+        "commit": "3d4b38637f83ff2c11ccaaad2e1ac5157783c491",
         "findings": [],
         "round": 4
       },
@@ -323,7 +324,7 @@
           "commit": "58e3de1ae82ad171587349489e1e35557871a9d0",
           "status": "changes_requested",
           "sourceCommit": "f06110968e9c86c336acbc7bf7dfe21af7137218",
-          "correctionCommit": "473c11275f529efd0eb9935967b12791303261a7",
+          "correctionCommit": "3d4b38637f83ff2c11ccaaad2e1ac5157783c491",
           "receipt": "docs/execution/handoffs/C-03-review-round3.md"
         }
       ],
