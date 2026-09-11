@@ -58,6 +58,16 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 	}}}).Validate(); err == nil {
 		t.Fatal("copy accepted a directory destination inside its source")
 	}
+	nestedDirectory := directory
+	nestedDirectory.RelativePath = "Example Film/Sub"
+	nestedDirectory.Children = []domain.FileManifestEntry{entry}
+	nestedDirectory.Children[0].RelativePath = "Example Film/Sub/movie.mkv"
+	if err := (FilesystemMoveRequest{Files: []FileMap{{
+		Source:      nestedDirectory,
+		Destination: domain.FileTarget{RootID: root, RelativePath: "Example Film"},
+	}}}).Validate(); err == nil {
+		t.Fatal("move accepted a directory destination above its source")
+	}
 	directoryHardlink := FilesystemHardlinkRequest{Files: directoryRequest.Files}
 	if err := directoryHardlink.Validate(); err == nil {
 		t.Fatal("directory hardlink was accepted")
@@ -90,6 +100,16 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 	}
 	if err := (FilesystemRenameRequest{Files: hardlinkWithoutDigest.Files}).Validate(); err != nil {
 		t.Fatalf("rename incorrectly required a content digest: %v", err)
+	}
+	chainFirst := entry
+	chainFirst.RelativePath = "Example Film/first.mkv"
+	chainSecond := entry
+	chainSecond.RelativePath = "Example Film/second.mkv"
+	if err := (FilesystemMoveRequest{Files: []FileMap{
+		{Source: chainFirst, Destination: domain.FileTarget{RootID: root, RelativePath: chainSecond.RelativePath}},
+		{Source: chainSecond, Destination: domain.FileTarget{RootID: root, RelativePath: "Example Film/final.mkv"}},
+	}}).Validate(); err == nil {
+		t.Fatal("move accepted a source-to-destination alias chain")
 	}
 	if err := (FilesystemCopyRequest{}).Validate(); err == nil {
 		t.Fatal("empty filesystem map was accepted")

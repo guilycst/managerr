@@ -404,7 +404,7 @@ func validateFileMaps(mappings []FileMap, allowDirectories, requireDigest bool) 
 		if !allowDirectories && mapping.Source.Type == domain.ManifestDirectory {
 			return fmt.Errorf("file map %d: hardlink does not support directories", index)
 		}
-		if mapping.Source.RootID == mapping.Destination.RootID && (mapping.Source.RelativePath == mapping.Destination.RelativePath || mapping.Source.Type == domain.ManifestDirectory && strings.HasPrefix(mapping.Destination.RelativePath, mapping.Source.RelativePath+"/")) {
+		if pathsOverlap(mapping.Source.RootID, mapping.Source.RelativePath, mapping.Destination.RootID, mapping.Destination.RelativePath) {
 			return fmt.Errorf("file map %d: source and destination overlap", index)
 		}
 	}
@@ -416,9 +416,19 @@ func validateFileMaps(mappings []FileMap, allowDirectories, requireDigest bool) 
 			if targetsOverlap(mappings[left].Destination, mappings[right].Destination) {
 				return fmt.Errorf("file maps %d and %d destinations overlap", left, right)
 			}
+			if pathsOverlap(mappings[left].Source.RootID, mappings[left].Source.RelativePath, mappings[right].Destination.RootID, mappings[right].Destination.RelativePath) || pathsOverlap(mappings[right].Source.RootID, mappings[right].Source.RelativePath, mappings[left].Destination.RootID, mappings[left].Destination.RelativePath) {
+				return fmt.Errorf("file maps %d and %d source and destination paths overlap", left, right)
+			}
 		}
 	}
 	return nil
+}
+
+func pathsOverlap(leftRoot domain.ConfigID, leftPath string, rightRoot domain.ConfigID, rightPath string) bool {
+	if leftRoot != rightRoot {
+		return false
+	}
+	return leftPath == rightPath || strings.HasPrefix(leftPath, rightPath+"/") || strings.HasPrefix(rightPath, leftPath+"/")
 }
 
 func manifestEntriesOverlap(left, right domain.FileManifestEntry) bool {
