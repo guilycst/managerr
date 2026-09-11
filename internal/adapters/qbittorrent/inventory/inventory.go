@@ -6,6 +6,8 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -32,13 +34,15 @@ import (
 const (
 	defaultMaxPageSize       = 200
 	defaultMaxPages          = 100
-	defaultMaxItems          = 10_000
+	defaultMaxItems          = 1_000
 	defaultMaxFilesPerItem   = 10_000
 	defaultMaxResponseBytes  = 8 << 20
 	defaultMaxDescriptorSize = 4 << 20
 	maxVersionLength         = 128
 	maxCursorIDLength        = 256
 	maxCursorBytes           = 128 << 10
+	maxEncodedCursorBytes    = 128 << 10
+	maxCursorItems           = 1_000
 	maxReasonCodes           = 256
 )
 
@@ -139,9 +143,10 @@ type DetailedPage struct {
 
 // Client is a read-only authenticated qBittorrent WebUI client.
 type Client struct {
-	config   Config
-	endpoint *url.URL
-	http     *http.Client
+	config    Config
+	endpoint  *url.URL
+	http      *http.Client
+	cursorKey []byte
 
 	authMu        sync.Mutex
 	authenticated bool
@@ -174,6 +179,9 @@ func New(config Config) (*Client, error) {
 	if config.MaxPageSize > config.MaxItems {
 		config.MaxPageSize = config.MaxItems
 	}
+	if config.MaxPageSize > maxCursorItems || config.MaxItems > maxCursorItems {
+		return nil, errors.New("qBittorrent inventory bounds exceed cursor ceiling")
+	}
 	if config.MaxResponseBytes <= 0 {
 		config.MaxResponseBytes = defaultMaxResponseBytes
 	}
@@ -200,13 +208,15 @@ func New(config Config) (*Client, error) {
 	if httpClient.Timeout == 0 {
 		httpClient.Timeout = 15 * time.Second
 	}
-	if httpClient.Jar == nil {
-		jar, jarErr := cookiejar.New(nil)
-		if jarErr != nil {
-			return nil, errors.New("qBittorrent session cookie setup failed")
-		}
-		httpClient.Jar = jar
+	// A caller-provided http.Client can be safely reused for transport and
+	// timeout policy, but its mutable cookie jar is connection state. Always
+	// isolate that state per adapter instance so two qBittorrent connections
+	// cannot exchange SID cookies.
+	jar, jarErr := cookiejar.New(nil)
+	if jarErr != nil {
+		return nil, errors.New("qBittorrent session cookie setup failed")
 	}
+	httpClient.Jar = jar
 	baseScheme, baseHost := endpoint.Scheme, endpoint.Host
 	customRedirect := httpClient.CheckRedirect
 	httpClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
@@ -218,8 +228,12 @@ func New(config Config) (*Client, error) {
 		}
 		return nil
 	}
+	cursorKey := make([]byte, 32)
+	if _, err := cryptorand.Read(cursorKey); err != nil {
+		return nil, errors.New("qBittorrent cursor key setup failed")
+	}
 
-	return &Client{config: config, endpoint: endpoint, http: httpClient}, nil
+	return &Client{config: config, endpoint: endpoint, http: httpClient, cursorKey: cursorKey}, nil
 }
 
 // NewClient is an explicit alias for callers that prefer constructor names
@@ -285,11 +299,14 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 	if err != nil {
 		return result, err
 	}
+	if state.SourceID != "" {
+		if requestedLimit > 0 && limit != state.PageSize {
+			return result, invalidInput("qbit.inventory.cursor")
+		}
+		limit = state.PageSize
+	}
 	if state.ObservedCount >= int64(client.config.MaxItems) {
 		return result, invalidInput("qbit.inventory.cursor")
-	}
-	if remaining := int64(client.config.MaxItems) - state.ObservedCount; remaining < int64(limit) {
-		limit = int(remaining)
 	}
 	if state.SourceID == "" {
 		state.SourceID, err = domain.NewRuntimeID()
@@ -297,6 +314,11 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 			return result, errors.New("qBittorrent inventory source identity unavailable")
 		}
 		state.StartedAt = time.Now().UTC()
+		state.PageSize = limit
+	}
+	fetchLimit := limit
+	if remaining := int64(client.config.MaxItems) - state.ObservedCount; remaining < int64(fetchLimit) {
+		fetchLimit = int(remaining)
 	}
 
 	version, versionErr := client.Version(ctx, connectionID)
@@ -312,7 +334,7 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 	result.Version = version
 
 	query := url.Values{}
-	query.Set("limit", strconv.Itoa(limit))
+	query.Set("limit", strconv.Itoa(fetchLimit))
 	query.Set("offset", strconv.Itoa(state.Offset))
 	query.Set("sort", "hash")
 	rawPage, err := client.getJSON(ctx, "qbit.inventory.list", apiTorrentInfo, query, client.config.MaxResponseBytes)
@@ -324,9 +346,9 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 		return result, upstreamMalformed("qbit.inventory.list")
 	}
 	pageFingerprint := fingerprint(summaries)
-	responseOverflow := len(summaries) > limit
-	if len(summaries) > limit {
-		summaries = summaries[:limit]
+	responseOverflow := len(summaries) > fetchLimit
+	if responseOverflow {
+		summaries = summaries[:fetchLimit]
 	}
 
 	result.Coverage = domain.Coverage{
@@ -335,6 +357,13 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 		SnapshotRevision: versionRevision(version), StartedAt: timePtr(state.StartedAt),
 		ObservedAt: time.Now().UTC(),
 	}
+	if state.PriorPartial {
+		// The cursor deliberately carries only a bounded aggregate marker. The
+		// exact reasons belong to the page that observed them; callers can keep
+		// those page results while this marker prevents a later page from
+		// promoting the overall scan back to complete.
+		addReason(&result.Coverage.ReasonCodes, "pagination_prior_partial")
+	}
 	if versionErr != nil {
 		addReason(&result.Coverage.ReasonCodes, "version_observation_partial")
 	}
@@ -342,14 +371,21 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 		addReason(&result.Coverage.ReasonCodes, "pagination_response_exceeded_limit")
 	}
 
-	if pageFingerprint == state.PreviousFingerprint && len(summaries) > 0 {
+	repeatedPage := false
+	for _, previousFingerprint := range state.PageFingerprints {
+		if pageFingerprint == previousFingerprint && len(summaries) > 0 {
+			repeatedPage = true
+			break
+		}
+	}
+	if repeatedPage {
 		addReason(&result.Coverage.ReasonCodes, "pagination_stalled")
 		summaries = nil
 	}
 
-	previous := make(map[string]struct{}, len(state.PreviousIDs))
-	for _, id := range state.PreviousIDs {
-		previous[id] = struct{}{}
+	seen := make(map[string]struct{}, len(state.SeenIDs))
+	for _, id := range state.SeenIDs {
+		seen[id] = struct{}{}
 	}
 	current := make(map[string]struct{}, len(summaries))
 	items := make([]TorrentObservation, 0, len(summaries))
@@ -359,7 +395,7 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 		}
 		id := summary.externalID()
 		if id != "" {
-			if _, exists := previous[id]; exists {
+			if _, exists := seen[id]; exists {
 				addReason(&result.Coverage.ReasonCodes, "pagination_overlap")
 				continue
 			}
@@ -377,6 +413,10 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 			addReason(&result.Coverage.ReasonCodes, fmt.Sprintf("item_%d_%s", index, reason))
 		}
 		items = append(items, item)
+		if id != "" {
+			seen[id] = struct{}{}
+			state.SeenIDs = append(state.SeenIDs, id)
+		}
 	}
 	result.Items = items
 	result.Coverage.ObservedCount += int64(len(items))
@@ -391,37 +431,153 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 	}
 	state.PageCount = pageCount
 	state.ObservedCount = result.Coverage.ObservedCount
-	state.PreviousFingerprint = pageFingerprint
-	state.PreviousIDs = boundedIDs(summaries, client.config.MaxPageSize)
+	if !repeatedPage && len(summaries) > 0 {
+		state.PageFingerprints = append(state.PageFingerprints, pageFingerprint)
+	}
 
 	allDuplicate := len(summaries) > 0 && len(items) == 0
-	stop := len(summaries) == 0 || len(summaries) < limit || responseOverflow || offsetOverflow || allDuplicate
+	stop := len(summaries) == 0 || len(summaries) < fetchLimit || responseOverflow || offsetOverflow || allDuplicate
 	if allDuplicate {
 		addReason(&result.Coverage.ReasonCodes, "pagination_stalled")
 	}
-	if len(summaries) >= limit && !stop {
+	hardStop := responseOverflow || offsetOverflow || allDuplicate || repeatedPage
+	if len(summaries) >= fetchLimit && !stop {
 		switch {
 		case pageCount >= client.config.MaxPages:
 			stop = true
+			hardStop = true
 			addReason(&result.Coverage.ReasonCodes, "pagination_limit")
 		case state.ObservedCount >= int64(client.config.MaxItems):
 			stop = true
+			hardStop = true
 			addReason(&result.Coverage.ReasonCodes, "pagination_limit")
+		}
+	}
+	if stop && !hardStop && state.PageCount > 1 {
+		stable, reason, validationErr := client.validateSnapshot(ctx, state)
+		if validationErr != nil {
+			return DetailedPage{}, validationErr
+		}
+		if !stable {
+			addReason(&result.Coverage.ReasonCodes, reason)
 		}
 	}
 	if len(result.Coverage.ReasonCodes) > 0 {
 		result.Coverage.Completeness = domain.CompletenessPartial
+		state.PriorPartial = true
 	}
 	if !stop {
-		result.NextCursor = client.encodeCursor(state)
+		var encodeErr error
+		result.NextCursor, encodeErr = client.encodeCursorChecked(state)
+		if encodeErr != nil {
+			result.NextCursor = ""
+			stop = true
+			addReason(&result.Coverage.ReasonCodes, "pagination_cursor_limit")
+		}
+	}
+	if !stop {
 		result.Coverage.Completeness = domain.CompletenessPartial
 		addReason(&result.Coverage.ReasonCodes, "pagination_continues")
 	} else {
 		completed := time.Now().UTC()
 		result.Coverage.CompletedAt = &completed
 		result.Coverage.ObservedAt = completed
+		if len(result.Coverage.ReasonCodes) > 0 {
+			result.Coverage.Completeness = domain.CompletenessPartial
+		}
 	}
 	return result, nil
+}
+
+// validateSnapshot performs a bounded second, summary-only traversal before a
+// multi-page scan can claim complete coverage. qBittorrent has no snapshot
+// token, so page membership, identities and observed count must all match the
+// original pass. A mismatch remains partial evidence rather than an absence
+// claim.
+func (client *Client) validateSnapshot(ctx context.Context, state inventoryCursor) (bool, string, error) {
+	if state.PageSize <= 0 {
+		return false, "pagination_revalidation_unavailable", nil
+	}
+	ids := make(map[string]struct{}, len(state.SeenIDs))
+	fingerprints := make([]string, 0, len(state.PageFingerprints))
+	var observed int64
+	offset := 0
+	for page := 0; page < client.config.MaxPages; page++ {
+		query := url.Values{}
+		query.Set("limit", strconv.Itoa(state.PageSize))
+		query.Set("offset", strconv.Itoa(offset))
+		query.Set("sort", "hash")
+		body, err := client.getJSON(ctx, "qbit.inventory.revalidate", apiTorrentInfo, query, client.config.MaxResponseBytes)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return false, "", ctxErr
+			}
+			return false, "pagination_revalidation_unavailable", nil
+		}
+		var summaries []torrentSummary
+		if err := decodeJSON(body, &summaries); err != nil {
+			return false, "pagination_revalidation_malformed", nil
+		}
+		if len(summaries) > state.PageSize {
+			return false, "pagination_revalidation_overflow", nil
+		}
+		if len(summaries) > 0 {
+			fingerprints = append(fingerprints, fingerprint(summaries))
+		}
+		for _, summary := range summaries {
+			observed++
+			id := summary.externalID()
+			if id == "" {
+				continue
+			}
+			if _, exists := ids[id]; exists {
+				// A duplicate during the validation pass proves that the
+				// mutable upstream inventory changed or cannot be treated as a
+				// stable snapshot. Keep the public reason at the snapshot
+				// boundary rather than claiming a complete scan.
+				return false, "pagination_snapshot_changed", nil
+			}
+			ids[id] = struct{}{}
+		}
+		if len(summaries) < state.PageSize {
+			if observed != state.ObservedCount || !sameIdentities(ids, state.SeenIDs) || !sameStrings(fingerprints, state.PageFingerprints) {
+				return false, "pagination_snapshot_changed", nil
+			}
+			return true, "", nil
+		}
+		if observed >= int64(client.config.MaxItems) {
+			return false, "pagination_revalidation_limit", nil
+		}
+		if offset > int(^uint(0)>>1)-len(summaries) {
+			return false, "pagination_revalidation_overflow", nil
+		}
+		offset += len(summaries)
+	}
+	return false, "pagination_revalidation_limit", nil
+}
+
+func sameIdentities(actual map[string]struct{}, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for _, id := range expected {
+		if _, exists := actual[id]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 // Version performs authenticated, read-only qBittorrent version probes.
@@ -512,16 +668,15 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 	observedAt := time.Now().UTC()
 	id := summary.externalID()
 	item := ports.DownloadItem{
-		ExternalID:     id,
-		Name:           summary.Name,
-		Protocol:       "torrent",
-		State:          summary.State,
-		Progress:       summary.Progress,
-		Seeding:        isSeedingState(summary.State),
-		Category:       summary.Category,
-		Tags:           splitTags(summary.Tags),
-		Hash:           id,
-		ProcessingDone: summary.Progress >= 1 && !isProcessingState(summary.State),
+		ExternalID: id,
+		Name:       summary.Name,
+		Protocol:   "torrent",
+		State:      summary.State,
+		Progress:   summary.Progress,
+		Seeding:    isSeedingState(summary.State),
+		Category:   summary.Category,
+		Tags:       splitTags(summary.Tags),
+		Hash:       id,
 	}
 	var reasons []string
 	if id == "" {
@@ -529,6 +684,13 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 	}
 	if summary.Name == "" {
 		reasons = append(reasons, "name_unknown")
+	}
+	if !knownTorrentState(summary.State) {
+		reasons = append(reasons, "state_unknown")
+	} else if summary.Progress >= 1 && isTerminalState(summary.State) {
+		item.ProcessingDone = true
+	} else if summary.Progress >= 1 {
+		reasons = append(reasons, "processing_state_nonterminal")
 	}
 	if !validFraction(summary.Progress) {
 		item.Progress = 0
@@ -656,6 +818,7 @@ func (client *Client) mapFiles(contentPath string, files []torrentFile, observed
 		mapped, ok, ambiguous := client.mapPath(remotePath)
 		if ambiguous {
 			reasons = append(reasons, "payload_mapping_ambiguous")
+			result = append(result, mappedFile{Observation: observation})
 			continue
 		}
 		if !ok {
@@ -667,6 +830,7 @@ func (client *Client) mapFiles(contentPath string, files []torrentFile, observed
 		key := entry.RootID.String() + ":" + entry.RelativePath
 		if _, exists := seen[key]; exists {
 			reasons = append(reasons, "payload_duplicate")
+			result = append(result, mappedFile{Observation: observation})
 			continue
 		}
 		seen[key] = struct{}{}
@@ -794,21 +958,43 @@ func (client *Client) decodeCursor(value string) (inventoryCursor, error) {
 	if value == "" {
 		return inventoryCursor{}, nil
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if len(value) > maxEncodedCursorBytes || strings.Count(value, ".") != 1 {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	payloadValue, signatureValue, ok := strings.Cut(value, ".")
+	if !ok || payloadValue == "" || signatureValue == "" || len(client.cursorKey) == 0 {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(payloadValue)
 	if err != nil || len(decoded) == 0 || len(decoded) > maxCursorBytes {
 		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
 	}
-	var state inventoryCursor
-	if err := json.Unmarshal(decoded, &state); err != nil || state.Version != 1 || state.ConnectionID != client.config.ConnectionID.String() || !state.SourceID.Valid() || state.StartedAt.IsZero() || state.Offset < 0 || state.PageCount < 0 || state.PageCount >= client.config.MaxPages || state.ObservedCount < 0 || state.ObservedCount > int64(client.config.MaxItems) || len(state.PreviousIDs) > client.config.MaxPageSize {
+	if base64.RawURLEncoding.EncodeToString(decoded) != payloadValue {
 		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
 	}
-	if state.PageCount == 0 || state.Offset == 0 {
-		if state.PageCount != 0 || state.Offset != 0 || state.ObservedCount != 0 || len(state.PreviousIDs) != 0 || state.PreviousFingerprint != "" {
+	signature, err := base64.RawURLEncoding.DecodeString(signatureValue)
+	if err != nil || len(signature) != sha256.Size {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	if base64.RawURLEncoding.EncodeToString(signature) != signatureValue {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	mac := hmac.New(sha256.New, client.cursorKey)
+	_, _ = mac.Write(decoded)
+	if !hmac.Equal(signature, mac.Sum(nil)) {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	var state inventoryCursor
+	if err := json.Unmarshal(decoded, &state); err != nil || state.Version != 1 || state.ConnectionID != client.config.ConnectionID.String() || !state.SourceID.Valid() || state.StartedAt.IsZero() || state.Offset <= 0 || state.PageCount <= 0 || state.PageCount >= client.config.MaxPages || state.PageSize <= 0 || state.PageSize > client.config.MaxPageSize || state.ObservedCount < 0 || state.ObservedCount > int64(client.config.MaxItems) || len(state.SeenIDs) > client.config.MaxItems || len(state.PageFingerprints) == 0 || len(state.PageFingerprints) != state.PageCount {
+		return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
+	}
+	for _, id := range state.SeenIDs {
+		if len(id) > maxCursorIDLength || normalizeHash(id, 0) != id {
 			return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
 		}
 	}
-	for _, id := range state.PreviousIDs {
-		if len(id) > maxCursorIDLength {
+	for _, pageFingerprint := range state.PageFingerprints {
+		if len(pageFingerprint) != sha256.Size*2 || normalizeHex(pageFingerprint) != pageFingerprint {
 			return inventoryCursor{}, invalidInput("qbit.inventory.cursor")
 		}
 	}
@@ -816,10 +1002,32 @@ func (client *Client) decodeCursor(value string) (inventoryCursor, error) {
 }
 
 func (client *Client) encodeCursor(state inventoryCursor) string {
+	value, _ := client.encodeCursorChecked(state)
+	return value
+}
+
+func (client *Client) encodeCursorChecked(state inventoryCursor) (string, error) {
+	if len(client.cursorKey) == 0 || state.PageSize <= 0 || state.PageSize > maxCursorItems || state.PageCount <= 0 || state.Offset <= 0 || len(state.SeenIDs) > maxCursorItems || len(state.PageFingerprints) != state.PageCount {
+		return "", cursorEncodingError()
+	}
 	state.Version = 1
 	state.ConnectionID = client.config.ConnectionID.String()
-	encoded, _ := json.Marshal(state)
-	return base64.RawURLEncoding.EncodeToString(encoded)
+	encoded, err := json.Marshal(state)
+	if err != nil || len(encoded) > maxCursorBytes {
+		return "", cursorEncodingError()
+	}
+	mac := hmac.New(sha256.New, client.cursorKey)
+	_, _ = mac.Write(encoded)
+	payload := base64.RawURLEncoding.EncodeToString(encoded)
+	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if len(payload)+1+len(signature) > maxEncodedCursorBytes {
+		return "", cursorEncodingError()
+	}
+	return payload + "." + signature, nil
+}
+
+func cursorEncodingError() error {
+	return domain.UpstreamError{Code: domain.OutcomeUnknown, Operation: "qbit.inventory.cursor", Detail: "continuation cursor exceeds its configured bound"}
 }
 
 func (client *Client) getJSONFor(ctx context.Context, operation, endpoint string, query url.Values, target any) error {
@@ -973,10 +1181,44 @@ func validTorrentDescriptor(data []byte) bool {
 		return false
 	}
 	parser := bencodeParser{data: data}
-	if !parser.value(0) {
+	parser.offset++ // top-level dictionary marker
+	infoCount := 0
+	for parser.offset < len(parser.data) && parser.data[parser.offset] != 'e' {
+		key, ok := parser.bytesValue()
+		if !ok {
+			return false
+		}
+		valueStart := parser.offset
+		if !parser.value(1) {
+			return false
+		}
+		if bytes.Equal(key, []byte("info")) {
+			infoCount++
+			if infoCount > 1 || valueStart >= len(parser.data) || parser.data[valueStart] != 'd' || !validDictionary(parser.data[valueStart:parser.offset]) {
+				return false
+			}
+		}
+	}
+	if !parser.consumeEnd() || parser.offset != len(data) {
 		return false
 	}
-	return parser.offset == len(data)
+	return infoCount == 1
+}
+
+func validDictionary(data []byte) bool {
+	if len(data) == 0 || data[0] != 'd' {
+		return false
+	}
+	parser := bencodeParser{data: data}
+	parser.offset++
+	entries := 0
+	for parser.offset < len(parser.data) && parser.data[parser.offset] != 'e' {
+		if !parser.bytes() || !parser.value(1) {
+			return false
+		}
+		entries++
+	}
+	return entries > 0 && parser.consumeEnd() && parser.offset == len(data)
 }
 
 type bencodeParser struct {
@@ -1038,27 +1280,33 @@ func (parser *bencodeParser) integer() bool {
 }
 
 func (parser *bencodeParser) bytes() bool {
+	_, ok := parser.bytesValue()
+	return ok
+}
+
+func (parser *bencodeParser) bytesValue() ([]byte, bool) {
 	start := parser.offset
 	for parser.offset < len(parser.data) && parser.data[parser.offset] >= '0' && parser.data[parser.offset] <= '9' {
 		parser.offset++
 	}
 	if parser.offset == start || (parser.offset-start > 1 && parser.data[start] == '0') || parser.offset >= len(parser.data) || parser.data[parser.offset] != ':' {
-		return false
+		return nil, false
 	}
 	length := 0
 	for index := start; index < parser.offset; index++ {
 		digit := int(parser.data[index] - '0')
 		if length > (len(parser.data)-digit)/10 {
-			return false
+			return nil, false
 		}
 		length = length*10 + digit
 	}
 	parser.offset++ // colon
 	if length > len(parser.data)-parser.offset {
-		return false
+		return nil, false
 	}
+	value := parser.data[parser.offset : parser.offset+length]
 	parser.offset += length
-	return true
+	return value, true
 }
 
 func (parser *bencodeParser) consumeEnd() bool {
@@ -1124,15 +1372,17 @@ func upstreamCode(err error) (domain.UpstreamErrorCode, bool) {
 }
 
 type inventoryCursor struct {
-	Version             int              `json:"v"`
-	ConnectionID        string           `json:"connectionId"`
-	SourceID            domain.RuntimeID `json:"sourceId"`
-	StartedAt           time.Time        `json:"startedAt"`
-	Offset              int              `json:"offset"`
-	PageCount           int              `json:"pageCount"`
-	ObservedCount       int64            `json:"observedCount"`
-	PreviousIDs         []string         `json:"previousIds,omitempty"`
-	PreviousFingerprint string           `json:"previousFingerprint,omitempty"`
+	Version          int              `json:"v"`
+	ConnectionID     string           `json:"connectionId"`
+	SourceID         domain.RuntimeID `json:"sourceId"`
+	StartedAt        time.Time        `json:"startedAt"`
+	Offset           int              `json:"offset"`
+	PageCount        int              `json:"pageCount"`
+	PageSize         int              `json:"pageSize"`
+	ObservedCount    int64            `json:"observedCount"`
+	SeenIDs          []string         `json:"seenIds,omitempty"`
+	PageFingerprints []string         `json:"pageFingerprints,omitempty"`
+	PriorPartial     bool             `json:"priorPartial,omitempty"`
 }
 
 type torrentSummary struct {
@@ -1270,6 +1520,15 @@ func normalizeHash(value string, expectedLength int) string {
 	return value
 }
 
+func normalizeHex(value string) string {
+	for _, r := range value {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return ""
+		}
+	}
+	return value
+}
+
 func validFraction(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
 }
@@ -1302,9 +1561,21 @@ func isSeedingState(state string) bool {
 	}
 }
 
-func isProcessingState(state string) bool {
+func knownTorrentState(state string) bool {
 	switch state {
-	case "checkingDL", "checkingUP", "checkingResumeData", "allocating", "metaDL", "forcedMetaDL", "moving", "error", "missingFiles":
+	case "error", "missingFiles", "uploading", "pausedUP", "queuedUP", "stalledUP", "checkingUP", "forcedUP", "allocating", "downloading", "metaDL", "pausedDL", "queuedDL", "stalledDL", "checkingDL", "forcedDL", "checkingResumeData", "moving", "stoppedUP", "stoppedDL":
+		return true
+	default:
+		return false
+	}
+}
+
+// Only states that explicitly describe a settled payload can authorize a
+// downstream import. Unknown/future qBittorrent values intentionally stay
+// false even when progress is 1.
+func isTerminalState(state string) bool {
+	switch state {
+	case "uploading", "pausedUP", "queuedUP", "stalledUP", "forcedUP", "stoppedUP", "pausedDL", "queuedDL", "stalledDL", "forcedDL", "stoppedDL":
 		return true
 	default:
 		return false

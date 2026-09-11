@@ -3,11 +3,14 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/managerr/internal/ports"
 )
 
 const (
@@ -165,6 +169,47 @@ func pageFromFixtures(first, second, empty []byte) func(int) ([]byte, int) {
 	}
 }
 
+func torrentBody(t *testing.T, hashes ...string) []byte {
+	t.Helper()
+	summaries := make([]torrentSummary, 0, len(hashes))
+	for index, hash := range hashes {
+		summaries = append(summaries, torrentSummary{
+			Hash: hash, Name: "Synthetic " + strconv.Itoa(index), ContentPath: "/downloads/synthetic",
+			Progress: 1, Ratio: 1, State: "uploading", HasMetadata: true,
+		})
+	}
+	body, err := json.Marshal(summaries)
+	if err != nil {
+		t.Fatalf("marshal torrent fixture: %v", err)
+	}
+	return body
+}
+
+type infoResponse struct {
+	offset int
+	body   []byte
+}
+
+func sequenceInfo(t *testing.T, responses ...infoResponse) func(int) ([]byte, int) {
+	t.Helper()
+	var mu sync.Mutex
+	index := 0
+	return func(offset int) ([]byte, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if index >= len(responses) {
+			t.Errorf("unexpected info request at offset %d after %d responses", offset, index)
+			return []byte("[]"), http.StatusOK
+		}
+		response := responses[index]
+		index++
+		if response.offset != offset {
+			t.Errorf("info request offset = %d, want %d at sequence %d", offset, response.offset, index-1)
+		}
+		return response.body, http.StatusOK
+	}
+}
+
 func newFixtureClient(t *testing.T, handler *qbitFixtureHandler, connectionID domain.ConfigID) (*Client, func()) {
 	t.Helper()
 	server := httptest.NewServer(handler)
@@ -278,6 +323,131 @@ func TestAuthenticatedSessionCookieIsReused(t *testing.T) {
 	}
 }
 
+type isolatedSessionHandler struct {
+	mu        sync.Mutex
+	items     map[string][]byte
+	infoSIDs  []string
+	loginSIDs []string
+}
+
+func (handler *isolatedSessionHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	switch request.URL.Path {
+	case apiLogin:
+		_ = request.ParseForm()
+		sid := request.Form.Get("username")
+		handler.mu.Lock()
+		handler.loginSIDs = append(handler.loginSIDs, sid)
+		handler.mu.Unlock()
+		response.Header().Set("Set-Cookie", "SID="+sid+"; Path=/")
+		_, _ = response.Write([]byte("Ok."))
+	case apiWebAPIVersion, apiAppVersion:
+		_, _ = response.Write([]byte("5.0.4"))
+	case apiTorrentInfo:
+		cookie, err := request.Cookie("SID")
+		if err != nil {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		handler.mu.Lock()
+		handler.infoSIDs = append(handler.infoSIDs, cookie.Value)
+		body := handler.items[cookie.Value]
+		handler.mu.Unlock()
+		if body == nil {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = response.Write(body)
+	case apiProperties, apiFiles:
+		_, _ = response.Write([]byte("[]"))
+	default:
+		response.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func TestPrivateCookieJarsIsolateConcurrentInstances(t *testing.T) {
+	alphaHash := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	betaHash := "ffffffffffffffffffffffffffffffffffffffff"
+	alphaBody := bytes.Replace(fixture(t, "info-single.json"), []byte(fixtureFilmHash), []byte(alphaHash), 1)
+	betaBody := bytes.Replace(fixture(t, "info-single.json"), []byte(fixtureFilmHash), []byte(betaHash), 1)
+	handler := &isolatedSessionHandler{items: map[string][]byte{"alpha": alphaBody, "beta": betaBody}}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	sharedJar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New: %v", err)
+	}
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	sharedJar.SetCookies(serverURL, []*http.Cookie{{Name: "SID", Value: "shared", Path: "/"}})
+	baseClient := &http.Client{Jar: sharedJar, Timeout: time.Second}
+
+	newClient := func(id domain.ConfigID, username string) *Client {
+		client, newErr := New(Config{
+			ConnectionID: id,
+			Endpoint:     server.URL,
+			Username:     username,
+			HTTPClient:   baseClient,
+		})
+		if newErr != nil {
+			t.Fatalf("New(%s): %v", id, newErr)
+		}
+		return client
+	}
+	alpha := newClient("qbt-alpha", "alpha")
+	beta := newClient("qbt-beta", "beta")
+	if alpha.http.Jar == sharedJar || beta.http.Jar == sharedJar || alpha.http.Jar == beta.http.Jar {
+		t.Fatal("adapter instances did not receive private cookie jars")
+	}
+
+	var wait sync.WaitGroup
+	wait.Add(2)
+	results := make(chan struct {
+		id   string
+		page ports.Page[ports.DownloadItem]
+		err  error
+	}, 2)
+	go func() {
+		defer wait.Done()
+		page, listErr := alpha.List(context.Background(), "qbt-alpha", "", 1)
+		results <- struct {
+			id   string
+			page ports.Page[ports.DownloadItem]
+			err  error
+		}{id: "alpha", page: page, err: listErr}
+	}()
+	go func() {
+		defer wait.Done()
+		page, listErr := beta.List(context.Background(), "qbt-beta", "", 1)
+		results <- struct {
+			id   string
+			page ports.Page[ports.DownloadItem]
+			err  error
+		}{id: "beta", page: page, err: listErr}
+	}()
+	wait.Wait()
+	close(results)
+	for result := range results {
+		if result.err != nil || len(result.page.Items) != 1 {
+			t.Fatalf("%s result = %#v, %v", result.id, result.page, result.err)
+		}
+		wantHash := alphaHash
+		if result.id == "beta" {
+			wantHash = betaHash
+		}
+		if result.page.Items[0].ExternalID != wantHash {
+			t.Fatalf("%s received SID from another instance: %#v", result.id, result.page.Items[0])
+		}
+	}
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.loginSIDs) != 2 || len(handler.infoSIDs) != 2 || handler.infoSIDs[0] == handler.infoSIDs[1] {
+		t.Fatalf("session IDs crossed: logins=%v info=%v", handler.loginSIDs, handler.infoSIDs)
+	}
+}
+
 func TestListDetailedPagesAndMetadata(t *testing.T) {
 	handler := &qbitFixtureHandler{
 		info:       pageFromFixtures(fixture(t, "info-page-1.json"), fixture(t, "info-page-2.json"), fixture(t, "info-empty.json")),
@@ -340,7 +510,7 @@ func TestListDetailedPagesAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second ListDetailed: %v", err)
 	}
-	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessComplete || second.Coverage.ObservedCount != 3 {
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.Completeness != domain.CompletenessPartial || second.Coverage.ObservedCount != 3 || !hasReason(second.Coverage, "pagination_prior_partial") {
 		t.Fatalf("second page = %#v", second)
 	}
 	pack := second.Items[0]
@@ -470,6 +640,123 @@ func TestRepeatedPageTerminatesAsPartial(t *testing.T) {
 	}
 }
 
+func TestNonAdjacentOverlapAndMutableSnapshotStayPartial(t *testing.T) {
+	hashA := strings.Repeat("1", 40)
+	hashB := strings.Repeat("2", 40)
+	hashC := strings.Repeat("3", 40)
+	hashD := strings.Repeat("4", 40)
+	hashE := strings.Repeat("5", 40)
+	handler := &qbitFixtureHandler{info: sequenceInfo(t,
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashC, hashD)},
+		infoResponse{offset: 4, body: torrentBody(t, hashA, hashE)},
+		infoResponse{offset: 6, body: torrentBody(t)},
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashC, hashD)},
+		infoResponse{offset: 4, body: torrentBody(t, hashA, hashE)},
+		infoResponse{offset: 6, body: torrentBody(t)},
+	)}
+	client, closeServer := newFixtureClient(t, handler, "qbt-main")
+	defer closeServer()
+
+	seen := make(map[string]struct{})
+	cursor := ""
+	var last DetailedPage
+	for page := 0; page < 4; page++ {
+		var err error
+		last, err = client.ListDetailed(context.Background(), "qbt-main", cursor, 2)
+		if err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		for _, item := range last.Items {
+			if _, exists := seen[item.Item.ExternalID]; exists {
+				t.Fatalf("duplicate emitted ID %q", item.Item.ExternalID)
+			}
+			seen[item.Item.ExternalID] = struct{}{}
+		}
+		cursor = last.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+	if len(seen) != 5 || len(last.Items) != 0 || last.Coverage.Completeness != domain.CompletenessPartial || !hasReason(last.Coverage, "pagination_prior_partial") || !hasReason(last.Coverage, "pagination_snapshot_changed") {
+		t.Fatalf("non-adjacent overlap result = %#v, seen=%v", last, seen)
+	}
+}
+
+func TestDeletionBeforeOffsetAndFinalPageChangeStayPartial(t *testing.T) {
+	hashA := strings.Repeat("a", 40)
+	hashB := strings.Repeat("b", 40)
+	hashC := strings.Repeat("c", 40)
+	hashD := strings.Repeat("d", 40)
+	deletionHandler := &qbitFixtureHandler{info: sequenceInfo(t,
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashD)},
+		infoResponse{offset: 0, body: torrentBody(t, hashB, hashC)},
+		infoResponse{offset: 2, body: torrentBody(t, hashD)},
+	)}
+	client, closeServer := newFixtureClient(t, deletionHandler, "qbt-main")
+	defer closeServer()
+	first, err := client.ListDetailed(context.Background(), "qbt-main", "", 2)
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("deletion first page = %#v, %v", first, err)
+	}
+	second, err := client.ListDetailed(context.Background(), "qbt-main", first.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("deletion second page: %v", err)
+	}
+	if second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "pagination_snapshot_changed") || second.NextCursor != "" {
+		t.Fatalf("deletion result = %#v", second)
+	}
+
+	hashX := strings.Repeat("e", 40)
+	insertionHandler := &qbitFixtureHandler{info: sequenceInfo(t,
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashB, hashC)},
+		infoResponse{offset: 4, body: torrentBody(t, hashD)},
+		infoResponse{offset: 0, body: torrentBody(t, hashX, hashA)},
+		infoResponse{offset: 2, body: torrentBody(t, hashB, hashC)},
+		infoResponse{offset: 4, body: torrentBody(t, hashD)},
+	)}
+	insertionClient, closeInsertion := newFixtureClient(t, insertionHandler, "qbt-insertion")
+	defer closeInsertion()
+	first, err = insertionClient.ListDetailed(context.Background(), "qbt-insertion", "", 2)
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("insertion first page = %#v, %v", first, err)
+	}
+	second, err = insertionClient.ListDetailed(context.Background(), "qbt-insertion", first.NextCursor, 2)
+	if err != nil || second.NextCursor == "" {
+		t.Fatalf("insertion second page = %#v, %v", second, err)
+	}
+	third, err := insertionClient.ListDetailed(context.Background(), "qbt-insertion", second.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("insertion final page: %v", err)
+	}
+	if third.Coverage.Completeness != domain.CompletenessPartial || !hasReason(third.Coverage, "pagination_snapshot_changed") {
+		t.Fatalf("insertion result = %#v", third)
+	}
+
+	finalChangeHandler := &qbitFixtureHandler{info: sequenceInfo(t,
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashC)},
+		infoResponse{offset: 0, body: torrentBody(t, hashA, hashB)},
+		infoResponse{offset: 2, body: torrentBody(t, hashD)},
+	)}
+	finalClient, closeFinal := newFixtureClient(t, finalChangeHandler, "qbt-final")
+	defer closeFinal()
+	first, err = finalClient.ListDetailed(context.Background(), "qbt-final", "", 2)
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("final-change first page = %#v, %v", first, err)
+	}
+	second, err = finalClient.ListDetailed(context.Background(), "qbt-final", first.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("final-change second page: %v", err)
+	}
+	if second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "pagination_snapshot_changed") {
+		t.Fatalf("final-change result = %#v", second)
+	}
+}
+
 func TestMalformedFilesAndVersionRemainVisibleAsPartial(t *testing.T) {
 	handler := &qbitFixtureHandler{
 		info:             func(int) ([]byte, int) { return fixture(t, "info-page-1.json"), http.StatusOK },
@@ -511,6 +798,31 @@ func TestProcessingStateAndAvailabilitySentinel(t *testing.T) {
 	item := page.Items[0]
 	if item.Item.ProcessingDone || item.Item.Seeding || item.Item.Progress != 0.25 || len(item.Files) != 1 || item.Files[0].Availability != -1 {
 		t.Fatalf("processing observation = %#v", item)
+	}
+}
+
+func TestUnknownTorrentStateCannotAuthorizeProcessing(t *testing.T) {
+	unknown := bytes.Replace(torrentBody(t, fixtureProcessHash), []byte(`"state":"uploading"`), []byte(`"state":"futureUP"`), 1)
+	handler := &qbitFixtureHandler{
+		info:       func(int) ([]byte, int) { return unknown, http.StatusOK },
+		properties: fixture(t, "properties.json"),
+		files:      map[string][]byte{fixtureProcessHash: fixture(t, "files-processing.json")},
+	}
+	client, closeServer := newFixtureClient(t, handler, "qbt-main")
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "qbt-main", "", 1)
+	if err != nil {
+		t.Fatalf("ListDetailed: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Item.ProcessingDone || page.Items[0].Item.State != "futureUP" || page.Coverage.Completeness != domain.CompletenessPartial || !hasReason(page.Coverage, "item_0_state_unknown") {
+		t.Fatalf("unknown state result = %#v", page)
+	}
+
+	terminal := bytes.Replace(torrentBody(t, fixtureProcessHash), []byte(`"state":"uploading"`), []byte(`"state":"stoppedUP"`), 1)
+	handler.info = func(int) ([]byte, int) { return terminal, http.StatusOK }
+	page, err = client.ListDetailed(context.Background(), "qbt-main", "", 1)
+	if err != nil || len(page.Items) != 1 || !page.Items[0].Item.ProcessingDone {
+		t.Fatalf("recognized terminal state = %#v, %v", page, err)
 	}
 }
 
@@ -603,6 +915,12 @@ func TestPathMappingAndRemotePathBoundaries(t *testing.T) {
 	if _, ok, ambiguous = client.mapPath("/downloads/movies/film.mkv"); ok || !ambiguous {
 		t.Fatal("equal-length mappings should be ambiguous")
 	}
+	files, reasons := client.mapFiles("/downloads/movies", []torrentFile{{
+		Index: 0, Name: "film.mkv", Size: 10, Progress: 1, Availability: 1, Seeds: 1, IsSeed: true,
+	}}, time.Now().UTC())
+	if len(files) != 1 || files[0].Entry.RootID != "" || files[0].Observation.Path != "/downloads/movies/film.mkv" || !hasReason(domain.Coverage{ReasonCodes: reasons}, "payload_mapping_ambiguous") {
+		t.Fatalf("ambiguous file evidence = %#v, reasons=%v", files, reasons)
+	}
 }
 
 func TestValidationRejectsEndpointCredentialsAndBadMapping(t *testing.T) {
@@ -630,6 +948,74 @@ func TestCursorRejectsWrongConnection(t *testing.T) {
 	upstream := assertErrorCode(t, err, domain.OutcomeInvalidInput)
 	if upstream.Operation != "qbit.inventory.cursor" {
 		t.Fatalf("cursor operation = %q", upstream.Operation)
+	}
+}
+
+func TestCursorAuthenticationAndLargestAcceptedRoundTrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(Config{ConnectionID: "qbt-main", Endpoint: server.URL, MaxPageSize: maxCursorItems, MaxItems: maxCursorItems})
+	if err != nil {
+		t.Fatalf("largest accepted config: %v", err)
+	}
+	sourceID, err := domain.NewRuntimeID()
+	if err != nil {
+		t.Fatalf("source id: %v", err)
+	}
+	seen := make([]string, maxCursorItems)
+	for index := range seen {
+		seen[index] = fmt.Sprintf("%064x", index+1)
+	}
+	state := inventoryCursor{
+		SourceID:         sourceID,
+		StartedAt:        time.Now().UTC(),
+		Offset:           maxCursorItems,
+		PageCount:        1,
+		PageSize:         maxCursorItems,
+		ObservedCount:    maxCursorItems,
+		SeenIDs:          seen,
+		PageFingerprints: []string{strings.Repeat("0", sha256.Size*2)},
+	}
+	token, err := client.encodeCursorChecked(state)
+	if err != nil {
+		t.Fatalf("largest cursor encode: %v", err)
+	}
+	if len(token) >= maxEncodedCursorBytes {
+		t.Fatalf("largest accepted cursor length = %d, ceiling %d", len(token), maxEncodedCursorBytes)
+	}
+	decoded, err := client.decodeCursor(token)
+	if err != nil || len(decoded.SeenIDs) != maxCursorItems || decoded.PageSize != maxCursorItems {
+		t.Fatalf("largest cursor decode = %#v, %v", decoded, err)
+	}
+
+	tamper := func(value string, index int) string {
+		mutated := []byte(value)
+		if mutated[index] == 'A' {
+			mutated[index] = 'B'
+		} else {
+			mutated[index] = 'A'
+		}
+		return string(mutated)
+	}
+	for _, candidate := range []string{tamper(token, 0), tamper(token, len(token)-1)} {
+		assertErrorCode(t, func() error {
+			_, decodeErr := client.decodeCursor(candidate)
+			return decodeErr
+		}(), domain.OutcomeInvalidInput)
+	}
+	other, err := New(Config{ConnectionID: "qbt-main", Endpoint: server.URL, MaxPageSize: maxCursorItems, MaxItems: maxCursorItems})
+	if err != nil {
+		t.Fatalf("second client: %v", err)
+	}
+	assertErrorCode(t, func() error {
+		_, decodeErr := other.decodeCursor(token)
+		return decodeErr
+	}(), domain.OutcomeInvalidInput)
+
+	if _, err := New(Config{ConnectionID: "qbt-main", Endpoint: server.URL, MaxItems: maxCursorItems + 1}); err == nil {
+		t.Fatal("item bound above cursor ceiling accepted")
 	}
 }
 
@@ -710,7 +1096,14 @@ func TestFullPageCursorRoundTrip(t *testing.T) {
 }
 
 func TestMalformedTorrentDescriptorRejected(t *testing.T) {
-	for _, data := range [][]byte{nil, []byte("d4:infod4:nameee"), []byte("d4:infod4:name4:testee\n")} {
+	for _, data := range [][]byte{
+		nil,
+		[]byte("de"),
+		[]byte("d4:infod4:nameee"),
+		[]byte("d4:info3:fooe"),
+		[]byte("d4:infod4:name4:teste4:infod4:name4:testee"),
+		[]byte("d4:infod4:name4:testee\n"),
+	} {
 		if validTorrentDescriptor(data) {
 			t.Fatalf("malformed descriptor accepted: %q", data)
 		}
