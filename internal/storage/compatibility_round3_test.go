@@ -107,8 +107,8 @@ func TestPopulatedLegacyTrackingAndJanitorUpgrade(t *testing.T) {
 			if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&schemaVersion); err != nil {
 				t.Fatal(err)
 			}
-			if schemaVersion != 8 {
-				t.Fatalf("schema version = %d, want 8", schemaVersion)
+			if schemaVersion != 9 {
+				t.Fatalf("schema version = %d, want 9", schemaVersion)
 			}
 			assertNoForeignKeyViolations(t, upgraded.DB())
 

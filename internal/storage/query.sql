@@ -487,8 +487,16 @@ UPDATE action_runs SET
     state = 'reconciling', next_attempt_at = sqlc.arg(now),
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = sqlc.arg(now)
-WHERE state = 'running'
-   OR (state = 'reconciling' AND claimed_by IS NOT NULL)
+WHERE (state = 'running'
+    OR (state = 'reconciling' AND claimed_by IS NOT NULL))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state = 'running'
+  )
 RETURNING *;
 
 -- name: RecoverExpiredActionRuns :many
@@ -501,6 +509,14 @@ UPDATE action_runs SET
 WHERE (state = 'running'
     OR (state = 'reconciling' AND claimed_by IS NOT NULL))
   AND (lease_until IS NULL OR lease_until <= sqlc.arg(now))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state = 'running'
+  )
 RETURNING *;
 
 -- name: RecoverRunningActionAttempts :many
@@ -549,12 +565,20 @@ RETURNING *;
 
 -- name: ListDueActionRuns :many
 SELECT * FROM action_runs
-WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
-  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > sqlc.arg(now))
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
-ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
+WHERE action_runs.state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND action_runs.cancellation_requested_at IS NULL
+  AND (action_runs.next_attempt_at IS NULL OR action_runs.next_attempt_at <= sqlc.arg(now))
+  AND (action_runs.deadline_at IS NULL OR action_runs.deadline_at > sqlc.arg(now))
+  AND (action_runs.claimed_by IS NULL OR action_runs.lease_until IS NULL OR action_runs.lease_until <= sqlc.arg(now))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+  )
+ORDER BY COALESCE(action_runs.next_attempt_at, action_runs.created_at), action_runs.created_at, action_runs.id
 LIMIT sqlc.arg(limit);
 
 -- name: ClaimActionRun :one
@@ -562,13 +586,21 @@ UPDATE action_runs SET
     state = 'running', claimed_by = sqlc.arg(worker_id),
     lease_until = sqlc.arg(lease_until), version = version + 1,
     updated_at = sqlc.arg(now)
-WHERE id = sqlc.arg(id)
-  AND version = sqlc.arg(version)
-  AND state IN ('queued', 'waiting_dependency', 'reconciling')
-  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > sqlc.arg(now))
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+WHERE action_runs.id = sqlc.arg(id)
+  AND action_runs.version = sqlc.arg(version)
+  AND action_runs.state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND action_runs.cancellation_requested_at IS NULL
+  AND (action_runs.next_attempt_at IS NULL OR action_runs.next_attempt_at <= sqlc.arg(now))
+  AND (action_runs.deadline_at IS NULL OR action_runs.deadline_at > sqlc.arg(now))
+  AND (action_runs.claimed_by IS NULL OR action_runs.lease_until IS NULL OR action_runs.lease_until <= sqlc.arg(now))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+  )
 RETURNING *;
 
 -- name: UpdateActionRunOutcome :one
@@ -845,8 +877,6 @@ WHERE janitor_records.id = sqlc.arg(id)
         AND action.version > sqlc.arg(approval_action_run_version) + 1
         AND action.claimed_by IS NULL
         AND action.lease_until IS NULL
-        AND action.cancellation_requested_at IS NULL
-        AND (action.deadline_at IS NULL OR action.deadline_at > sqlc.arg(now))
         AND (action.next_attempt_at IS NULL OR action.next_attempt_at <= sqlc.arg(now))
   )
   AND EXISTS (

@@ -214,7 +214,7 @@ func TestRound7DowngradeHoldsFencedRecoveryBeforeRestoringTrigger(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := runRound5MigrationSteps(path, -1); err != nil {
+	if err := runRound5MigrationSteps(path, -2); err != nil {
 		t.Fatalf("v8 to v7 downgrade: %v", err)
 	}
 	check := openRound5DB(t, path)
@@ -234,7 +234,7 @@ func TestRound7DowngradeHoldsFencedRecoveryBeforeRestoringTrigger(t *testing.T) 
 	if err := check.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := runRound5MigrationSteps(path, 1); err != nil {
+	if err := runRound5MigrationSteps(path, 2); err != nil {
 		t.Fatalf("v7 to v8 re-upgrade: %v", err)
 	}
 	reup, err := Open(path)
@@ -249,8 +249,8 @@ func TestRound7DowngradeHoldsFencedRecoveryBeforeRestoringTrigger(t *testing.T) 
 	if err := reup.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&schemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if schemaVersion != 8 {
-		t.Fatalf("re-upgraded schema version = %d, want 8", schemaVersion)
+	if schemaVersion != 9 {
+		t.Fatalf("re-upgraded schema version = %d, want 9", schemaVersion)
 	}
 	var reupJanitorState, reupActionState string
 	if err := reup.DB().QueryRow("SELECT state FROM janitor_records WHERE id = ?", fixture.janitorID).Scan(&reupJanitorState); err != nil {

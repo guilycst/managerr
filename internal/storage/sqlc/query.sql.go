@@ -15,13 +15,21 @@ UPDATE action_runs SET
     state = 'running', claimed_by = ?1,
     lease_until = ?2, version = version + 1,
     updated_at = ?3
-WHERE id = ?4
-  AND version = ?5
-  AND state IN ('queued', 'waiting_dependency', 'reconciling')
-  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
-  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > ?3)
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
+WHERE action_runs.id = ?4
+  AND action_runs.version = ?5
+  AND action_runs.state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND action_runs.cancellation_requested_at IS NULL
+  AND (action_runs.next_attempt_at IS NULL OR action_runs.next_attempt_at <= ?3)
+  AND (action_runs.deadline_at IS NULL OR action_runs.deadline_at > ?3)
+  AND (action_runs.claimed_by IS NULL OR action_runs.lease_until IS NULL OR action_runs.lease_until <= ?3)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+  )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
 
@@ -191,8 +199,6 @@ WHERE janitor_records.id = ?4
         AND action.version > ?13 + 1
         AND action.claimed_by IS NULL
         AND action.lease_until IS NULL
-        AND action.cancellation_requested_at IS NULL
-        AND (action.deadline_at IS NULL OR action.deadline_at > ?3)
         AND (action.next_attempt_at IS NULL OR action.next_attempt_at <= ?3)
   )
   AND EXISTS (
@@ -3248,12 +3254,20 @@ func (q *Queries) ListDownloads(ctx context.Context, arg *ListDownloadsParams) (
 
 const listDueActionRuns = `-- name: ListDueActionRuns :many
 SELECT id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at FROM action_runs
-WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
-  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
-  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > ?1)
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?1)
-ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
+WHERE action_runs.state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND action_runs.cancellation_requested_at IS NULL
+  AND (action_runs.next_attempt_at IS NULL OR action_runs.next_attempt_at <= ?1)
+  AND (action_runs.deadline_at IS NULL OR action_runs.deadline_at > ?1)
+  AND (action_runs.claimed_by IS NULL OR action_runs.lease_until IS NULL OR action_runs.lease_until <= ?1)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state IN ('queued', 'running', 'waiting_dependency', 'reconciling')
+  )
+ORDER BY COALESCE(action_runs.next_attempt_at, action_runs.created_at), action_runs.created_at, action_runs.id
 LIMIT ?2
 `
 
@@ -4030,6 +4044,14 @@ UPDATE action_runs SET
 WHERE (state = 'running'
     OR (state = 'reconciling' AND claimed_by IS NOT NULL))
   AND (lease_until IS NULL OR lease_until <= ?1)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state = 'running'
+  )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
 
@@ -4178,8 +4200,16 @@ UPDATE action_runs SET
     state = 'reconciling', next_attempt_at = ?1,
     claimed_by = NULL, lease_until = NULL, version = version + 1,
     updated_at = ?1
-WHERE state = 'running'
-   OR (state = 'reconciling' AND claimed_by IS NOT NULL)
+WHERE (state = 'running'
+    OR (state = 'reconciling' AND claimed_by IS NOT NULL))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM janitor_records AS approval
+      WHERE approval.approval_action_run_id = action_runs.id
+        AND approval.operation = 'purge'
+        AND approval.approval_plan_id IS NOT NULL
+        AND approval.state = 'running'
+  )
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
 

@@ -30,7 +30,7 @@ func migrationsThroughVersion(t *testing.T, max int) fs.FS {
 	t.Helper()
 	files := fstest.MapFS{}
 	for _, name := range []string{
-		"000001_initial.up.sql", "000002_indexes.up.sql", "000003_storage_contract.up.sql", "000004_storage_compatibility.up.sql", "000005_storage_safety.up.sql", "000006_approval_safety.up.sql", "000007_storage_recovery_safety.up.sql", "000008_storage_recovery_concurrency.up.sql",
+		"000001_initial.up.sql", "000002_indexes.up.sql", "000003_storage_contract.up.sql", "000004_storage_compatibility.up.sql", "000005_storage_safety.up.sql", "000006_approval_safety.up.sql", "000007_storage_recovery_safety.up.sql", "000008_storage_recovery_concurrency.up.sql", "000009_storage_recovery_boundaries.up.sql",
 	} {
 		var version int
 		if _, err := fmt.Sscanf(name, "%d_", &version); err != nil {
@@ -69,8 +69,8 @@ func TestOpenMigratesCompleteSchema(t *testing.T) {
 	if err := store.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
-		t.Fatalf("migration version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("migration version = %d, want 9", version)
 	}
 
 	for _, table := range []string{
@@ -126,8 +126,8 @@ func TestMigrationsUpgradeFromVersionOne(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
-		t.Fatalf("upgraded migration version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("upgraded migration version = %d, want 9", version)
 	}
 	var count int
 	if err := upgraded.DB().QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_due_action_runs_claim'").Scan(&count); err != nil {
@@ -182,8 +182,8 @@ func TestMigrationsUpgradeFromVersionTwo(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
-		t.Fatalf("v2 upgrade migration version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("v2 upgrade migration version = %d, want 9", version)
 	}
 	var state string
 	if err := upgraded.DB().QueryRow("SELECT state FROM downloads WHERE id = 'legacy-v2-download'").Scan(&state); err != nil {
