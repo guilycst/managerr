@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1533,14 +1533,18 @@
         "docs/execution/handoffs/X-10-review-round4.md",
         "797822ff86bbe9882354e9f1e395e5408c527d03 X-10 correction round 5 product",
         "58b5f71b9f7b600a8158451b367ee5c2712d4533 X-10 correction round 5 handoff",
-        "docs/execution/handoffs/X-10-correction-round5.md"
+        "docs/execution/handoffs/X-10-correction-round5.md",
+        "7b51ffc0a4286d92768df1b7b29f667eb6c32d90 X-10 review round 5 changes requested",
+        "docs/execution/handoffs/X-10-review-round5.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "7b51ffc0a4286d92768df1b7b29f667eb6c32d90",
+        "findings": [
+          "P1 stale 403 from an old session can invalidate a fresh session after another request refreshes, causing a third login; guard invalidation with session generation/CAS"
+        ],
         "round": 5
       },
       "dispatch": {
@@ -1570,14 +1574,14 @@
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewSourceCommit": "797822ff86bbe9882354e9f1e395e5408c527d03",
-        "correctionRound": 5,
+        "correctionRound": 6,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "1a9eb570fa434668c5bfff11b0d2f54180ad1a49",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round4.md",
+        "correctionBaseSha": "797822ff86bbe9882354e9f1e395e5408c527d03",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round5.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "797822ff86bbe9882354e9f1e395e5408c527d03",
         "correctionHandoffCommit": "58b5f71b9f7b600a8158451b367ee5c2712d4533",
-        "reviewCommit": "pending"
+        "reviewCommit": "7b51ffc0a4286d92768df1b7b29f667eb6c32d90"
       },
       "implementationCommit": "797822ff86bbe9882354e9f1e395e5408c527d03",
       "reviewHistory": [
@@ -1612,6 +1616,14 @@
           "status": "changes_requested",
           "sourceCommit": "1a9eb570fa434668c5bfff11b0d2f54180ad1a49",
           "receipt": "docs/execution/handoffs/X-10-review-round4.md"
+        },
+        {
+          "round": 5,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "7b51ffc0a4286d92768df1b7b29f667eb6c32d90",
+          "status": "changes_requested",
+          "sourceCommit": "797822ff86bbe9882354e9f1e395e5408c527d03",
+          "receipt": "docs/execution/handoffs/X-10-review-round5.md"
         }
       ]
     },
@@ -1738,7 +1750,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 5 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "X-10 correction round 6 must make stale-session invalidation generation-aware; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
