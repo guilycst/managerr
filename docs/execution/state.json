@@ -1563,9 +1563,24 @@
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
         "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
         "handoffCommit": "54584d510466281d0bc5a39a7ec161894596e934",
-        "reviewSourceCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8"
+        "reviewSourceCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
+        "correctionRound": 2,
+        "correctionOwner": "/root/c01_implementer",
+        "correctionBaseSha": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round1.md",
+        "correctionReviewer": "/root/d01_reviewer"
       },
-      "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8"
+      "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "8aa5867ebc587d0e61700ed94f15ef2dc8200237",
+          "status": "changes_requested",
+          "sourceCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8",
+          "receipt": "docs/execution/handoffs/X-10-review-round1.md"
+        }
+      ]
     },
     "X-11": {
       "status": "in_review",
