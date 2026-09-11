@@ -142,7 +142,7 @@
         "go mod verify for root, UI, and tools"
       ]
     },
-    "nextAction": "Complete the pending D-01 and X-01 review rounds before dispatching dependent feature tasks"
+    "nextAction": "Implement the D-01 and X-01 review corrections while X-02 and X-03 continue"
   },
   "openGates": [
     "G-01",
@@ -526,14 +526,12 @@
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": "ebae3157302c046b8f5497492064400c28333268",
+        "commit": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
         "findings": [
-          "P1: an early-purge target can be inserted after approval and rebind the immutable decision to another same-manifest trash entry",
-          "P1: unsafe legacy or down/up purge records without approval binding remain generically reclaimable",
-          "P1: quarantine evidence can be silently dropped on v5 to v4 to v5 ID reuse",
-          "P1: an already-approved action is rejected after plan preview expiry despite a live action deadline"
+          "P1: a populated v5 post-approval purge target remains executable after the v6 upgrade",
+          "P1: an approval-bound purge cannot reacquire its lease after startup recovery"
         ],
-        "round": 4
+        "round": 5
       },
       "reviewHistory": [
         {
@@ -571,9 +569,9 @@
         {
           "round": 5,
           "reviewer": "/root/d01_reviewer",
-          "commit": null,
-          "status": "pending",
-          "correctionCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
+          "commit": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
+          "status": "changes_requested",
+          "correctionCommit": null,
           "sourceCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
           "receipt": "docs/execution/handoffs/D-01-review-round5.md"
         }
@@ -745,8 +743,8 @@
       "review": null
     },
     "X-01": {
-      "status": "in_review",
-      "owner": "/root/f01_implementer",
+      "status": "in_progress",
+      "owner": "/root/d01_implementer",
       "baseSha": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
       "integratedSha": null,
       "implementationCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
@@ -763,16 +761,11 @@
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
+        "commit": "4dcdc0081011e70234f0b39f7c7ce5c3758df07d",
         "findings": [
-          "P1: caller-provided HTTP cookie jars can cross qBittorrent adapter sessions",
-          "P1: offset pagination can omit or duplicate torrents while reporting complete coverage",
-          "P1: cursors are forgeable and accepted page bounds can emit a cursor rejected by the decoder",
-          "P1: missing or unknown qBittorrent state can be reported processing-complete",
-          "P1: ambiguous equal-length mappings drop exact file observations",
-          "P2: empty bencode dictionaries are reported as available torrent descriptors"
+          "P2: a structurally valid exported descriptor is not bound to the requested torrent v1 or v2 info hash"
         ],
-        "round": 1
+        "round": 2
       },
       "reviewHistory": [
         {
@@ -787,9 +780,9 @@
         {
           "round": 2,
           "reviewer": "/root/f01_reviewer",
-          "commit": null,
-          "status": "pending",
-          "correctionCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
+          "commit": "4dcdc0081011e70234f0b39f7c7ce5c3758df07d",
+          "status": "changes_requested",
+          "correctionCommit": null,
           "sourceCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
           "receipt": "docs/execution/handoffs/X-01-review-round2.md"
         }
@@ -816,7 +809,11 @@
         "correctionRound": 2,
         "reviewFindingsCommit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
         "implementationCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
-        "handoffCommit": "f219bdf58dd8d0c82a2f279f0f67084734e43c70"
+        "handoffCommit": "f219bdf58dd8d0c82a2f279f0f67084734e43c70",
+        "correctionRound": 3,
+        "correctionOwner": "/root/d01_implementer",
+        "correctionBaseSha": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
+        "correctionReviewPath": "docs/execution/handoffs/X-01-review-round3.md"
       }
     },
     "X-02": {
@@ -1131,7 +1128,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete the pending D-01 and X-01 review rounds before dispatching dependent feature tasks",
+  "nextAction": "Implement the D-01 and X-01 review corrections while X-02 and X-03 continue",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
