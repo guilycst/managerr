@@ -464,11 +464,16 @@
       "review": null
     },
     "F-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
-      "evidence": [],
+      "implementationCommit": "68d5508c0cbc455ac22f835a1767b2a973dd160b",
+      "evidence": [
+        "docs/execution/handoffs/F-01.md",
+        "internal/filesystem/observe/observe_test.go",
+        "internal/filesystem/observe/observe_unix_test.go"
+      ],
       "review": {
         "status": "pending",
         "decision": null,
