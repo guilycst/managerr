@@ -100,7 +100,7 @@
       "owner": "/root",
       "baseSha": "f39f864915800f8b28284c394a53d602e7220b33",
       "integratedSha": null,
-      "implementationCommit": "f08978e",
+      "implementationCommit": "6bb4ce4",
       "evidence": [
         "docs/execution/handoffs/C-01.md",
         "python3 scripts/check_planning.py",
@@ -124,7 +124,7 @@
           "Fix validator-incompatible query/path constraints and record a reproducible isolated generation command."
         ],
         "round": 1,
-        "correctionCommit": "f08978e"
+        "correctionCommit": "6bb4ce4"
       },
       "reviewHistory": [
         {
@@ -132,7 +132,7 @@
           "reviewer": "/root/c01_reviewer",
           "commit": "0854c58",
           "status": "changes_requested",
-          "correctionCommit": "f08978e"
+          "correctionCommit": "6bb4ce4"
         }
       ],
       "dispatch": {
