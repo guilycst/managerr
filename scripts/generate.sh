@@ -66,6 +66,37 @@ generate_oapi \
   "$repo_dir/ui/oapi-codegen.yaml" \
   "$repo_dir/ui/internal/api/generated/client.gen.go"
 
+generate_envdoc() {
+  output=$repo_dir/docs/generated/environment.md
+  if [ "$mode" = write ]; then
+    target=$output
+  else
+    target=$tmp_dir/environment.md
+  fi
+
+  mkdir -p "$(dirname -- "$target")"
+  envdoc_line=$(awk '/^\/\/go:generate .*envdoc/ { print NR; exit }' "$repo_dir/internal/bootstrap/environment.go")
+  (
+    cd "$repo_dir/internal/bootstrap"
+    GOFILE=environment.go GOLINE="$envdoc_line" GOWORK=off \
+      go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc \
+      -output "$target" -types=Environment
+  )
+
+  if [ "$mode" = check ]; then
+    if [ ! -f "$output" ]; then
+      echo "generated file is missing: $output" >&2
+      exit 1
+    fi
+    if ! cmp -s "$target" "$output"; then
+      echo "generated file is out of date: $output" >&2
+      exit 1
+    fi
+  fi
+}
+
+generate_envdoc
+
 if [ -f "$repo_dir/sqlc.yaml" ]; then
   (
     cd "$tools_dir"
