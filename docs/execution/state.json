@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_in_review",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "C-03"
+    "C-03",
+    "U-00"
   ],
   "openGates": [
     "G-01",
@@ -549,12 +550,40 @@
       "review": null
     },
     "U-00": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/u00_implementer",
+      "baseSha": "4734ceae36ab060ae50e48916643cb4098748c78",
       "integratedSha": null,
       "evidence": [],
-      "review": null
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/u00_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "docs/research/ui-components.md",
+          "ui/go.mod",
+          "ui/go.sum"
+        ],
+        "expectedChecks": [
+          "A-45",
+          "A-50",
+          "A-51"
+        ],
+        "reviewPath": "docs/execution/handoffs/U-00-review-round1.md",
+        "nextReviewer": "/root/u00_reviewer",
+        "dependencyCommits": {
+          "C-02": "d317df98fae68e99325829351b5fd79c52ba2733"
+        }
+      }
     },
     "U-01": {
       "status": "planned",
