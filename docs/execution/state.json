@@ -19,8 +19,10 @@
   "featureLanesPaused": true,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11",
   "guardrailBaseline": {
-    "status": "in_progress",
+    "status": "passed",
     "startedAt": "2026-09-11",
+    "verifiedAt": "2026-09-11",
+    "cleanCheckoutSha": "4cbdfa7fb45bf0164872e23cb3461eb1ac74d83c",
     "commits": [
       {
         "sha": "9c5946b371715e6cf6d0c2cb99d919390f12d783",
@@ -118,7 +120,24 @@
       "architecture import-direction check",
       "versioned pre-commit hook and CI-equivalent checks"
     ],
-    "nextAction": "Commit guardrail slices separately, record each SHA, then run the clean-checkout gate"
+    "lastRun": {
+      "command": "./scripts/check-guardrails.sh --ci",
+      "result": "passed",
+      "cleanCheckout": true,
+      "gitDiff": "clean",
+      "checks": [
+        "deterministic exploded OpenAPI 3.1.1 bundle",
+        "Vacuum v0.30.0 with zero warnings or errors",
+        "oapi-codegen server and UI client reproducibility",
+        "golangci-lint v2.12.2 root and UI with GOWORK=off",
+        "architecture import-direction check",
+        "gofmt and git diff checks",
+        "targeted and full Go tests",
+        "go vet for root, UI, and tools",
+        "go mod verify for root, UI, and tools"
+      ]
+    },
+    "nextAction": "Keep feature lanes paused until the coordinator explicitly resumes them"
   },
   "openGates": [
     "G-01",
@@ -1047,7 +1066,7 @@
       "review": null
     }
   },
-  "nextAction": "Guardrails-first pause: add and validate the clean-checkout baseline before resuming feature reviews or lanes",
+  "nextAction": "Guardrails passed; keep feature lanes paused until the coordinator explicitly resumes them",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
