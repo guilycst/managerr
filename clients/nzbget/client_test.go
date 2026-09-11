@@ -131,7 +131,12 @@ func TestGeneratedWrappersAndReadOnlyMethodBoundary(t *testing.T) {
 	if !rawParamsEqual(marshalParams(t, params), "0", "0", "44") {
 		t.Fatalf("generated listfiles params = %#v", params)
 	}
+	var networkCalls int
+	var networkCallsMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		networkCallsMu.Lock()
+		networkCalls++
+		networkCallsMu.Unlock()
 		var rpcRequest testRPCRequest
 		if err := json.NewDecoder(request.Body).Decode(&rpcRequest); err != nil {
 			t.Fatal(err)
@@ -146,14 +151,31 @@ func TestGeneratedWrappersAndReadOnlyMethodBoundary(t *testing.T) {
 	if _, err := client.Methods().ListFiles(context.Background(), ListFilesRequest{NZBID: 44}); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Invoke(context.Background(), "rpc.discover", nil, new(any)); !IsKind(err, ErrorInvalidInput) {
+	if err := client.Invoke(context.Background(), "rpc.discover", nil, new(any)); !IsKind(err, ErrorUnsupported) {
 		t.Fatalf("rpc.discover error = %v", err)
+	}
+	if err := client.Invoke(context.Background(), "append", nil, new(any)); !IsKind(err, ErrorUnsupported) {
+		t.Fatalf("mutation error = %v", err)
+	}
+	if err := client.Invoke(context.Background(), "unknown.read", nil, new(any)); !IsKind(err, ErrorUnsupported) {
+		t.Fatalf("unknown safe method error = %v", err)
+	}
+	for _, method := range []string{"bad method", "bad/method", "", "?method"} {
+		if err := client.Invoke(context.Background(), method, nil, new(any)); !IsKind(err, ErrorInvalidInput) {
+			t.Fatalf("malformed method %q error = %v", method, err)
+		}
 	}
 	if err := client.Invoke(context.Background(), MethodListGroups, []any{1}, new([]GroupRecord)); !IsKind(err, ErrorInvalidInput) {
 		t.Fatalf("nonzero listgroups log count error = %v", err)
 	}
 	if _, err := client.ListFiles(context.Background(), 1, 0, 0); !IsKind(err, ErrorInvalidInput) {
 		t.Fatalf("nonzero IDFrom error = %v", err)
+	}
+	networkCallsMu.Lock()
+	gotNetworkCalls := networkCalls
+	networkCallsMu.Unlock()
+	if gotNetworkCalls != 1 {
+		t.Fatalf("locally refused methods reached network: %d calls", gotNetworkCalls)
 	}
 }
 
@@ -192,6 +214,155 @@ func TestUnauthorizedAndHTTPFailuresAreTypedAndSanitized(t *testing.T) {
 	}
 	if !errors.As(err, &upstream) || upstream.StatusCode != http.StatusBadGateway || !upstream.Retryable {
 		t.Fatalf("HTTP 502 detail = %#v", upstream)
+	}
+}
+
+func TestHTTPStatusIsClassifiedBeforeResponseBound(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		kind      ErrorKind
+		retryable bool
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, kind: ErrorUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden, kind: ErrorForbidden},
+		{name: "request timeout", status: http.StatusRequestTimeout, kind: ErrorRateLimited, retryable: true},
+		{name: "rate limited", status: http.StatusTooManyRequests, kind: ErrorRateLimited, retryable: true},
+		{name: "server error", status: http.StatusBadGateway, kind: ErrorUnavailable, retryable: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, strings.Repeat("untrusted-body", 100))
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, MaxResponseBytes: 8})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Version(context.Background())
+			var upstream *UpstreamError
+			if !errors.As(err, &upstream) || upstream.Kind != test.kind || upstream.StatusCode != test.status || upstream.Retryable != test.retryable {
+				t.Fatalf("status %d error = %#v, %v", test.status, upstream, err)
+			}
+		})
+	}
+}
+
+func TestTransportAndBodyReadErrorsAreSanitizedAndDistinct(t *testing.T) {
+	const sentinel = "SENTINEL_TRANSPORT_SECRET"
+	transportSentinel := errors.New(sentinel)
+	transportErrorClient, err := New(Config{
+		Endpoint: "https://private.example.test/jsonrpc",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, transportSentinel
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = transportErrorClient.Version(context.Background())
+	if IsKind(err, ErrorInvalidInput) || strings.Contains(err.Error(), sentinel) || strings.Contains(err.Error(), "private.example.test") || errors.Is(err, transportSentinel) {
+		t.Fatalf("transport error was exposed: %v", err)
+	}
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if strings.Contains(current.Error(), sentinel) || strings.Contains(current.Error(), "private.example.test") {
+			t.Fatalf("transport error chain was exposed: %v", current)
+		}
+	}
+	var transportUpstream *UpstreamError
+	if !errors.As(err, &transportUpstream) || transportUpstream.Kind != ErrorUnavailable || !transportUpstream.Retryable {
+		t.Fatalf("transport error = %#v, %v", transportUpstream, err)
+	}
+
+	bodyReadClient, err := New(Config{
+		Endpoint: "https://example.test/jsonrpc",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: failingBody{}}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = bodyReadClient.Version(context.Background())
+	if !IsKind(err, ErrorUnavailable) {
+		t.Fatalf("body read error = %v", err)
+	}
+	if errors.As(err, &transportUpstream) && transportUpstream.Kind != ErrorUnavailable {
+		t.Fatalf("body read classification = %#v", transportUpstream)
+	}
+
+	deadlineClient, err := New(Config{
+		Endpoint:       "https://example.test/jsonrpc",
+		RequestTimeout: 20 * time.Millisecond,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: contextBody{context: request.Context()}}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = deadlineClient.Version(context.Background())
+	if !IsKind(err, ErrorTimeout) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("body read timeout = %#v, %v", err, err)
+	}
+}
+
+func TestRPCEnvelopeRequiresPresenceAndUniqueMembers(t *testing.T) {
+	tests := []struct {
+		name string
+		body func(uint64) string
+	}{
+		{name: "duplicate version", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","version":"1.1","id":%d,"result":"24.2"}`, id)
+		}},
+		{name: "duplicate id", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"id":%d,"result":"24.2"}`, id, id)
+		}},
+		{name: "missing version", body: func(id uint64) string { return fmt.Sprintf(`{"id":%d,"result":"24.2"}`, id) }},
+		{name: "null version", body: func(id uint64) string { return fmt.Sprintf(`{"version":null,"id":%d,"result":"24.2"}`, id) }},
+		{name: "missing id", body: func(uint64) string { return `{"version":"1.1","result":"24.2"}` }},
+		{name: "null id", body: func(uint64) string { return `{"version":"1.1","id":null,"result":"24.2"}` }},
+		{name: "both result and error", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"result":"24.2","error":{"code":1,"message":"failed"}}`, id)
+		}},
+		{name: "neither result nor error", body: func(id uint64) string { return fmt.Sprintf(`{"version":"1.1","id":%d}`, id) }},
+		{name: "null result", body: func(id uint64) string { return fmt.Sprintf(`{"version":"1.1","id":%d,"result":null}`, id) }},
+		{name: "empty error", body: func(id uint64) string { return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{}}`, id) }},
+		{name: "missing error code", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{"message":"failed"}}`, id)
+		}},
+		{name: "null error code", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{"code":null,"message":"failed"}}`, id)
+		}},
+		{name: "missing error message", body: func(id uint64) string { return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{"code":1}}`, id) }},
+		{name: "null error message", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{"code":1,"message":null}}`, id)
+		}},
+		{name: "duplicate nested code", body: func(id uint64) string {
+			return fmt.Sprintf(`{"version":"1.1","id":%d,"error":{"code":1,"code":1,"message":"failed"}}`, id)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var rpcRequest testRPCRequest
+				if err := json.NewDecoder(request.Body).Decode(&rpcRequest); err != nil {
+					t.Fatal(err)
+				}
+				_, _ = io.WriteString(writer, test.body(rpcRequest.ID))
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Version(context.Background())
+			if !IsKind(err, ErrorMalformed) {
+				t.Fatalf("envelope accepted: %v", err)
+			}
+		})
 	}
 }
 
@@ -341,10 +512,50 @@ func TestHistoryAliasConflictFailsClosedAndEndpointValidation(t *testing.T) {
 	if !IsKind(err, ErrorMalformed) {
 		t.Fatalf("conflicting aliases = %v", err)
 	}
-	for _, endpoint := range []string{"", "localhost:6789", "ftp://example.test", "https://user:pass@example.test", "https://example.test/path?token=hidden", "https://example.test/path#fragment"} {
+	for _, endpoint := range []string{
+		"", "localhost:6789", "ftp://example.test", "https://user:pass@example.test",
+		"https://example.test/path?token=hidden", "https://example.test/path#fragment",
+		"https://example.test/./jsonrpc", "https://example.test/../jsonrpc",
+		"https://example.test/%2e%2e/jsonrpc", "https://example.test/base//jsonrpc",
+		"https://example.test/base/%2fjsonrpc", "https://example.test/base/%5Cjsonrpc",
+		"https://example.test/base/%2e%2fjsonrpc", "https://example.test/base/%252e%252e/jsonrpc",
+	} {
 		if _, err := New(Config{Endpoint: endpoint}); err == nil {
 			t.Fatalf("accepted unsafe endpoint %q", endpoint)
 		}
+	}
+}
+
+func TestEndpointPreservesCleanCustomPrefixAndRequestURI(t *testing.T) {
+	var requestURI string
+	var requestMu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestMu.Lock()
+		requestURI = request.RequestURI
+		requestMu.Unlock()
+		var rpcRequest testRPCRequest
+		if err := json.NewDecoder(request.Body).Decode(&rpcRequest); err != nil {
+			t.Fatal(err)
+		}
+		writeRPCResult(t, writer, rpcRequest.ID, "24.2.1")
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: server.URL + "/proxy/nzbget%20rpc/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Version(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	requestMu.Lock()
+	got := requestURI
+	requestMu.Unlock()
+	if got != "/proxy/nzbget%20rpc/" {
+		t.Fatalf("request URI = %q", got)
+	}
+	if !strings.HasSuffix(client.Endpoint(), "/proxy/nzbget%20rpc/") {
+		t.Fatalf("endpoint = %q", client.Endpoint())
 	}
 }
 
@@ -362,6 +573,33 @@ func writeRPCResult(t *testing.T, writer http.ResponseWriter, id uint64, result 
 	writer.Header().Set("Content-Type", "application/json")
 	_, _ = writer.Write(encodedEnvelope)
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTripFunc) CloseIdleConnections() {}
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+type failingBody struct{}
+
+func (failingBody) Read([]byte) (int, error) {
+	return 0, errors.New("SENTINEL_BODY_SECRET")
+}
+
+func (failingBody) Close() error { return nil }
+
+type contextBody struct {
+	context context.Context
+}
+
+func (body contextBody) Read([]byte) (int, error) {
+	<-body.context.Done()
+	return 0, errors.New("SENTINEL_BODY_CANCELLATION")
+}
+
+func (contextBody) Close() error { return nil }
 
 func writeRPCError(t *testing.T, writer http.ResponseWriter, id uint64, code int64, message string) {
 	t.Helper()

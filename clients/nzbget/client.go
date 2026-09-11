@@ -422,35 +422,49 @@ func (client *Client) Invoke(ctx context.Context, method string, params []any, r
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return contextError(method, err)
 		}
-		if netErr, isNetErr := err.(net.Error); isNetErr && netErr.Timeout() {
-			return &UpstreamError{Kind: ErrorTimeout, Method: method, Retryable: true, Detail: "upstream request timed out", cause: err}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return &UpstreamError{Kind: ErrorTimeout, Method: method, Retryable: true, Detail: "upstream request timed out"}
 		}
-		return &UpstreamError{Kind: ErrorUnavailable, Method: method, Retryable: true, Detail: "upstream is unavailable", cause: err}
+		return &UpstreamError{Kind: ErrorUnavailable, Method: method, Retryable: true, Detail: "upstream is unavailable"}
 	}
-	defer response.Body.Close()
-	body, err := readBounded(response.Body, client.maxResponseBytes)
-	if err != nil {
-		return &UpstreamError{Kind: ErrorResponseTooLarge, Method: method, StatusCode: response.StatusCode, Detail: "response exceeds configured bound"}
+	if response.Body != nil {
+		defer response.Body.Close()
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		// Classify status before retaining any response bytes. Error bodies are
+		// untrusted and are deliberately discarded by Close without entering the
+		// public error chain.
 		return normalizeHTTPError(method, response.StatusCode)
 	}
-	var envelope wireResponse
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		return malformed(method)
+	if response.Body == nil {
+		return &UpstreamError{Kind: ErrorUnavailable, Method: method, StatusCode: response.StatusCode, Retryable: true, Detail: "response body could not be read"}
 	}
-	if envelope.Version != ProtocolVersion || !responseIDMatches(envelope.ID, requestID) {
-		return malformed(method)
-	}
-	resultIsNull := len(envelope.Result) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Result), []byte("null"))
-	if envelope.Error != nil {
-		if !resultIsNull {
-			return malformed(method)
+	body, err := readBounded(response.Body, client.maxResponseBytes)
+	if err != nil {
+		if requestContextErr := requestContext.Err(); requestContextErr != nil {
+			return contextError(method, requestContextErr)
 		}
-		return normalizeRPCError(method, envelope.Error)
+		if errors.Is(err, errResponseCanceled) {
+			return contextError(method, context.Canceled)
+		}
+		if errors.Is(err, errResponseDeadline) {
+			return contextError(method, context.DeadlineExceeded)
+		}
+		if errors.Is(err, errResponseTooLarge) {
+			return &UpstreamError{Kind: ErrorResponseTooLarge, Method: method, StatusCode: response.StatusCode, Detail: "response exceeds configured bound"}
+		}
+		return &UpstreamError{Kind: ErrorUnavailable, Method: method, StatusCode: response.StatusCode, Retryable: true, Detail: "response body could not be read"}
 	}
-	if resultIsNull {
+	envelope, err := decodeRPCResponse(body)
+	if err != nil {
 		return malformed(method)
+	}
+	if !responseIDMatches(envelope.ID, requestID) {
+		return malformed(method)
+	}
+	if envelope.Error != nil {
+		return normalizeRPCError(method, envelope.Error)
 	}
 	if err := json.Unmarshal(envelope.Result, result); err != nil {
 		return malformed(method)
@@ -491,6 +505,138 @@ type wireError struct {
 	Data    any    `json:"data"`
 }
 
+var (
+	errInvalidJSON       = errors.New("invalid JSON")
+	errDuplicateJSONName = errors.New("duplicate JSON object member")
+)
+
+func decodeRPCResponse(data []byte) (wireResponse, error) {
+	if err := rejectDuplicateJSONMembers(data); err != nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	version, ok := object["version"]
+	if !ok || rawJSONIsNull(version) {
+		return wireResponse{}, errInvalidJSON
+	}
+	var versionValue string
+	if err := json.Unmarshal(version, &versionValue); err != nil || versionValue != ProtocolVersion {
+		return wireResponse{}, errInvalidJSON
+	}
+	identifier, ok := object["id"]
+	if !ok || rawJSONIsNull(identifier) {
+		return wireResponse{}, errInvalidJSON
+	}
+	var numericID uint64
+	if err := json.Unmarshal(identifier, &numericID); err != nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	result, hasResult := object["result"]
+	errorValue, hasError := object["error"]
+	if hasResult == hasError {
+		return wireResponse{}, errInvalidJSON
+	}
+	response := wireResponse{Version: versionValue, ID: identifier}
+	if hasResult {
+		if rawJSONIsNull(result) {
+			return wireResponse{}, errInvalidJSON
+		}
+		response.Result = result
+		return response, nil
+	}
+	if rawJSONIsNull(errorValue) {
+		return wireResponse{}, errInvalidJSON
+	}
+	var errorObject map[string]json.RawMessage
+	if err := json.Unmarshal(errorValue, &errorObject); err != nil || errorObject == nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	codeValue, hasCode := errorObject["code"]
+	messageValue, hasMessage := errorObject["message"]
+	if !hasCode || !hasMessage || rawJSONIsNull(codeValue) || rawJSONIsNull(messageValue) {
+		return wireResponse{}, errInvalidJSON
+	}
+	var code int64
+	if err := json.Unmarshal(codeValue, &code); err != nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	var message string
+	if err := json.Unmarshal(messageValue, &message); err != nil {
+		return wireResponse{}, errInvalidJSON
+	}
+	response.Error = &wireError{Code: code, Message: message}
+	return response, nil
+}
+
+func rawJSONIsNull(value json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
+}
+
+func rejectDuplicateJSONMembers(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := scanJSONValue(decoder); err != nil {
+		return errInvalidJSON
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errInvalidJSON
+	}
+	return nil
+}
+
+func scanJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return errInvalidJSON
+	}
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return errInvalidJSON
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errInvalidJSON
+			}
+			if _, exists := seen[name]; exists {
+				return errDuplicateJSONName
+			}
+			seen[name] = struct{}{}
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim('}') {
+			return errInvalidJSON
+		}
+	case '[':
+		for decoder.More() {
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim(']') {
+			return errInvalidJSON
+		}
+	default:
+		return errInvalidJSON
+	}
+	return nil
+}
+
 // ErrorKind classifies a sanitized transport or upstream failure.
 type ErrorKind string
 
@@ -521,7 +667,6 @@ type UpstreamError struct {
 	RPCCode    int64
 	Retryable  bool
 	Detail     string
-	cause      error
 }
 
 func (err *UpstreamError) Error() string {
@@ -534,11 +679,20 @@ func (err *UpstreamError) Error() string {
 	return "nzbget " + string(err.Kind) + " for " + err.Method
 }
 
-func (err *UpstreamError) Unwrap() error {
+// Is preserves the standard context sentinels without exposing the raw
+// transport error (which may contain a URL, credentials, or private host).
+func (err *UpstreamError) Is(target error) bool {
 	if err == nil {
-		return nil
+		return false
 	}
-	return err.cause
+	switch err.Kind {
+	case ErrorCanceled:
+		return target == context.Canceled
+	case ErrorTimeout:
+		return target == context.DeadlineExceeded
+	default:
+		return false
+	}
 }
 
 // IsKind reports whether err or one of its wrapped errors is an UpstreamError
@@ -549,7 +703,7 @@ func IsKind(err error, kind ErrorKind) bool {
 }
 
 func validateMethodCall(method string, params []any) error {
-	if method == "" || len(method) > maxMethodLength || strings.IndexFunc(method, unicode.IsControl) >= 0 {
+	if !validMethodName(method) {
 		return invalidInput("method")
 	}
 	switch method {
@@ -573,9 +727,27 @@ func validateMethodCall(method string, params []any) error {
 			return invalidInput(method)
 		}
 	default:
-		return invalidInput(method)
+		return unsupported(method)
 	}
 	return nil
+}
+
+func validMethodName(method string) bool {
+	if method == "" || len(method) > maxMethodLength || !isASCIILetter(method[0]) {
+		return false
+	}
+	for index := 1; index < len(method); index++ {
+		value := method[index]
+		if isASCIILetter(value) || value >= '0' && value <= '9' || value == '.' || value == '_' || value == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isASCIILetter(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 func isIntegerValue(value any) bool {
@@ -645,23 +817,91 @@ func parseEndpoint(value string) (*url.URL, error) {
 	if err != nil || parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, errors.New("nzbget endpoint must be an absolute HTTP URL without credentials, query or fragment")
 	}
-	if parsed.Path == "" || parsed.Path == "/" {
-		parsed.Path = "/jsonrpc"
+	escapedPath := parsed.EscapedPath()
+	if err := validateEndpointPath(escapedPath); err != nil {
+		return nil, err
 	}
-	parsed.RawPath = ""
+	if escapedPath == "" || escapedPath == "/" {
+		parsed.Path = "/jsonrpc"
+		parsed.RawPath = ""
+	}
 	return parsed, nil
 }
 
+func validateEndpointPath(escapedPath string) error {
+	if escapedPath == "" || escapedPath == "/" {
+		return nil
+	}
+	if !strings.HasPrefix(escapedPath, "/") {
+		return errors.New("nzbget endpoint path must be absolute")
+	}
+	segments := strings.Split(escapedPath, "/")
+	for index, segment := range segments {
+		if index == 0 {
+			continue
+		}
+		if segment == "" {
+			if index == len(segments)-1 {
+				continue
+			}
+			return errors.New("nzbget endpoint path contains repeated separators")
+		}
+		unsafe, err := unsafeEndpointSegment(segment)
+		if err != nil {
+			return errors.New("nzbget endpoint path contains an invalid escape")
+		}
+		if unsafe {
+			return errors.New("nzbget endpoint path contains an unsafe segment")
+		}
+	}
+	return nil
+}
+
+func unsafeEndpointSegment(segment string) (bool, error) {
+	decoded := segment
+	for attempts := 0; attempts < 8; attempts++ {
+		unescaped, err := url.PathUnescape(decoded)
+		if err != nil {
+			return false, err
+		}
+		if unescaped == "." || unescaped == ".." || strings.Contains(unescaped, "/") || strings.Contains(unescaped, `\`) {
+			return true, nil
+		}
+		if unescaped == decoded {
+			return false, nil
+		}
+		decoded = unescaped
+	}
+	return false, nil
+}
+
+var (
+	errResponseBoundInvalid = errors.New("response bound is invalid")
+	errResponseBodyRead     = errors.New("response body could not be read")
+	errResponseTooLarge     = errors.New("response exceeds bound")
+	errResponseCanceled     = errors.New("response read was canceled")
+	errResponseDeadline     = errors.New("response read deadline exceeded")
+)
+
 func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 	if maxBytes < 1 || maxBytes == math.MaxInt64 {
-		return nil, errors.New("response bound is invalid")
+		return nil, errResponseBoundInvalid
+	}
+	if reader == nil {
+		return nil, errResponseBodyRead
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
-		return nil, errors.New("response could not be read")
+		if errors.Is(err, context.Canceled) {
+			return nil, errResponseCanceled
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, errResponseDeadline
+		}
+		return nil, errResponseBodyRead
 	}
 	if int64(len(body)) > maxBytes {
-		return nil, errors.New("response exceeds bound")
+		return nil, errResponseTooLarge
 	}
 	return body, nil
 }
@@ -708,13 +948,17 @@ func normalizeRPCError(method string, upstream *wireError) error {
 
 func contextError(method string, cause error) error {
 	if errors.Is(cause, context.Canceled) {
-		return &UpstreamError{Kind: ErrorCanceled, Method: method, Detail: "request canceled", cause: context.Canceled}
+		return &UpstreamError{Kind: ErrorCanceled, Method: method, Detail: "request canceled"}
 	}
-	return &UpstreamError{Kind: ErrorTimeout, Method: method, Retryable: true, Detail: "request deadline exceeded", cause: context.DeadlineExceeded}
+	return &UpstreamError{Kind: ErrorTimeout, Method: method, Retryable: true, Detail: "request deadline exceeded"}
 }
 
 func invalidInput(method string) error {
 	return &UpstreamError{Kind: ErrorInvalidInput, Method: method, Detail: "request input is invalid"}
+}
+
+func unsupported(method string) error {
+	return &UpstreamError{Kind: ErrorUnsupported, Method: method, Detail: "method is outside the supported read surface"}
 }
 
 func malformed(method string) error {

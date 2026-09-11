@@ -41,7 +41,8 @@
           "schema": {
             "type": "integer",
             "format": "int64"
-          }
+          },
+          "required": true
         }
       ],
       "result": {
@@ -65,21 +66,24 @@
           "schema": {
             "type": "integer",
             "format": "int64"
-          }
+          },
+          "required": true
         },
         {
           "name": "IDTo",
           "schema": {
             "type": "integer",
             "format": "int64"
-          }
+          },
+          "required": true
         },
         {
           "name": "NZBID",
           "schema": {
             "type": "integer",
             "format": "int64"
-          }
+          },
+          "required": true
         }
       ],
       "result": {
@@ -102,7 +106,8 @@
           "name": "Hidden",
           "schema": {
             "type": "boolean"
-          }
+          },
+          "required": true
         }
       ],
       "result": {
@@ -133,8 +138,10 @@
             "type": "string"
           },
           "Value": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -251,19 +258,25 @@
             "format": "int64"
           },
           "ID": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "FirstID": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "LastID": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "NZBFilename": {
             "type": "string"
@@ -272,22 +285,28 @@
             "type": "string"
           },
           "NZBNicename": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Kind": {
             "type": "string"
           },
           "URL": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "DestDir": {
             "type": "string"
           },
           "FinalDir": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Category": {
             "type": "string"
@@ -341,24 +360,32 @@
             "format": "int64"
           },
           "MinPostTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MaxPostTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MinPriority": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MaxPriority": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "ActiveDownloads": {
             "type": "integer",
@@ -388,140 +415,196 @@
             "format": "int64"
           },
           "DownloadedSizeLo": {
-            "type": "integer",
-            "format": "uint32",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32"
           },
           "DownloadedSizeHi": {
-            "type": "integer",
-            "format": "uint32",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32"
           },
           "DownloadedSizeMB": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DownloadTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MessageCount": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DupeKey": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "DupeScore": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DupeMode": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Parameters": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/Parameter"
-            },
-            "nullable": true
+            }
           },
           "ServerStats": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/ServerStat"
-            },
-            "nullable": true
+            }
           },
           "ParStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "UnpackStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ExParStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "MoveStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ScriptStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "DeleteStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "UrlStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "MarkStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ScriptStatuses": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/ScriptStatus"
-            },
-            "nullable": true
+            }
           },
           "PostInfoText": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "PostStageProgress": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "PostTotalTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "PostStageTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "ParTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "RepairTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "UnpackTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "Deleted": {
-            "type": "boolean",
-            "nullable": true
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "Log": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "object"
-            },
-            "nullable": true
+            }
           }
         },
         "required": [
@@ -567,24 +650,34 @@
             "type": "string"
           },
           "NZBNicename": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Subject": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Filename": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "FilenameConfirmed": {
-            "type": "boolean",
-            "nullable": true
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "DestDir": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "FileSizeLo": {
             "type": "integer",
@@ -603,32 +696,44 @@
             "format": "uint32"
           },
           "Paused": {
-            "type": "boolean",
-            "nullable": true
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "PostTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "Category": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Priority": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "ActiveDownloads": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "Progress": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         },
         "required": [
@@ -698,9 +803,11 @@
             "format": "int64"
           },
           "ID": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "Kind": {
             "type": "string"
@@ -712,32 +819,44 @@
             "type": "string"
           },
           "NZBName": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "NZBNicename": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "URL": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "RetryData": {
-            "type": "boolean",
-            "nullable": true
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "HistoryTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DestDir": {
             "type": "string"
           },
           "FinalDir": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Category": {
             "type": "string"
@@ -751,9 +870,11 @@
             "format": "uint32"
           },
           "FileSizeMB": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "FileCount": {
             "type": "integer",
@@ -764,14 +885,18 @@
             "format": "int64"
           },
           "MinPostTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MaxPostTime": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "TotalArticles": {
             "type": "integer",
@@ -794,134 +919,186 @@
             "format": "int64"
           },
           "Deleted": {
-            "type": "boolean",
-            "nullable": true
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "DownloadedSizeLo": {
-            "type": "integer",
-            "format": "uint32",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32"
           },
           "DownloadedSizeHi": {
-            "type": "integer",
-            "format": "uint32",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32"
           },
           "DownloadedSizeMB": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DownloadTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "PostTotalTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "ParTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "RepairTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "UnpackTimeSec": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "MessageCount": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DupeKey": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "DupeScore": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "DupeMode": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "Status": {
             "type": "string"
           },
           "ParStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ExParStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "UnpackStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "UrlStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ScriptStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ScriptStatuses": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/ScriptStatus"
-            },
-            "nullable": true
+            }
           },
           "MoveStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "DeleteStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "MarkStatus": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "ExtraParBlocks": {
-            "type": "integer",
-            "format": "int64",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "Parameters": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/Parameter"
-            },
-            "nullable": true
+            }
           },
           "ServerStats": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "$ref": "#/components/schemas/ServerStat"
-            },
-            "nullable": true
+            }
           },
           "Log": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "object"
-            },
-            "nullable": true
+            }
           }
         },
         "required": [

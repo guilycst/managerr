@@ -30,8 +30,9 @@ type method struct {
 }
 
 type parameter struct {
-	Name   string `json:"name"`
-	Schema schema `json:"schema"`
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+	Schema   schema `json:"schema"`
 }
 
 type result struct {
@@ -41,15 +42,56 @@ type result struct {
 
 type schema struct {
 	Ref        string            `json:"$ref"`
-	Type       string            `json:"type"`
+	Type       schemaTypes       `json:"type"`
 	Format     string            `json:"format"`
-	Nullable   bool              `json:"nullable"`
 	Items      *schema           `json:"items"`
 	Properties map[string]schema `json:"properties"`
 	Required   []string          `json:"required"`
 	GoName     string            `json:"x-go-name"`
 	GoType     string            `json:"x-go-type"`
 	GoOrder    []string          `json:"x-go-order"`
+}
+
+// schemaTypes accepts the Draft 7 `type` form used by OpenRPC: a single
+// primitive name or a two-member union containing exactly one `null` member.
+// Keeping this as a small type makes nullable wire fields explicit in the
+// contract instead of relying on OpenAPI's non-Draft-7 `nullable` keyword.
+type schemaTypes []string
+
+func (types *schemaTypes) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*types = schemaTypes{single}
+		return nil
+	}
+	var union []string
+	if err := json.Unmarshal(data, &union); err != nil || len(union) == 0 {
+		return errors.New("schema type must be a string or non-empty string array")
+	}
+	*types = schemaTypes(union)
+	return nil
+}
+
+func (types schemaTypes) has(value string) bool {
+	for _, current := range types {
+		if current == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (types schemaTypes) primary() string {
+	for _, current := range types {
+		if current != "null" {
+			return current
+		}
+	}
+	return ""
+}
+
+func (types schemaTypes) nullable() bool {
+	return types.has("null")
 }
 
 var expectedMethods = []string{"version", "listgroups", "listfiles", "history"}
@@ -93,11 +135,14 @@ func fatal(err error) {
 // initial read methods so adding an upstream mutation cannot silently expand
 // this read-only client.
 func Generate(data []byte) ([]byte, error) {
+	if err := rejectOpenAPINullable(data); err != nil {
+		return nil, err
+	}
 	var doc document
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("decode OpenRPC: %w", err)
 	}
-	if !strings.HasPrefix(doc.OpenRPC, "1.") {
+	if doc.OpenRPC != "1.2.6" {
 		return nil, fmt.Errorf("unsupported OpenRPC version %q", doc.OpenRPC)
 	}
 	if len(doc.Methods) != len(expectedMethods) {
@@ -111,12 +156,20 @@ func Generate(data []byte) ([]byte, error) {
 		if current.ParamStructure != "by-position" {
 			return nil, fmt.Errorf("method %q must use by-position parameters", current.Name)
 		}
-		if current.Result.Schema.Type == "" && current.Result.Schema.Ref == "" {
+		for _, param := range current.Params {
+			if !param.Required {
+				return nil, fmt.Errorf("method %q parameter %q must be required", current.Name, param.Name)
+			}
+		}
+		if len(current.Result.Schema.Type) == 0 && current.Result.Schema.Ref == "" {
 			return nil, fmt.Errorf("method %q has no result schema", current.Name)
 		}
 	}
 	if len(doc.Components.Schemas) == 0 {
 		return nil, errors.New("OpenRPC components.schemas is empty")
+	}
+	if err := validateSchemaTypes(doc); err != nil {
+		return nil, err
 	}
 	if err := validateReferences(doc); err != nil {
 		return nil, err
@@ -167,6 +220,102 @@ func Generate(data []byte) ([]byte, error) {
 	return formatted, nil
 }
 
+func rejectOpenAPINullable(data []byte) error {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("decode OpenRPC document for semantic validation: %w", err)
+	}
+	var walk func(any, string) error
+	walk = func(current any, location string) error {
+		switch typed := current.(type) {
+		case map[string]any:
+			if _, found := typed["nullable"]; found {
+				return fmt.Errorf("unsupported OpenAPI nullable keyword at %s", location)
+			}
+			for name, child := range typed {
+				if err := walk(child, location+"."+name); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for index, child := range typed {
+				if err := walk(child, fmt.Sprintf("%s[%d]", location, index)); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return walk(value, "OpenRPC")
+}
+
+func validateSchemaTypes(doc document) error {
+	var check func(schema, string) error
+	check = func(value schema, location string) error {
+		if value.Ref != "" {
+			return nil
+		}
+		if len(value.Type) == 0 {
+			return fmt.Errorf("schema at %s has no type", location)
+		}
+		nullable := false
+		base := ""
+		for _, current := range value.Type {
+			if current == "null" {
+				if nullable {
+					return fmt.Errorf("schema at %s repeats null in type union", location)
+				}
+				nullable = true
+				continue
+			}
+			if base != "" {
+				return fmt.Errorf("schema at %s has more than one non-null type", location)
+			}
+			base = current
+		}
+		if base == "" {
+			return fmt.Errorf("schema at %s has no non-null type", location)
+		}
+		if len(value.Type) > 2 {
+			return fmt.Errorf("schema at %s has an unsupported type union", location)
+		}
+		switch base {
+		case "array":
+			if value.Items == nil {
+				return fmt.Errorf("array schema at %s has no items", location)
+			}
+		case "object":
+			for name, property := range value.Properties {
+				if err := check(property, location+"."+name); err != nil {
+					return err
+				}
+			}
+		}
+		if value.Items != nil {
+			if err := check(*value.Items, location+".items"); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for name, value := range doc.Components.Schemas {
+		if err := check(value, "components.schemas."+name); err != nil {
+			return err
+		}
+	}
+	for _, current := range doc.Methods {
+		if err := check(current.Result.Schema, "methods."+current.Name+".result"); err != nil {
+			return err
+		}
+		for _, param := range current.Params {
+			if err := check(param.Schema, "methods."+current.Name+".params."+param.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func validateReferences(doc document) error {
 	known := make(map[string]struct{}, len(doc.Components.Schemas))
 	for name := range doc.Components.Schemas {
@@ -212,7 +361,7 @@ func validateReferences(doc document) error {
 
 func emitStruct(out *strings.Builder, name string, value schema) error {
 	goName := schemaName(name, value)
-	if value.Type != "object" {
+	if value.Type.primary() != "object" {
 		fieldType, err := goType(value, true)
 		if err != nil {
 			return fmt.Errorf("schema %q: %w", name, err)
@@ -264,7 +413,7 @@ func goType(value schema, required bool) (string, error) {
 	switch {
 	case value.Ref != "":
 		result = schemaName(strings.TrimPrefix(value.Ref, "#/components/schemas/"), schema{})
-	case value.Type == "array":
+	case value.Type.primary() == "array":
 		if value.Items == nil {
 			return "", errors.New("array schema has no items")
 		}
@@ -273,11 +422,11 @@ func goType(value schema, required bool) (string, error) {
 			return "", err
 		}
 		result = "[]" + itemType
-	case value.Type == "string":
+	case value.Type.primary() == "string":
 		result = "string"
-	case value.Type == "boolean":
+	case value.Type.primary() == "boolean":
 		result = "bool"
-	case value.Type == "integer":
+	case value.Type.primary() == "integer":
 		switch value.Format {
 		case "uint32":
 			result = "uint32"
@@ -288,14 +437,14 @@ func goType(value schema, required bool) (string, error) {
 		default:
 			return "", fmt.Errorf("unsupported integer format %q", value.Format)
 		}
-	case value.Type == "number":
+	case value.Type.primary() == "number":
 		result = "float64"
-	case value.Type == "object":
+	case value.Type.primary() == "object":
 		result = "map[string]any"
 	default:
-		return "", fmt.Errorf("unsupported schema type %q", value.Type)
+		return "", fmt.Errorf("unsupported schema type %q", value.Type.primary())
 	}
-	if value.Nullable && result[0] != '[' {
+	if value.Type.nullable() && result[0] != '[' {
 		result = "*" + result
 	}
 	_ = required

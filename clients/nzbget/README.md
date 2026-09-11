@@ -42,15 +42,25 @@ pointers in generated DTOs and normalized observations.
 
 `New` accepts an absolute HTTP or HTTPS endpoint. A missing path gets
 `/jsonrpc`; embedded credentials, query strings, and fragments are rejected.
-Credentials are sent only with HTTP Basic authentication. Requests use a
-15-second deadline by default when the caller has not supplied one. Response
-bodies are bounded to 8 MiB by default and may be configured up to 64 MiB.
-Redirects to another origin are not followed.
+Endpoint paths retain clean custom prefixes exactly, while dot segments,
+encoded dot segments, encoded slashes or backslashes, and repeated separators
+are rejected. Credentials are sent only with HTTP Basic authentication.
+Requests use a 15-second deadline by default when the caller has not supplied
+one. Response bodies are bounded to 8 MiB by default and may be configured up
+to 64 MiB. Redirects to another origin are not followed.
 
 Failures are returned as `*UpstreamError`, with a stable `ErrorKind`, method,
 HTTP status or JSON-RPC code, and a sanitized detail. Raw response bodies,
 upstream messages, endpoint URLs, and credentials are not included in errors.
-Context cancellation and deadlines remain discoverable with `errors.Is`.
+Non-success HTTP status is classified before response bytes are retained.
+Context cancellation and deadlines remain discoverable with `errors.Is`, while
+raw transport errors are never in the public error chain. JSON-RPC responses
+must contain one non-null `version`, one non-null `id`, and exactly one valid
+`result` or `error` member; duplicate object members are rejected.
+
+Locally refused but syntactically safe methods, including `rpc.discover` and
+mutations, return `ErrorUnsupported` without a network request. Malformed
+method names and invalid arguments return `ErrorInvalidInput`.
 
 The convenience methods (`Version`, `ListGroups`, `ListFiles`, and `History`)
 return normalized observations. `Client.Methods()` exposes generated wire
@@ -71,9 +81,11 @@ the repository root, run:
 ```
 
 The module also records the same command in `generate.go` for `go generate`.
-The tools-module generator validates the OpenRPC version, exact method set,
-positional parameter mode, and schema references. Its tests generate twice and
-compare both outputs with the committed file to keep the output reproducible.
+The tools-module generator pins OpenRPC 1.2.6, requires every positional
+parameter, rejects OpenAPI's `nullable` keyword, validates Draft 7 type unions,
+and checks the exact method set, positional parameter mode, and schema
+references. Its tests generate twice and compare both outputs with the
+committed file to keep the output reproducible.
 The `check-generation.sh` helper performs the same comparison from a temporary
 working directory without modifying the checkout:
 
