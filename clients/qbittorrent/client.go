@@ -14,7 +14,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -104,9 +103,10 @@ func IsCode(err error, code ErrorCode) bool {
 
 // Config controls one qBittorrent WebUI connection. Username and Password are
 // used only for the in-memory login request and are never copied into an
-// observation or error. HTTPClient is cloned and receives an isolated cookie
-// jar. Redirects are rejected to prevent a SID-bearing request from leaving
-// the configured origin.
+// observation or error. HTTPClient is cloned and does not inherit caller
+// cookie state; this client applies only the validated SID selected for each
+// request. Redirects are rejected to prevent a SID-bearing request from
+// leaving the configured origin.
 type Config struct {
 	Endpoint string
 	Username string
@@ -133,6 +133,7 @@ type Client struct {
 	authenticated  bool
 	authInFlight   *authFlight
 	authGeneration uint64
+	sessionSID     string
 }
 
 // authFlight publishes one immutable result to every caller that joined the
@@ -142,6 +143,14 @@ type Client struct {
 type authFlight struct {
 	done chan struct{}
 	err  error
+}
+
+// sessionCredential binds the SID selected for a request to the generation
+// that authenticated it. Keeping both values under authMu prevents a request
+// from being labeled with one generation while sending another session.
+type sessionCredential struct {
+	sid        string
+	generation uint64
 }
 
 // Versions contains both read-only version probes.
@@ -274,8 +283,8 @@ type Category struct {
 	SavePath string
 }
 
-// New validates the endpoint and prepares an isolated cookie session without
-// making a network request.
+// New validates the endpoint and prepares an isolated in-memory session
+// credential without making a network request.
 func New(config Config) (*Client, error) {
 	endpoint, err := parseEndpoint(config.Endpoint)
 	if err != nil {
@@ -311,11 +320,10 @@ func New(config Config) (*Client, error) {
 	if clientCopy.Timeout <= 0 {
 		clientCopy.Timeout = defaultHTTPTimeout
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, errors.New("qBittorrent session cookie setup failed")
-	}
-	clientCopy.Jar = jar
+	// Do not let net/http select or persist cookies on our behalf. In
+	// particular, a delayed response from an old request must never restore an
+	// obsolete SID before its status can be checked against authGeneration.
+	clientCopy.Jar = nil
 	// qBittorrent's login response establishes the SID cookie. Refusing every
 	// redirect makes the origin boundary explicit and keeps POST login bodies
 	// from being replayed by net/http at another location.
@@ -552,7 +560,7 @@ func (c *Client) ensureSession(ctx context.Context) error {
 			c.authInFlight = flight
 			c.authMu.Unlock()
 
-			err := c.authenticate(ctx)
+			sid, err := c.authenticate(ctx)
 			c.authMu.Lock()
 			if err == nil {
 				if ctxErr := contextError(ctx); ctxErr != nil {
@@ -560,6 +568,7 @@ func (c *Client) ensureSession(ctx context.Context) error {
 				} else {
 					c.authenticated = true
 					c.authGeneration++
+					c.sessionSID = sid
 				}
 			}
 			flight.err = err
@@ -588,24 +597,24 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	}
 }
 
-func (c *Client) authenticate(ctx context.Context) error {
+func (c *Client) authenticate(ctx context.Context) (string, error) {
 	form := url.Values{}
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
-	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, "", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
 	if status != 0 && status != http.StatusOK {
-		return statusError("qbit.auth.login", status)
+		return "", statusError("qbit.auth.login", status)
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
-		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+		return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
 	}
-	if !c.hasUsableSID(cookies) {
-		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+	if sid, ok := c.usableSID(cookies); ok {
+		return sid, nil
 	}
-	return nil
+	return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
 }
 
 func (c *Client) invalidateSession(expectedGeneration uint64) bool {
@@ -615,34 +624,57 @@ func (c *Client) invalidateSession(expectedGeneration uint64) bool {
 		return false
 	}
 	c.authenticated = false
+	c.sessionSID = ""
 	return true
 }
 
-func (c *Client) sessionGeneration() uint64 {
+func (c *Client) sessionCredential() (sessionCredential, bool) {
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
-	return c.authGeneration
+	if !c.authenticated || !usableSIDValue(c.sessionSID) {
+		return sessionCredential{}, false
+	}
+	return sessionCredential{sid: c.sessionSID, generation: c.authGeneration}, true
+}
+
+func (c *Client) currentSession(ctx context.Context) (sessionCredential, error) {
+	for {
+		if err := contextError(ctx); err != nil {
+			return sessionCredential{}, err
+		}
+		if credential, ok := c.sessionCredential(); ok {
+			return credential, nil
+		}
+		if err := c.ensureSession(ctx); err != nil {
+			return sessionCredential{}, err
+		}
+	}
 }
 
 func (c *Client) get(ctx context.Context, operation, endpoint string, query url.Values) ([]byte, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	if err := c.ensureSession(ctx); err != nil {
+	credential, err := c.currentSession(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return c.getAfterSession(ctx, operation, endpoint, query, true, c.sessionGeneration())
+	return c.getAfterSession(ctx, operation, endpoint, query, true, credential)
 }
 
-func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool, generation uint64) ([]byte, error) {
-	body, status, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, nil, "", c.config.MaxResponseBytes)
+func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool, credential sessionCredential) ([]byte, error) {
+	body, status, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, credential.sid, nil, "", c.config.MaxResponseBytes)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		if retryAuth {
-			c.invalidateSession(generation)
+			c.invalidateSession(credential.generation)
 			if err := c.ensureSession(ctx); err != nil {
 				return nil, err
 			}
-			return c.getAfterSession(ctx, operation, endpoint, query, false, c.sessionGeneration())
+			nextCredential, err := c.currentSession(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return c.getAfterSession(ctx, operation, endpoint, query, false, nextCredential)
 		}
 		return nil, statusError(operation, status)
 	}
@@ -655,7 +687,7 @@ func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string
 	return body, nil
 }
 
-func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, error) {
+func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, sid string, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, 0, nil, err
 	}
@@ -673,6 +705,12 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	request.Header.Set("Origin", c.origin())
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
+	}
+	if sid != "" {
+		if !usableSIDValue(sid) {
+			return nil, 0, nil, invalidInput(operation)
+		}
+		request.Header.Set("Cookie", "SID="+sid)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -842,16 +880,23 @@ func validBoundedText(value string, maxChars int, rejectEmpty bool) bool {
 }
 
 func usableSIDValue(value string) bool {
-	return value != "" && utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsSpace) < 0 && strings.IndexFunc(value, unicode.IsControl) < 0
-}
-
-func (c *Client) hasUsableSID(responseCookies []*http.Cookie) bool {
-	if c.http == nil || c.http.Jar == nil {
+	if value == "" || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsSpace) >= 0 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return false
 	}
+	// http.Cookie.String rejects values that could change the meaning of the
+	// manually controlled Cookie header. Check its serialized form once here
+	// so every accepted SID is safe to attach verbatim to a request.
+	cookie := (&http.Cookie{Name: "SID", Value: value}).String()
+	return cookie == "SID="+value
+}
+
+func (c *Client) usableSID(responseCookies []*http.Cookie) (string, bool) {
 	requestURL := c.apiRootURL()
 	for _, responseCookie := range responseCookies {
 		if responseCookie == nil || responseCookie.Name != "SID" || !usableSIDValue(responseCookie.Value) {
+			continue
+		}
+		if responseCookie.MaxAge < 0 || (!responseCookie.Expires.IsZero() && !responseCookie.Expires.After(time.Now())) {
 			continue
 		}
 		if responseCookie.Secure && requestURL.Scheme != "https" {
@@ -860,13 +905,14 @@ func (c *Client) hasUsableSID(responseCookies []*http.Cookie) bool {
 		if !cookieDomainApplies(responseCookie.Domain, requestURL.Hostname()) || !cookiePathApplies(responseCookie.Path, requestURL.Path, c.loginPath()) {
 			continue
 		}
-		for _, cookie := range c.http.Jar.Cookies(requestURL) {
-			if cookie.Name == "SID" && cookie.Value == responseCookie.Value && usableSIDValue(cookie.Value) {
-				return true
-			}
-		}
+		return responseCookie.Value, true
 	}
-	return false
+	return "", false
+}
+
+func (c *Client) hasUsableSID(responseCookies []*http.Cookie) bool {
+	_, ok := c.usableSID(responseCookies)
+	return ok
 }
 
 func (c *Client) apiRootURL() *url.URL {

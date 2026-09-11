@@ -28,9 +28,12 @@ nonempty, usable `SID` cookie for the configured origin. A client requires a
 nonempty UTF-8 username (at most 256 characters) and password (at most 1024
 characters); there is no credential-less login mode. Requests carry the
 configured origin's `Origin` and `Referer` headers, and redirects are rejected
-so a session-bearing request cannot be sent to another location. Credentials
-are held only in the client configuration and login form. Upstream body text is
-never copied to an error; failures are classified by the typed `UpstreamError` codes
+so a session-bearing request cannot be sent to another location. The validated
+`SID` is held in memory and attached explicitly to each request; the
+client does not use `http.CookieJar`, so delayed `Set-Cookie` headers cannot
+replace the active session. Credentials are held only in the client
+configuration and login form. Upstream body text is never copied to an error;
+failures are classified by the typed `UpstreamError` codes
 `unavailable`, `rate_limited`, `unauthorized`, `invalid_input`, `conflict`,
 `unsupported` and `unknown`.
 
@@ -51,9 +54,10 @@ joining one attempt observe that attempt's result, while a later call can
 deliberately retry after it drains. Callers waiting for it retain context
 cancellation semantics.
 
-Each read is bound to the authentication generation that sent it. A 401 or
-403 can invalidate only that generation; a delayed rejection from an older
-request retries through a newer session without triggering another login.
+Each read binds its selected `SID` and authentication generation as one
+credential snapshot. A 401 or 403 can invalidate only that generation; a
+delayed rejection from an older request retries through a newer session
+without revoking the newer `SID` or triggering another login.
 Inventory filter and sort values are limited to 64 characters, category
 and tag values to 512 characters. Hash list members are at most 128 characters,
 cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and

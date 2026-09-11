@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -457,6 +458,7 @@ func TestLoginRequiresUsableSIDCookie(t *testing.T) {
 		{name: "app-only path", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: apiAppVersion}, wantOK: false},
 		{name: "secure cookie over HTTP", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/", Secure: true}, wantOK: false},
 		{name: "wrong domain", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/", Domain: "other.invalid"}, wantOK: false},
+		{name: "deletion cookie", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/", MaxAge: -1}, wantOK: false},
 		{name: "usable API path", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/api/v2/"}, wantOK: true},
 		{name: "usable", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/"}, wantOK: true},
 	} {
@@ -1643,6 +1645,10 @@ func TestStaleSessionRejectionCannotInvalidateFreshSession(t *testing.T) {
 				}
 				loginStarted <- read
 				<-releaseReads[read-1]
+				// A delayed response from the obsolete request must not let
+				// net/http restore session-1 after the refresh has installed
+				// session-2.
+				http.SetCookie(w, &http.Cookie{Name: "SID", Value: "session-1", Path: "/"})
 				w.WriteHeader(http.StatusForbidden)
 			case "session-2":
 				freshReadCount.Add(1)
@@ -1716,6 +1722,113 @@ func TestStaleSessionRejectionCannotInvalidateFreshSession(t *testing.T) {
 	}
 	if got := loginCount.Load(); got != 2 {
 		t.Fatalf("post-race login attempts = %d, want no stale-session refresh", got)
+	}
+}
+
+func TestSessionCredentialBindsSIDAndGeneration(t *testing.T) {
+	var loginCount atomic.Int32
+	var sid2Reads atomic.Int32
+	var requestCookiesMu sync.Mutex
+	var requestCookies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			attempt := loginCount.Add(1)
+			if attempt > 3 {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: fmt.Sprintf("session-%d", attempt), Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		cookie, err := r.Cookie("SID")
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		requestCookiesMu.Lock()
+		requestCookies = append(requestCookies, cookie.Value)
+		requestCookiesMu.Unlock()
+		switch cookie.Value {
+		case "session-1":
+			// Model a delayed response that tries to set the obsolete SID
+			// after session-2 has already become active.
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: "session-1", Path: "/"})
+			w.WriteHeader(http.StatusForbidden)
+		case "session-2":
+			if sid2Reads.Add(1) == 1 {
+				_, _ = io.WriteString(w, "v5.0.0")
+				return
+			}
+			w.WriteHeader(http.StatusForbidden)
+		case "session-3":
+			_, _ = io.WriteString(w, "v5.0.0")
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("initial Login: %v", err)
+	}
+	oldCredential, ok := client.sessionCredential()
+	if !ok || oldCredential.sid != "session-1" || oldCredential.generation != 1 {
+		t.Fatalf("initial credential = %#v, %v; want session-1 generation 1", oldCredential, ok)
+	}
+	if !client.invalidateSession(oldCredential.generation) {
+		t.Fatal("invalidateSession(initial) = false, want true")
+	}
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("refresh Login: %v", err)
+	}
+	freshCredential, ok := client.sessionCredential()
+	if !ok || freshCredential.sid != "session-2" || freshCredential.generation != 2 {
+		t.Fatalf("fresh credential = %#v, %v; want session-2 generation 2", freshCredential, ok)
+	}
+
+	// The delayed request carries the exact old SID and generation together.
+	// Its rejection must not clear the newer session or accept the stale
+	// Set-Cookie header. The retry therefore uses session-2 and succeeds.
+	body, err := client.getAfterSession(context.Background(), "qbit.test.credential", apiAppVersion, nil, true, oldCredential)
+	if err != nil {
+		t.Fatalf("stale credential read: %v", err)
+	}
+	if got, want := string(body), "v5.0.0"; got != want {
+		t.Fatalf("stale credential read body = %q, want %q", got, want)
+	}
+	if got, want := loginCount.Load(), int32(2); got != want {
+		t.Fatalf("stale credential login count = %d, want %d", got, want)
+	}
+	if got, want := client.sessionCredential(); !want || got.sid != "session-2" || got.generation != 2 {
+		t.Fatalf("stale response changed active credential = %#v, %v; want session-2 generation 2", got, want)
+	}
+
+	// A rejection carrying the current credential must invalidate that exact
+	// generation and perform one deliberate login before the bounded retry.
+	currentCredential, ok := client.sessionCredential()
+	if !ok {
+		t.Fatal("current credential unavailable")
+	}
+	body, err = client.getAfterSession(context.Background(), "qbit.test.credential", apiAppVersion, nil, true, currentCredential)
+	if err != nil {
+		t.Fatalf("current credential read: %v", err)
+	}
+	if got, want := string(body), "v5.0.0"; got != want {
+		t.Fatalf("current credential read body = %q, want %q", got, want)
+	}
+	if got, want := loginCount.Load(), int32(3); got != want {
+		t.Fatalf("current credential login count = %d, want %d", got, want)
+	}
+	requestCookiesMu.Lock()
+	gotCookies := append([]string(nil), requestCookies...)
+	requestCookiesMu.Unlock()
+	if want := []string{"session-1", "session-2", "session-2", "session-3"}; !reflect.DeepEqual(gotCookies, want) {
+		t.Fatalf("request SID sequence = %#v, want %#v", gotCookies, want)
 	}
 }
 
