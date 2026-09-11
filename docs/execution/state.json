@@ -181,7 +181,7 @@
     },
     "C-02": {
       "status": "in_progress",
-      "owner": "/root/c02_implementer",
+      "owner": "/root/c02_implementer_retry",
       "baseSha": "36156ee0dcb61d7859753b62c5f5cf655e77b9e3",
       "integratedSha": null,
       "evidence": [],
@@ -205,7 +205,18 @@
           "A-45"
         ],
         "reviewPath": "docs/execution/handoffs/C-02-review.md",
-        "nextReviewer": "/root/c02_reviewer"
+        "nextReviewer": "/root/c02_reviewer",
+        "previousAttempt": {
+          "owner": "/root/c02_implementer",
+          "status": "interrupted",
+          "reason": "bounded implementation window exceeded without handoff or file changes"
+        },
+        "retryAttempt": {
+          "owner": "/root/c02_implementer_retry",
+          "assignedAt": "2026-09-11",
+          "scope": "minimal independent modules, pinned tools, generation script and GOWORK=off CI",
+          "status": "in_progress"
+        }
       }
     },
     "C-03": {
@@ -489,7 +500,7 @@
       "review": null
     }
   },
-  "nextAction": "Await C-02 implementation handoff, then dispatch independent review",
+  "nextAction": "Await bounded C-02 retry, then dispatch independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
