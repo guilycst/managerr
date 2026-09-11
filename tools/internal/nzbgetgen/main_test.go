@@ -148,6 +148,45 @@ func TestGenerateRejectsUnsupportedVersionNullableAndInvalidUnion(t *testing.T) 
 	})
 }
 
+func TestGenerateValidatesServerURIContract(t *testing.T) {
+	contractPath, _ := repositoryPaths(t)
+	contract, err := os.ReadFile(contractPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(contract, &document); err != nil {
+		t.Fatal(err)
+	}
+	servers, ok := document["servers"].([]any)
+	if !ok || len(servers) != 1 {
+		t.Fatalf("servers = %#v", document["servers"])
+	}
+	server := servers[0].(map[string]any)
+	if server["url"] != "https://nzbget.invalid/jsonrpc" {
+		t.Fatalf("server URL = %#v", server["url"])
+	}
+	for _, value := range []string{"not a uri", "{endpoint}/jsonrpc", "relative/path"} {
+		server["url"] = value
+		mutated, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Generate(mutated); err == nil {
+			t.Fatalf("generator accepted invalid server URI %q", value)
+		}
+	}
+	server["url"] = "https://nzbget.invalid/jsonrpc"
+	document["servers"] = []any{}
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(mutated); err == nil {
+		t.Fatal("generator accepted a document without servers")
+	}
+}
+
 func assertDraft7Schemas(t *testing.T, document map[string]any) {
 	t.Helper()
 	var walk func(any, string)

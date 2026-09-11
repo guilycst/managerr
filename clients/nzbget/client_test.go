@@ -223,10 +223,11 @@ func TestHTTPStatusIsClassifiedBeforeResponseBound(t *testing.T) {
 		status    int
 		kind      ErrorKind
 		retryable bool
+		deadline  bool
 	}{
 		{name: "unauthorized", status: http.StatusUnauthorized, kind: ErrorUnauthorized},
 		{name: "forbidden", status: http.StatusForbidden, kind: ErrorForbidden},
-		{name: "request timeout", status: http.StatusRequestTimeout, kind: ErrorRateLimited, retryable: true},
+		{name: "request timeout", status: http.StatusRequestTimeout, kind: ErrorTimeout, retryable: true, deadline: true},
 		{name: "rate limited", status: http.StatusTooManyRequests, kind: ErrorRateLimited, retryable: true},
 		{name: "server error", status: http.StatusBadGateway, kind: ErrorUnavailable, retryable: true},
 	}
@@ -245,6 +246,40 @@ func TestHTTPStatusIsClassifiedBeforeResponseBound(t *testing.T) {
 			var upstream *UpstreamError
 			if !errors.As(err, &upstream) || upstream.Kind != test.kind || upstream.StatusCode != test.status || upstream.Retryable != test.retryable {
 				t.Fatalf("status %d error = %#v, %v", test.status, upstream, err)
+			}
+			if errors.Is(err, context.DeadlineExceeded) != test.deadline {
+				t.Fatalf("status %d deadline sentinel = %v", test.status, errors.Is(err, context.DeadlineExceeded))
+			}
+		})
+	}
+}
+
+func TestHTTPTimeoutAndRateLimitSemanticsWithSmallBodies(t *testing.T) {
+	for _, test := range []struct {
+		status   int
+		kind     ErrorKind
+		deadline bool
+	}{
+		{status: http.StatusRequestTimeout, kind: ErrorTimeout, deadline: true},
+		{status: http.StatusTooManyRequests, kind: ErrorRateLimited},
+	} {
+		t.Run(fmt.Sprint(test.status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, "small response")
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, MaxResponseBytes: 64})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Version(context.Background())
+			var upstream *UpstreamError
+			if !errors.As(err, &upstream) || upstream.Kind != test.kind || upstream.StatusCode != test.status || !upstream.Retryable {
+				t.Fatalf("status %d error = %#v, %v", test.status, upstream, err)
+			}
+			if errors.Is(err, context.DeadlineExceeded) != test.deadline {
+				t.Fatalf("status %d deadline sentinel = %v", test.status, errors.Is(err, context.DeadlineExceeded))
 			}
 		})
 	}
@@ -519,9 +554,29 @@ func TestHistoryAliasConflictFailsClosedAndEndpointValidation(t *testing.T) {
 		"https://example.test/%2e%2e/jsonrpc", "https://example.test/base//jsonrpc",
 		"https://example.test/base/%2fjsonrpc", "https://example.test/base/%5Cjsonrpc",
 		"https://example.test/base/%2e%2fjsonrpc", "https://example.test/base/%252e%252e/jsonrpc",
+		"https://example.test/%00/jsonrpc", "https://example.test/%0A/jsonrpc",
+		"https://example.test/%7F/jsonrpc", "https://example.test/%FF/jsonrpc",
 	} {
 		if _, err := New(Config{Endpoint: endpoint}); err == nil {
 			t.Fatalf("accepted unsafe endpoint %q", endpoint)
+		}
+	}
+	for _, layers := range []int{9, maxEndpointPathDecodes + 1} {
+		for _, unsafe := range []struct {
+			value string
+			name  string
+		}{
+			{value: "%2e%2e", name: "dot"},
+			{value: "%2f", name: "separator"},
+		} {
+			encoded := unsafe.value
+			for index := 0; index < layers; index++ {
+				encoded = strings.ReplaceAll(encoded, "%", "%25")
+			}
+			endpoint := "https://example.test/" + encoded + "/jsonrpc"
+			if _, err := New(Config{Endpoint: endpoint}); err == nil {
+				t.Fatalf("accepted %d-layer encoded %s segment", layers, unsafe.name)
+			}
 		}
 	}
 }

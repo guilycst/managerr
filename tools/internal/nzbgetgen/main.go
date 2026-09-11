@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"go/format"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -16,10 +17,16 @@ import (
 
 type document struct {
 	OpenRPC    string   `json:"openrpc"`
+	Servers    []server `json:"servers"`
 	Methods    []method `json:"methods"`
 	Components struct {
 		Schemas map[string]schema `json:"schemas"`
 	} `json:"components"`
+}
+
+type server struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 type method struct {
@@ -145,6 +152,9 @@ func Generate(data []byte) ([]byte, error) {
 	if doc.OpenRPC != "1.2.6" {
 		return nil, fmt.Errorf("unsupported OpenRPC version %q", doc.OpenRPC)
 	}
+	if err := validateServers(doc.Servers); err != nil {
+		return nil, err
+	}
 	if len(doc.Methods) != len(expectedMethods) {
 		return nil, fmt.Errorf("expected exactly %d read methods, got %d", len(expectedMethods), len(doc.Methods))
 	}
@@ -218,6 +228,22 @@ func Generate(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("format generated source: %w", err)
 	}
 	return formatted, nil
+}
+
+func validateServers(servers []server) error {
+	if len(servers) == 0 {
+		return errors.New("OpenRPC servers is empty")
+	}
+	for index, current := range servers {
+		if current.URL == "" || strings.TrimSpace(current.URL) != current.URL || strings.ContainsAny(current.URL, "{}") {
+			return fmt.Errorf("server %d has an invalid URI", index)
+		}
+		parsed, err := url.ParseRequestURI(current.URL)
+		if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("server %d has an invalid URI", index)
+		}
+	}
+	return nil
 }
 
 func rejectOpenAPINullable(data []byte) error {

@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -859,10 +860,19 @@ func validateEndpointPath(escapedPath string) error {
 
 func unsafeEndpointSegment(segment string) (bool, error) {
 	decoded := segment
-	for attempts := 0; attempts < 8; attempts++ {
+	for attempts := 0; attempts < maxEndpointPathDecodes; attempts++ {
 		unescaped, err := url.PathUnescape(decoded)
 		if err != nil {
+			// A literal percent can be produced by a valid `%25` escape. Once
+			// no further percent escape remains, it is a fixed point rather
+			// than an unsafe or malformed second decoding pass.
+			if !hasPercentEscape(decoded) {
+				return false, nil
+			}
 			return false, err
+		}
+		if !utf8.ValidString(unescaped) || strings.IndexFunc(unescaped, unicode.IsControl) >= 0 {
+			return true, nil
 		}
 		if unescaped == "." || unescaped == ".." || strings.Contains(unescaped, "/") || strings.Contains(unescaped, `\`) {
 			return true, nil
@@ -872,7 +882,24 @@ func unsafeEndpointSegment(segment string) (bool, error) {
 		}
 		decoded = unescaped
 	}
-	return false, nil
+	return false, errEndpointPathTooDeep
+}
+
+const maxEndpointPathDecodes = 32
+
+var errEndpointPathTooDeep = errors.New("endpoint path encoding is too deeply nested")
+
+func hasPercentEscape(value string) bool {
+	for index := 0; index+2 < len(value); index++ {
+		if value[index] == '%' && isHexDigit(value[index+1]) && isHexDigit(value[index+2]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHexDigit(value byte) bool {
+	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f' || value >= 'A' && value <= 'F'
 }
 
 var (
@@ -922,7 +949,9 @@ func normalizeHTTPError(method string, status int) error {
 		kind = ErrorUnauthorized
 	case http.StatusForbidden:
 		kind = ErrorForbidden
-	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+	case http.StatusRequestTimeout:
+		kind, retryable = ErrorTimeout, true
+	case http.StatusTooManyRequests:
 		kind, retryable = ErrorRateLimited, true
 	default:
 		if status >= 500 {

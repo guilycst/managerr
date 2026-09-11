@@ -20,7 +20,9 @@ The base API is documented for NZBGet 13 and later. Fields introduced by later
 versions are optional in the generated DTOs and remain nil when an older
 server omits them. The client reports the server's version through `Version`
 and does not claim a product build or feature that the response did not
-provide. The schema is based on the pinned NZBGet API source at
+provide. The document carries a synthetic absolute HTTPS server URI so it
+passes the OpenRPC 1.2.6 URI format; deployments supply their real endpoint
+through `Config.Endpoint`. The schema is based on the pinned NZBGet API source at
 [b609226e18da11955ce8dda2c7df959258655579](https://github.com/nzbgetcom/nzbget/tree/b609226e18da11955ce8dda2c7df959258655579/docs/api).
 
 NZBGet uses a JSON-RPC 1.1 envelope whose protocol member is named `version`.
@@ -44,7 +46,10 @@ pointers in generated DTOs and normalized observations.
 `/jsonrpc`; embedded credentials, query strings, and fragments are rejected.
 Endpoint paths retain clean custom prefixes exactly, while dot segments,
 encoded dot segments, encoded slashes or backslashes, and repeated separators
-are rejected. Credentials are sent only with HTTP Basic authentication.
+are rejected. Nested path escapes are decoded to a fixed point within a
+bounded depth and fail closed when the bound is exceeded; decoded controls
+and invalid UTF-8 are rejected. Credentials are sent only with HTTP Basic
+authentication.
 Requests use a 15-second deadline by default when the caller has not supplied
 one. Response bodies are bounded to 8 MiB by default and may be configured up
 to 64 MiB. Redirects to another origin are not followed.
