@@ -41,6 +41,9 @@ const (
 	identityBloomBytes   = 32 << 10
 	identityBloomHashes  = 4
 	maxHistoryReasonCode = 256
+	maxHistorySnapshot   = 256
+	maxNativeNestedBytes = 64 << 10
+	maxNativeNestedItems = 512
 )
 
 const (
@@ -507,6 +510,49 @@ func (client *Client) History(ctx context.Context, connectionID domain.ConfigID,
 		return result, malformed("arr.history.list")
 	}
 	explicitTotal := collectionHasTotal(body)
+	metadata := historyMetadata(body)
+	if metadata.snapshotPresent {
+		if !metadata.snapshotValid {
+			addReason(&state.Reasons, "history_snapshot_invalid")
+			state.SnapshotStable = false
+		} else if state.SnapshotToken == "" {
+			if state.Page > 0 {
+				// A token appearing after the first page cannot prove that the
+				// already-read page belongs to this snapshot.
+				addReason(&state.Reasons, "history_snapshot_unverified")
+				state.SnapshotStable = false
+			} else {
+				state.SnapshotToken = metadata.snapshotToken
+				state.SnapshotStable = true
+			}
+		} else if metadata.snapshotToken != state.SnapshotToken {
+			addReason(&state.Reasons, "history_snapshot_changed")
+			state.SnapshotStable = false
+		}
+	} else if state.SnapshotToken != "" {
+		// A previously advertised boundary disappearing is itself evidence of
+		// an unstable response. Do not let a terminal empty page turn it into
+		// confirmed absence.
+		addReason(&state.Reasons, "history_snapshot_unverified")
+		state.SnapshotStable = false
+	}
+	if metadata.totalKnown {
+		if state.HistoryTotalKnown && state.HistoryTotal != metadata.total {
+			addReason(&state.Reasons, "history_total_changed")
+			state.SnapshotStable = false
+		} else if !state.HistoryTotalKnown {
+			state.HistoryTotal = metadata.total
+			state.HistoryTotalKnown = true
+		}
+	}
+	if metadata.pageKnown && metadata.page != state.Page+1 {
+		addReason(&state.Reasons, "history_page_changed")
+		state.SnapshotStable = false
+	}
+	if metadata.pageSizeKnown && metadata.pageSize != limit {
+		addReason(&state.Reasons, "history_page_size_changed")
+		state.SnapshotStable = false
+	}
 	if total > client.config.MaxRecords {
 		// The configured record bound makes the full upstream collection
 		// unobservable. Retain the evidence on every page, but allow callers to
@@ -569,6 +615,14 @@ func (client *Client) History(ctx context.Context, connectionID domain.ConfigID,
 	if hasMore && state.ObservedCount >= client.config.MaxRecords {
 		hasMore = false
 		addReason(&state.Reasons, "history_record_limit")
+	}
+	if !hasMore && state.Page > 1 && !state.SnapshotStable {
+		// Arr's history endpoint is offset-paginated and does not expose a
+		// stable boundary in normal responses. Once more than one request was
+		// needed, a deletion or insertion can move a row across the offset
+		// without producing an overlap. Keep all useful rows, but never claim
+		// complete coverage without one immutable token covering every page.
+		addReason(&state.Reasons, "history_snapshot_unverified")
 	}
 	now := time.Now().UTC()
 	result.Items = entries
@@ -1311,6 +1365,7 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 	files := make([]ports.MediaFile, 0)
 	reasons := make([]string, 0)
 	index := make(map[string]int)
+	pathIndex := make(map[string]string)
 	for _, raw := range rawEpisodes {
 		var episode episodeDTO
 		if err := decodeJSON(raw, &episode); err != nil {
@@ -1318,7 +1373,12 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 			continue
 		}
 		fileDTO := episode.EpisodeFile
-		if fileDTO == nil && scalarString(episode.EpisodeFileID) != "" {
+		outerID := scalarString(episode.EpisodeFileID)
+		if rawValuePresent(episode.EpisodeFileID) && outerID == "" {
+			reasons = append(reasons, "episode_file_identity_malformed")
+			continue
+		}
+		if fileDTO == nil && outerID != "" {
 			reasons = append(reasons, "episode_file_details_missing")
 			continue
 		}
@@ -1330,25 +1390,41 @@ func (client *Client) episodeFiles(rawEpisodes []json.RawMessage) ([]ports.Media
 			reasons = append(reasons, "episode_file_identity_missing")
 			continue
 		}
+		if outerID != "" && outerID != fileID {
+			reasons = append(reasons, "episode_file_identity_mismatch")
+			continue
+		}
 		episodeID := scalarString(episode.ID)
 		if episodeID == "" {
 			reasons = append(reasons, "episode_identity_missing")
 			continue
 		}
+		target, mapped, ambiguous := client.mapPath(fileDTO.Path)
+		if ambiguous {
+			reasons = append(reasons, "episode_file_mapping_ambiguous")
+			continue
+		}
+		if !mapped {
+			reasons = append(reasons, "episode_file_mapping_missing")
+			continue
+		}
+		targetKey := sourceKey(target)
+		if previousID, exists := pathIndex[targetKey]; exists && previousID != fileID {
+			reasons = append(reasons, "episode_file_identity_conflict")
+			continue
+		}
 		position, exists := index[fileID]
 		if !exists {
-			target, mapped, ambiguous := client.mapPath(fileDTO.Path)
-			if ambiguous {
-				reasons = append(reasons, "episode_file_mapping_ambiguous")
-				continue
-			}
-			if !mapped {
-				reasons = append(reasons, "episode_file_mapping_missing")
-				continue
-			}
 			files = append(files, ports.MediaFile{ExternalID: fileID, Path: target, Size: fileDTO.Size})
 			position = len(files) - 1
 			index[fileID] = position
+			pathIndex[targetKey] = fileID
+		} else {
+			prior := files[position]
+			if prior.Path != target || prior.Size != fileDTO.Size {
+				reasons = append(reasons, "episode_file_conflicting_details")
+				continue
+			}
 		}
 		if !contains(files[position].EpisodeIDs, episodeID) {
 			files[position].EpisodeIDs = append(files[position].EpisodeIDs, episodeID)
@@ -1551,7 +1627,7 @@ func (client *Client) reprocessFileFromRadarr(candidate RadarrManualImportResour
 		return ReprocessFile{}, "movie_missing", "native preview returned no movie association"
 	}
 	quality, code, reason := nativeObject(candidate.Quality, "quality")
-	if code != "" {
+	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
 	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
@@ -1597,7 +1673,7 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 		return ReprocessFile{}, "series_missing", "native preview returned no series association"
 	}
 	quality, code, reason := nativeObject(candidate.Quality, "quality")
-	if code != "" {
+	if code != "" && !(requested.Subtitle && code == "native_quality_missing") {
 		return ReprocessFile{}, code, reason
 	}
 	languages, firstLanguage, code, reason := nativeLanguages(candidate.Languages)
@@ -1658,12 +1734,24 @@ func (client *Client) reprocessFileFromSonarr(candidate SonarrManualImportResour
 
 func nativeObject(value json.RawMessage, field string) (json.RawMessage, string, string) {
 	trimmed := bytes.TrimSpace(value)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, "", ""
+	if len(trimmed) == 0 {
+		if field == "quality" {
+			return nil, "native_quality_missing", "native preview returned no quality evidence"
+		}
+		return nil, "native_" + field + "_missing", "native preview returned missing " + field + " evidence"
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil, "native_" + field + "_missing", "native preview returned null " + field + " evidence"
+	}
+	if len(trimmed) > maxNativeNestedBytes || !json.Valid(trimmed) {
+		return nil, "native_" + field + "_malformed", "native preview returned malformed " + field + " evidence"
 	}
 	var object map[string]json.RawMessage
 	if err := decodeJSON(trimmed, &object); err != nil || len(object) == 0 {
 		return nil, "native_" + field + "_malformed", "native preview returned malformed " + field + " evidence"
+	}
+	if err := validateNativeObjectShape(object, field); err != nil {
+		return nil, "native_" + field + "_untyped", "native preview returned untyped " + field + " evidence"
 	}
 	return cloneRawMessage(trimmed), "", ""
 }
@@ -1681,6 +1769,394 @@ func nativeObjects(values []json.RawMessage, field string) ([]json.RawMessage, s
 		result = append(result, object)
 	}
 	return result, "", ""
+}
+
+// validateNativeObjectShape mirrors the pinned Arr nested resource shapes at
+// the boundary where a native GET becomes a reviewed reprocess request. Raw
+// JSON is retained for lossless evidence, but only a recognized, typed shape
+// can cross into the POST DTO. This keeps upstream additions non-executable
+// until the adapter has an explicit mapping for them.
+func validateNativeObjectShape(object map[string]json.RawMessage, field string) error {
+	switch field {
+	case "quality":
+		return validateQualityModel(object)
+	case "custom_formats":
+		return validateCustomFormat(object, 0)
+	default:
+		return errors.New("native field is unsupported")
+	}
+}
+
+func validateQualityModel(object map[string]json.RawMessage) error {
+	if err := rejectUnknownNativeFields(object, map[string]struct{}{"quality": {}, "revision": {}}); err != nil {
+		return err
+	}
+	qualityRaw, ok := object["quality"]
+	if !ok {
+		return errors.New("quality value is missing")
+	}
+	quality, err := nativeRawObject(qualityRaw)
+	if err != nil || len(quality) == 0 {
+		return errors.New("quality value is invalid")
+	}
+	if err := rejectUnknownNativeFields(quality, map[string]struct{}{
+		"id": {}, "name": {}, "source": {}, "resolution": {}, "modifier": {},
+	}); err != nil {
+		return err
+	}
+	if len(quality) == 0 {
+		return errors.New("quality value is empty")
+	}
+	meaningful := false
+	if raw, ok := quality["id"]; ok {
+		parsed, err := rawInt32(raw)
+		if err != nil || parsed <= 0 {
+			return errors.New("quality id is invalid")
+		}
+		meaningful = true
+	}
+	if raw, ok := quality["name"]; ok {
+		if !rawNullableString(raw) {
+			return errors.New("quality name is invalid")
+		}
+		meaningful = meaningful || rawStringValue(raw) != ""
+	}
+	if raw, ok := quality["source"]; ok {
+		var source string
+		if json.Unmarshal(raw, &source) != nil || !validQualitySource(source) {
+			return errors.New("quality source is invalid")
+		}
+		meaningful = true
+	}
+	if raw, ok := quality["resolution"]; ok {
+		if _, err := rawInt32(raw); err != nil {
+			return errors.New("quality resolution is invalid")
+		}
+		meaningful = true
+	}
+	if raw, ok := quality["modifier"]; ok {
+		var modifier string
+		if json.Unmarshal(raw, &modifier) != nil || !validQualityModifier(modifier) {
+			return errors.New("quality modifier is invalid")
+		}
+		meaningful = true
+	}
+	if !meaningful {
+		return errors.New("quality value is untyped")
+	}
+	if raw, ok := object["revision"]; ok {
+		revision, err := nativeRawObject(raw)
+		if err != nil {
+			return errors.New("quality revision is invalid")
+		}
+		if err := rejectUnknownNativeFields(revision, map[string]struct{}{"version": {}, "real": {}, "isRepack": {}}); err != nil {
+			return err
+		}
+		if len(revision) == 0 {
+			return errors.New("quality revision is empty")
+		}
+		for _, key := range []string{"version", "real"} {
+			if raw, ok := revision[key]; ok {
+				if _, err := rawInt32(raw); err != nil {
+					return errors.New("quality revision integer is invalid")
+				}
+			}
+		}
+		if raw, ok := revision["isRepack"]; ok && !rawBool(raw) {
+			return errors.New("quality revision flag is invalid")
+		}
+	}
+	return nil
+}
+
+func validateCustomFormat(object map[string]json.RawMessage, depth int) error {
+	if depth > 4 {
+		return errors.New("custom format nesting is too deep")
+	}
+	if err := rejectUnknownNativeFields(object, map[string]struct{}{
+		"id": {}, "name": {}, "includeCustomFormatWhenRenaming": {}, "specifications": {},
+	}); err != nil {
+		return err
+	}
+	if raw, ok := object["id"]; !ok {
+		return errors.New("custom format id is missing")
+	} else if parsed, err := rawInt32(raw); err != nil || parsed <= 0 {
+		return errors.New("custom format id is invalid")
+	}
+	if raw, ok := object["name"]; ok && !rawNullableString(raw) {
+		return errors.New("custom format name is invalid")
+	}
+	if raw, ok := object["includeCustomFormatWhenRenaming"]; ok && !rawNullableBool(raw) {
+		return errors.New("custom format rename flag is invalid")
+	}
+	if raw, ok := object["specifications"]; ok {
+		trimmed := bytes.TrimSpace(raw)
+		if bytes.Equal(trimmed, []byte("null")) {
+			return nil
+		}
+		var specifications []json.RawMessage
+		if decodeJSON(trimmed, &specifications) != nil || len(specifications) > maxNativeNestedItems {
+			return errors.New("custom format specifications are invalid")
+		}
+		for _, specification := range specifications {
+			value, err := nativeRawObject(specification)
+			if err != nil || len(value) == 0 {
+				return errors.New("custom format specification is invalid")
+			}
+			if err := validateCustomFormatSpecification(value, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateCustomFormatSpecification(object map[string]json.RawMessage, depth int) error {
+	if depth > 4 {
+		return errors.New("custom format specification nesting is too deep")
+	}
+	if err := rejectUnknownNativeFields(object, map[string]struct{}{
+		"id": {}, "name": {}, "implementation": {}, "implementationName": {}, "infoLink": {},
+		"negate": {}, "required": {}, "fields": {}, "presets": {},
+	}); err != nil {
+		return err
+	}
+	if len(object) == 0 {
+		return errors.New("custom format specification is empty")
+	}
+	if raw, ok := object["id"]; ok {
+		if _, err := rawInt32(raw); err != nil {
+			return errors.New("custom format specification id is invalid")
+		}
+	}
+	for _, key := range []string{"name", "implementation", "implementationName", "infoLink"} {
+		if raw, ok := object[key]; ok && !rawNullableString(raw) {
+			return errors.New("custom format specification string is invalid")
+		}
+	}
+	for _, key := range []string{"negate", "required"} {
+		if raw, ok := object[key]; ok && !rawBool(raw) {
+			return errors.New("custom format specification flag is invalid")
+		}
+	}
+	if raw, ok := object["fields"]; ok {
+		if err := validateCustomFormatFields(raw); err != nil {
+			return err
+		}
+	}
+	if raw, ok := object["presets"]; ok {
+		trimmed := bytes.TrimSpace(raw)
+		if bytes.Equal(trimmed, []byte("null")) {
+			return nil
+		}
+		var presets []json.RawMessage
+		if decodeJSON(trimmed, &presets) != nil || len(presets) > maxNativeNestedItems {
+			return errors.New("custom format presets are invalid")
+		}
+		for _, preset := range presets {
+			value, err := nativeRawObject(preset)
+			if err != nil || len(value) == 0 {
+				return errors.New("custom format preset is invalid")
+			}
+			if err := validateCustomFormatSpecification(value, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateCustomFormatFields(raw json.RawMessage) error {
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	var fields []json.RawMessage
+	if decodeJSON(trimmed, &fields) != nil || len(fields) > maxNativeNestedItems {
+		return errors.New("custom format fields are invalid")
+	}
+	for _, fieldRaw := range fields {
+		field, err := nativeRawObject(fieldRaw)
+		if err != nil || len(field) == 0 {
+			return errors.New("custom format field is invalid")
+		}
+		if err := validateCustomFormatField(field); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCustomFormatField(object map[string]json.RawMessage) error {
+	if err := rejectUnknownNativeFields(object, map[string]struct{}{
+		"order": {}, "name": {}, "label": {}, "unit": {}, "helpText": {}, "helpTextWarning": {},
+		"helpLink": {}, "value": {}, "type": {}, "advanced": {}, "selectOptions": {},
+		"selectOptionsProviderAction": {}, "section": {}, "hidden": {}, "privacy": {},
+		"placeholder": {}, "isFloat": {},
+	}); err != nil {
+		return err
+	}
+	if len(object) == 0 {
+		return errors.New("custom format field is empty")
+	}
+	if raw, ok := object["order"]; ok {
+		if _, err := rawInt32(raw); err != nil {
+			return errors.New("custom format field order is invalid")
+		}
+	}
+	for _, key := range []string{"name", "label", "unit", "helpText", "helpTextWarning", "helpLink", "type", "selectOptionsProviderAction", "section", "hidden", "placeholder"} {
+		if raw, ok := object[key]; ok && !rawNullableString(raw) {
+			return errors.New("custom format field string is invalid")
+		}
+	}
+	for _, key := range []string{"advanced", "isFloat"} {
+		if raw, ok := object[key]; ok && !rawBool(raw) {
+			return errors.New("custom format field flag is invalid")
+		}
+	}
+	if raw, ok := object["privacy"]; ok {
+		var privacy string
+		if json.Unmarshal(raw, &privacy) != nil || !validPrivacyLevel(privacy) {
+			return errors.New("custom format field privacy is invalid")
+		}
+	}
+	if raw, ok := object["selectOptions"]; ok {
+		trimmed := bytes.TrimSpace(raw)
+		if bytes.Equal(trimmed, []byte("null")) {
+			return nil
+		}
+		var options []json.RawMessage
+		if decodeJSON(trimmed, &options) != nil || len(options) > maxNativeNestedItems {
+			return errors.New("custom format select options are invalid")
+		}
+		for _, optionRaw := range options {
+			option, err := nativeRawObject(optionRaw)
+			if err != nil || len(option) == 0 {
+				return errors.New("custom format select option is invalid")
+			}
+			if err := rejectUnknownNativeFields(option, map[string]struct{}{"value": {}, "name": {}, "order": {}, "hint": {}, "dividerAfter": {}}); err != nil {
+				return err
+			}
+			if raw, ok := option["value"]; ok {
+				if _, err := rawInt32(raw); err != nil {
+					return errors.New("custom format select option value is invalid")
+				}
+			}
+			for _, key := range []string{"name", "hint"} {
+				if raw, ok := option[key]; ok && !rawNullableString(raw) {
+					return errors.New("custom format select option string is invalid")
+				}
+			}
+			if raw, ok := option["order"]; ok {
+				if _, err := rawInt32(raw); err != nil {
+					return errors.New("custom format select option order is invalid")
+				}
+			}
+			if raw, ok := option["dividerAfter"]; ok && !rawBool(raw) {
+				return errors.New("custom format select option flag is invalid")
+			}
+		}
+	}
+	if raw, ok := object["value"]; ok && !json.Valid(bytes.TrimSpace(raw)) {
+		return errors.New("custom format field value is invalid")
+	}
+	return nil
+}
+
+func nativeRawObject(value json.RawMessage) (map[string]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || len(trimmed) > maxNativeNestedBytes || trimmed[0] != '{' {
+		return nil, errors.New("native value is not an object")
+	}
+	var object map[string]json.RawMessage
+	if decodeJSON(trimmed, &object) != nil {
+		return nil, errors.New("native value is malformed")
+	}
+	return object, nil
+}
+
+func rejectUnknownNativeFields(object map[string]json.RawMessage, allowed map[string]struct{}) error {
+	for key := range object {
+		if _, ok := allowed[key]; !ok {
+			return errors.New("native value has an unknown field")
+		}
+	}
+	return nil
+}
+
+func rawInt32(value json.RawMessage) (int64, error) {
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == 0 || trimmed[0] < '0' || trimmed[0] > '9' && trimmed[0] != '-' {
+		return 0, errors.New("native value is not an integer")
+	}
+	var number json.Number
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+	if err := decoder.Decode(&number); err != nil {
+		return 0, err
+	}
+	if strings.ContainsAny(number.String(), ".eE") {
+		return 0, errors.New("native value is not an integer")
+	}
+	parsed, err := strconv.ParseInt(number.String(), 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return parsed, nil
+}
+
+func rawStringValue(value json.RawMessage) string {
+	var result string
+	if json.Unmarshal(value, &result) != nil {
+		return ""
+	}
+	return strings.TrimSpace(result)
+}
+
+func rawNullableString(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return true
+	}
+	var result string
+	return len(trimmed) > 0 && json.Unmarshal(trimmed, &result) == nil
+}
+
+func rawBool(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	return bytes.Equal(trimmed, []byte("true")) || bytes.Equal(trimmed, []byte("false"))
+}
+
+func rawNullableBool(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	return bytes.Equal(trimmed, []byte("null")) || rawBool(value)
+}
+
+func validQualitySource(value string) bool {
+	switch value {
+	case "unknown", "cam", "telesync", "telecine", "workprint", "dvd", "tv", "webdl", "webrip", "bluray":
+		return true
+	default:
+		return false
+	}
+}
+
+func validQualityModifier(value string) bool {
+	switch value {
+	case "none", "regional", "screener", "rawhd", "brdisk", "remux":
+		return true
+	default:
+		return false
+	}
+}
+
+func validPrivacyLevel(value string) bool {
+	switch value {
+	case "normal", "password", "apiKey", "userName":
+		return true
+	default:
+		return false
+	}
 }
 
 func nativeLanguages(values []json.RawMessage) ([]ArrLanguage, string, string, string) {
@@ -2181,6 +2657,16 @@ func validateReprocessRequest(request ReprocessPreviewRequest, maxFiles int) err
 		if file.SeasonNumber != nil && *file.SeasonNumber < 0 {
 			return invalidInput("arr.manual_import.reprocess.season_number")
 		}
+		if len(bytes.TrimSpace(file.Quality)) > 0 {
+			if _, code, _ := nativeObject(file.Quality, "quality"); code != "" {
+				return invalidInput("arr.manual_import.reprocess.quality")
+			}
+		}
+		if file.CustomFormats != nil {
+			if _, code, _ := nativeObjects(file.CustomFormats, "custom_formats"); code != "" {
+				return invalidInput("arr.manual_import.reprocess.custom_formats")
+			}
+		}
 	}
 	if err := rejectDuplicateReprocessIdentities(request.Files); err != nil {
 		return err
@@ -2293,17 +2779,21 @@ func (client *Client) pageLimit(requested int) (int, error) {
 }
 
 type cursorState struct {
-	SourceID         domain.RuntimeID
-	Collection       string
-	Page             int
-	PageSize         int
-	Offset           int
-	ObservedCount    int
-	SeenIDs          []string
-	SeenFilter       []byte
-	Reasons          []string
-	SnapshotRevision string
-	StartedAt        time.Time
+	SourceID          domain.RuntimeID
+	Collection        string
+	Page              int
+	PageSize          int
+	Offset            int
+	ObservedCount     int
+	SeenIDs           []string
+	SeenFilter        []byte
+	Reasons           []string
+	SnapshotRevision  string
+	SnapshotToken     string
+	SnapshotStable    bool
+	HistoryTotal      int
+	HistoryTotalKnown bool
+	StartedAt         time.Time
 }
 
 // identityFilter is a fixed-size, signed cursor-side membership filter used
@@ -2404,7 +2894,7 @@ func (client *Client) decodeCursor(value string) (cursorState, error) {
 		return cursorState{}, invalidInput("arr.inventory.cursor")
 	}
 	var state cursorState
-	if err := decodeJSON(payload, &state); err != nil || !state.SourceID.Valid() || state.Page <= 0 || state.PageSize <= 0 || state.Offset < 0 || state.ObservedCount < 0 {
+	if err := decodeJSON(payload, &state); err != nil || !state.SourceID.Valid() || state.Page <= 0 || state.PageSize <= 0 || state.Offset < 0 || state.ObservedCount < 0 || state.HistoryTotal < 0 || len(state.SnapshotToken) > maxHistorySnapshot || state.SnapshotStable && state.SnapshotToken == "" {
 		return cursorState{}, invalidInput("arr.inventory.cursor")
 	}
 	if len(state.SeenFilter) != 0 && len(state.SeenFilter) != identityBloomBytes {
@@ -2733,6 +3223,89 @@ func decodeCollection(data []byte, limit int) ([]json.RawMessage, bool, int, err
 	return items, hasMore, total, nil
 }
 
+type historyPageMetadata struct {
+	snapshotToken   string
+	snapshotPresent bool
+	snapshotValid   bool
+	total           int
+	totalKnown      bool
+	page            int
+	pageKnown       bool
+	pageSize        int
+	pageSizeKnown   bool
+}
+
+// historyMetadata extracts only paging metadata that can detect an upstream
+// history response changing while a cursor is being consumed. Arr's ordinary
+// history resource does not advertise an immutable boundary; synthetic or
+// future compatible endpoints may provide one under one of these explicit
+// token names. A body digest is deliberately not treated as a boundary: each
+// page has a different digest even when all pages come from one snapshot.
+func historyMetadata(data []byte) historyPageMetadata {
+	metadata := historyPageMetadata{}
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return metadata
+	}
+	var object map[string]json.RawMessage
+	if decodeJSON(trimmed, &object) != nil {
+		return metadata
+	}
+	snapshotInvalid := false
+	for _, key := range []string{"snapshotId", "snapshotToken", "snapshotRevision"} {
+		raw, ok := object[key]
+		if !ok {
+			continue
+		}
+		metadata.snapshotPresent = true
+		var token string
+		if json.Unmarshal(raw, &token) != nil {
+			snapshotInvalid = true
+			continue
+		}
+		token = strings.TrimSpace(token)
+		if token == "" || len(token) > maxHistorySnapshot {
+			snapshotInvalid = true
+			continue
+		}
+		if metadata.snapshotValid && metadata.snapshotToken != token {
+			snapshotInvalid = true
+			continue
+		}
+		metadata.snapshotToken = token
+		metadata.snapshotValid = true
+	}
+	if snapshotInvalid {
+		metadata.snapshotValid = false
+		metadata.snapshotToken = ""
+	}
+	if raw, ok := object["totalRecords"]; ok {
+		if parsed, err := rawNonNegativeInt(raw); err == nil {
+			metadata.total, metadata.totalKnown = parsed, true
+		}
+	} else {
+		for _, key := range []string{"total", "count"} {
+			if raw, ok := object[key]; ok {
+				if parsed, err := rawNonNegativeInt(raw); err == nil {
+					metadata.total, metadata.totalKnown = parsed, true
+				}
+				break
+			}
+		}
+	}
+	if raw, ok := object["page"]; ok {
+		if parsed, err := rawPositiveInt(raw); err == nil {
+			metadata.page, metadata.pageKnown = parsed, true
+		}
+	}
+	if raw, ok := object["pageSize"]; ok {
+		if parsed, err := rawPositiveInt(raw); err == nil {
+			metadata.pageSize, metadata.pageSizeKnown = parsed, true
+		}
+	}
+	return metadata
+}
+
 // collectionHasTotal reports whether an object response supplied an explicit
 // collection total. It lets callers distinguish a global total from the
 // per-page item count used when an upstream response omits totals.
@@ -2775,6 +3348,23 @@ func rawPositiveInt(value json.RawMessage) (int, error) {
 	return parsed, nil
 }
 
+func rawNonNegativeInt(value json.RawMessage) (int, error) {
+	if len(value) == 0 {
+		return 0, errors.New("integer is missing")
+	}
+	var number json.Number
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	if err := decoder.Decode(&number); err != nil {
+		return 0, err
+	}
+	parsed, err := strconv.Atoi(number.String())
+	if err != nil || parsed < 0 {
+		return 0, errors.New("integer is invalid")
+	}
+	return parsed, nil
+}
+
 func minInt(left, right int) int {
 	if left < right {
 		return left
@@ -2797,6 +3387,11 @@ func scalarString(value json.RawMessage) string {
 		return strings.TrimSpace(number.String())
 	}
 	return ""
+}
+
+func rawValuePresent(value json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(value)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
 }
 
 func qualityString(value json.RawMessage) string {

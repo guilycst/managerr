@@ -376,10 +376,10 @@ func TestArrHistoryCapsRemainPartial(t *testing.T) {
 			page = 1
 		}
 		if page > 2 {
-			writeJSON(response, map[string]any{"page": page, "pageSize": 1, "totalRecords": 2, "records": []any{}})
+			writeJSON(response, map[string]any{"page": page, "pageSize": 1, "totalRecords": 2, "snapshotId": "history-snapshot-1", "records": []any{}})
 			return
 		}
-		writeJSON(response, map[string]any{"page": page, "pageSize": 1, "totalRecords": 2, "records": []map[string]any{{"id": page, "date": "2026-09-11T12:00:00Z"}}})
+		writeJSON(response, map[string]any{"page": page, "pageSize": 1, "totalRecords": 2, "snapshotId": "history-snapshot-1", "records": []map[string]any{{"id": page, "date": "2026-09-11T12:00:00Z"}}})
 	})
 	boundary, boundaryServer := newSyntheticClient(t, domain.ConnectionRadarr, "radarr-history-boundary", boundaryHandler, 1, 10, 2, 50)
 	defer boundaryServer.Close()
@@ -446,6 +446,48 @@ func TestArrHistoryOverlapRemainsPartialAndCountsUniqueRecords(t *testing.T) {
 	}
 	if len(second.Items) != 0 || second.NextCursor != "" || second.Coverage.ObservedCount != 1 || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "history_overlap") {
 		t.Fatalf("history overlap terminal page = %#v", second)
+	}
+}
+
+func TestArrHistoryDeletionDriftCannotBecomeComplete(t *testing.T) {
+	historyHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != apiHistory {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+		if page <= 1 {
+			// The first page is observed before the oldest record is deleted.
+			writeJSON(response, map[string]any{
+				"page": 1, "pageSize": 2, "totalRecords": 4, "hasMore": true,
+				"records": []map[string]any{{"id": 4, "date": "2026-09-11T12:00:04Z"}, {"id": 3, "date": "2026-09-11T12:00:03Z"}},
+			})
+			return
+		}
+		// Arr's offset page now starts after 3 in the shortened collection;
+		// record 2 is skipped even though there is no overlapping identity.
+		writeJSON(response, map[string]any{
+			"page": 2, "pageSize": 2, "totalRecords": 3, "hasMore": false,
+			"records": []map[string]any{{"id": 1, "date": "2026-09-11T12:00:01Z"}},
+		})
+	})
+	client, server := newSyntheticClient(t, domain.ConnectionRadarr, "radarr-history-deletion-drift", historyHandler, 2, 10, 50, 50)
+	defer server.Close()
+	first, err := client.History(context.Background(), "radarr-history-deletion-drift", "", 2)
+	if err != nil || len(first.Items) != 2 || first.NextCursor == "" {
+		t.Fatalf("history deletion-drift first page = %#v, %v", first, err)
+	}
+	second, err := client.History(context.Background(), "radarr-history-deletion-drift", first.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 1 || second.NextCursor != "" || second.Coverage.ObservedCount != 3 || second.Coverage.Completeness != domain.CompletenessPartial {
+		t.Fatalf("history deletion-drift terminal page = %#v", second)
+	}
+	for _, reason := range []string{"history_total_changed", "history_snapshot_unverified"} {
+		if !hasReason(second.Coverage, reason) {
+			t.Fatalf("history deletion-drift missing reason %q: %#v", reason, second.Coverage)
+		}
 	}
 }
 
@@ -874,6 +916,154 @@ func TestSonarrNativeCandidateReprocessMappingPreservesEpisodeNumbers(t *testing
 	}
 }
 
+func TestArrNativeNestedObjectsRejectUntypedValuesBeforePOST(t *testing.T) {
+	const validQuality = `"quality":{"quality":{"name":"WEB-1080p"}}`
+	const validCustomFormats = `"customFormats":[{"id":9,"name":"HDR"}]`
+	cases := []struct {
+		name  string
+		body  string
+		file  ReprocessFile
+		field string
+	}{
+		{
+			name: "quality unknown-only object",
+			body: `[{"id":771,"path":"/downloads/incoming/native.mkv","relativePath":"native.mkv","movie":{"id":101},"quality":{"junk":true},` + validCustomFormats + `,"rejections":[]}]`,
+			file: ReprocessFile{Quality: json.RawMessage(`{"junk":true}`)}, field: "quality",
+		},
+		{
+			name: "quality null",
+			body: `[{"id":771,"path":"/downloads/incoming/native.mkv","relativePath":"native.mkv","movie":{"id":101},"quality":null,` + validCustomFormats + `,"rejections":[]}]`,
+			file: ReprocessFile{Quality: json.RawMessage(`null`)}, field: "quality",
+		},
+		{
+			name: "custom format unknown-only object",
+			body: `[{"id":771,"path":"/downloads/incoming/native.mkv","relativePath":"native.mkv","movie":{"id":101},` + validQuality + `,"customFormats":[{"junk":true}],"rejections":[]}]`,
+			file: ReprocessFile{Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`), CustomFormats: []json.RawMessage{json.RawMessage(`{"junk":true}`)}}, field: "custom_formats",
+		},
+		{
+			name: "custom format null member",
+			body: `[{"id":771,"path":"/downloads/incoming/native.mkv","relativePath":"native.mkv","movie":{"id":101},` + validQuality + `,"customFormats":[null],"rejections":[]}]`,
+			file: ReprocessFile{Quality: json.RawMessage(`{"quality":{"name":"WEB-1080p"}}`), CustomFormats: []json.RawMessage{json.RawMessage(`null`)}}, field: "custom_formats",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var posts int
+			connectionID := domain.ConfigID("radarr-native-nested-" + strings.ReplaceAll(strings.ToLower(testCase.name), " ", "-"))
+			handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("X-Api-Key") != "fixture-api-key" {
+					response.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if request.Method == http.MethodPost {
+					if request.URL.Path == "/api/v3/command" {
+						t.Fatalf("native nested validation reached command endpoint")
+					}
+					posts++
+					writeJSON(response, []any{})
+					return
+				}
+				if request.Method != http.MethodGet || request.URL.Path != apiManualImport {
+					response.WriteHeader(http.StatusNotFound)
+					return
+				}
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write([]byte(testCase.body))
+			})
+			client, server := newSyntheticClient(t, domain.ConnectionRadarr, connectionID, handler, 2, 10, 50, 50)
+			defer server.Close()
+			request := NativePreviewRequest{Request: ports.ImportPreviewRequest{
+				RegisteredExternalID: "101", Transfer: "copy", Files: []ports.ImportFile{{
+					Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/native.mkv"}, MovieOrEpisodeID: "101",
+				}},
+			}}
+			preview, err := client.PreviewImportForReprocess(context.Background(), connectionID, request)
+			if err != nil {
+				t.Fatalf("native nested preview returned error instead of rejection evidence: %v", err)
+			}
+			if len(preview.Preview.Files) != 0 || len(preview.Request.Files) != 0 || len(preview.Preview.Rejections) != 1 {
+				t.Fatalf("native nested value escaped mapping: %#v", preview)
+			}
+			if preview.Preview.Rejections[0].Code == "" {
+				t.Fatalf("native nested rejection lacks code: %#v", preview.Preview.Rejections[0])
+			}
+
+			testCase.file.Source = domain.FileTarget{RootID: "library", RelativePath: "incoming/native.mkv"}
+			testCase.file.MovieOrEpisodeID = "101"
+			_, err = client.ReprocessPreview(context.Background(), connectionID, ReprocessPreviewRequest{
+				RegisteredExternalID: "101", Transfer: "copy", Files: []ReprocessFile{testCase.file},
+			})
+			assertUpstreamCode(t, err, domain.OutcomeInvalidInput)
+			if posts != 0 {
+				t.Fatalf("%s reached Arr POST with %d payloads", testCase.field, posts)
+			}
+		})
+	}
+}
+
+func TestSonarrEpisodeFileEvidenceRejectsContradictions(t *testing.T) {
+	cases := []struct {
+		name      string
+		episodes  []map[string]any
+		wantError bool
+	}{
+		{
+			name: "outer and nested file IDs disagree",
+			episodes: []map[string]any{{
+				"id": 301, "seriesId": 201, "episodeFileId": 801,
+				"episodeFile": map[string]any{"id": 802, "path": "/downloads/series/one.mkv", "size": 10},
+			}}, wantError: true,
+		},
+		{
+			name: "repeated ID changes physical details",
+			episodes: []map[string]any{
+				{"id": 301, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
+				{"id": 302, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/two.mkv", "size": 20}},
+			}, wantError: true,
+		},
+		{
+			name: "same path has different IDs",
+			episodes: []map[string]any{
+				{"id": 301, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
+				{"id": 302, "seriesId": 201, "episodeFileId": 802, "episodeFile": map[string]any{"id": 802, "path": "/downloads/series/one.mkv", "size": 10}},
+			}, wantError: true,
+		},
+		{
+			name: "byte-equivalent multi-episode evidence",
+			episodes: []map[string]any{
+				{"id": 301, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
+				{"id": 302, "seriesId": 201, "episodeFileId": 801, "episodeFile": map[string]any{"id": 801, "path": "/downloads/series/one.mkv", "size": 10}},
+			}, wantError: false,
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("X-Api-Key") != "fixture-api-key" {
+					response.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if request.Method != http.MethodGet || request.URL.Path != apiEpisodes || request.URL.Query().Get("includeEpisodeFile") != "true" {
+					response.WriteHeader(http.StatusNotFound)
+					return
+				}
+				writeJSON(response, testCase.episodes)
+			})
+			connectionID := domain.ConfigID("sonarr-episode-file-" + strings.ReplaceAll(strings.ToLower(testCase.name), " ", "-"))
+			client, server := newSyntheticClient(t, domain.ConnectionSonarr, connectionID, handler, 2, 10, 50, 50)
+			defer server.Close()
+			observation, err := client.ObserveImport(context.Background(), connectionID, "201")
+			if testCase.wantError {
+				assertUpstreamCode(t, err, domain.OutcomeUnknown)
+				return
+			}
+			if err != nil || len(observation.Files) != 1 || len(observation.Files[0].EpisodeIDs) != 2 || observation.Files[0].EpisodeIDs[0] != "301" || observation.Files[0].EpisodeIDs[1] != "302" {
+				t.Fatalf("valid multi-episode observation = %#v, %v", observation, err)
+			}
+		})
+	}
+}
+
 func TestArrManualImportRedirectsNeverReachCommand(t *testing.T) {
 	var commandCalls int
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -972,7 +1162,7 @@ func TestRadarrCatalogLookupOptionsAndHistory(t *testing.T) {
 		t.Fatalf("history first page = %#v, %v", history, err)
 	}
 	historyEnd, err := client.History(context.Background(), "radarr-main", history.NextCursor, 1)
-	if err != nil || len(historyEnd.Items) != 1 || historyEnd.NextCursor != "" || historyEnd.Coverage.Completeness != domain.CompletenessComplete {
+	if err != nil || len(historyEnd.Items) != 1 || historyEnd.NextCursor != "" || historyEnd.Coverage.Completeness != domain.CompletenessPartial || !hasReason(historyEnd.Coverage, "history_snapshot_unverified") {
 		t.Fatalf("history final page = %#v, %v", historyEnd, err)
 	}
 	if history.Items[0].Date.Location() != time.UTC || history.Items[0].MovieID != "101" || historyEnd.Items[0].Destination == "" {
