@@ -1151,7 +1151,7 @@
       ]
     },
     "X-04": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
       "integratedSha": null,
@@ -1167,14 +1167,18 @@
         "docs/execution/handoffs/X-04-review-round1.md",
         "1df74b45b100b891b6afdf54567d2658d0f6228b X-04 correction round-two product",
         "bc597dcab95755ffa8e664a1a106dec1936ae934 X-04 correction round-two handoff",
-        "docs/execution/handoffs/X-04-correction-round2.md"
+        "docs/execution/handoffs/X-04-correction-round2.md",
+        "c07f13891f19ba40a49ed6d2415e8a19e78a6110 X-04 review round-two receipt",
+        "docs/execution/handoffs/X-04-review-round2.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
+        "findings": [
+          "P1: Jellyfin promotes mapped item-level Path with no native MediaSources to Playable and observeMediaSource ignores Protocol/LocationType/MediaType, so remote, virtual, offline, missing-field, or mismatched sources become playable from path alone"
+        ],
         "round": 2
       },
       "dispatch": {
@@ -1193,7 +1197,7 @@
           "A-54",
           "A-55"
         ],
-        "reviewPath": "docs/execution/handoffs/X-04-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-04-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-04.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
@@ -1209,13 +1213,11 @@
         "implementationCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
         "handoffCommit": "bc597dcab95755ffa8e664a1a106dec1936ae934",
         "reviewSourceCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
-        "reviewCommit": "02b1f2475af3abefa9e8c823f9fd85f1047ddc34",
-        "correctionRound": 2,
+        "reviewCommit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
+        "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
-        "correctionBaseSha": "b4ad382326df4bd780572aed91fafdb0899a1e99",
-        "correctionReviewPath": "docs/execution/handoffs/X-04-review-round2.md",
-        "correctionImplementationCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
-        "correctionHandoffCommit": "bc597dcab95755ffa8e664a1a106dec1936ae934"
+        "correctionBaseSha": "1df74b45b100b891b6afdf54567d2658d0f6228b",
+        "correctionReviewPath": "docs/execution/handoffs/X-04-review-round3.md"
       },
       "reviewHistory": [
         {
@@ -1225,6 +1227,14 @@
           "status": "changes_requested",
           "sourceCommit": "b4ad382326df4bd780572aed91fafdb0899a1e99",
           "receipt": "docs/execution/handoffs/X-04-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
+          "status": "changes_requested",
+          "sourceCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
+          "receipt": "docs/execution/handoffs/X-04-review-round2.md"
         }
       ]
     },
@@ -1456,7 +1466,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-thirteen and X-04 round-two reviews",
+  "nextAction": "Complete X-04 correction round three and independent D-01 round-thirteen review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
