@@ -1601,6 +1601,124 @@ func TestConcurrentAuthenticationFailureIsShared(t *testing.T) {
 	}
 }
 
+func TestStaleSessionRejectionCannotInvalidateFreshSession(t *testing.T) {
+	const oldReaders = 3
+	loginStarted := make(chan int, 2)
+	refreshDone := make(chan struct{})
+	releaseReads := make([]chan struct{}, oldReaders)
+	releaseOnce := make([]sync.Once, oldReaders)
+	for i := range releaseReads {
+		releaseReads[i] = make(chan struct{})
+	}
+	var loginCount atomic.Int32
+	var oldReadCount atomic.Int32
+	var freshReadCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case apiLogin:
+			attempt := loginCount.Add(1)
+			switch attempt {
+			case 1, 2:
+				http.SetCookie(w, &http.Cookie{Name: "SID", Value: fmt.Sprintf("session-%d", attempt), Path: "/"})
+				_, _ = io.WriteString(w, "Ok.")
+				if attempt == 2 {
+					close(refreshDone)
+				}
+			default:
+				w.WriteHeader(http.StatusForbidden)
+			}
+		case apiAppVersion:
+			cookie, err := r.Cookie("SID")
+			if err != nil {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			switch cookie.Value {
+			case "session-1":
+				read := int(oldReadCount.Add(1))
+				if read < 1 || read > oldReaders {
+					t.Errorf("old-session read number = %d, want 1..%d", read, oldReaders)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				loginStarted <- read
+				<-releaseReads[read-1]
+				w.WriteHeader(http.StatusForbidden)
+			case "session-2":
+				freshReadCount.Add(1)
+				_, _ = io.WriteString(w, "v5.0.0")
+			default:
+				w.WriteHeader(http.StatusForbidden)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	defer func() {
+		for i := range releaseReads {
+			releaseOnce[i].Do(func() { close(releaseReads[i]) })
+		}
+	}()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("initial Login: %v", err)
+	}
+	readResults := make(chan error, oldReaders)
+	for i := 0; i < oldReaders; i++ {
+		go func() {
+			_, readErr := client.ApplicationVersion(context.Background())
+			readResults <- readErr
+		}()
+	}
+	seenReads := make(map[int]struct{}, oldReaders)
+	for i := 0; i < oldReaders; i++ {
+		select {
+		case read := <-loginStarted:
+			if _, exists := seenReads[read]; exists {
+				t.Fatalf("old-session read %d reported more than once", read)
+			}
+			seenReads[read] = struct{}{}
+		case <-time.After(time.Second):
+			t.Fatal("old-session reads did not reach the server")
+		}
+	}
+	releaseOnce[0].Do(func() { close(releaseReads[0]) })
+	select {
+	case <-refreshDone:
+	case <-time.After(time.Second):
+		t.Fatal("first old-session rejection did not trigger one refresh")
+	}
+	for i := 1; i < oldReaders; i++ {
+		releaseOnce[i].Do(func() { close(releaseReads[i]) })
+	}
+	for i := 0; i < oldReaders; i++ {
+		select {
+		case readErr := <-readResults:
+			if readErr != nil {
+				t.Fatalf("read %d error = %v, want success after refresh", i, readErr)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("read %d did not finish", i)
+		}
+	}
+	if got := loginCount.Load(); got != 2 {
+		t.Fatalf("login attempts = %d, want initial login plus one refresh", got)
+	}
+	if got := freshReadCount.Load(); got != oldReaders {
+		t.Fatalf("fresh-session retries = %d, want %d", got, oldReaders)
+	}
+	if _, err := client.ApplicationVersion(context.Background()); err != nil {
+		t.Fatalf("post-race ApplicationVersion: %v", err)
+	}
+	if got := loginCount.Load(); got != 2 {
+		t.Fatalf("post-race login attempts = %d, want no stale-session refresh", got)
+	}
+}
+
 func TestNonpositiveInjectedTimeoutUsesSafeDefault(t *testing.T) {
 	for _, test := range []struct {
 		name    string

@@ -50,6 +50,10 @@ complete observation. Concurrent authentication is single-flight: callers
 joining one attempt observe that attempt's result, while a later call can
 deliberately retry after it drains. Callers waiting for it retain context
 cancellation semantics.
+
+Each read is bound to the authentication generation that sent it. A 401 or
+403 can invalidate only that generation; a delayed rejection from an older
+request retries through a newer session without triggering another login.
 Inventory filter and sort values are limited to 64 characters, category
 and tag values to 512 characters. Hash list members are at most 128 characters,
 cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and

@@ -129,9 +129,10 @@ type Client struct {
 	http     *http.Client
 	config   Config
 
-	authMu        sync.Mutex
-	authenticated bool
-	authInFlight  *authFlight
+	authMu         sync.Mutex
+	authenticated  bool
+	authInFlight   *authFlight
+	authGeneration uint64
 }
 
 // authFlight publishes one immutable result to every caller that joined the
@@ -558,6 +559,7 @@ func (c *Client) ensureSession(ctx context.Context) error {
 					err = ctxErr
 				} else {
 					c.authenticated = true
+					c.authGeneration++
 				}
 			}
 			flight.err = err
@@ -606,10 +608,20 @@ func (c *Client) authenticate(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) invalidateSession() {
+func (c *Client) invalidateSession(expectedGeneration uint64) bool {
 	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if !c.authenticated || c.authGeneration != expectedGeneration {
+		return false
+	}
 	c.authenticated = false
-	c.authMu.Unlock()
+	return true
+}
+
+func (c *Client) sessionGeneration() uint64 {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	return c.authGeneration
 }
 
 func (c *Client) get(ctx context.Context, operation, endpoint string, query url.Values) ([]byte, error) {
@@ -619,18 +631,18 @@ func (c *Client) get(ctx context.Context, operation, endpoint string, query url.
 	if err := c.ensureSession(ctx); err != nil {
 		return nil, err
 	}
-	return c.getAfterSession(ctx, operation, endpoint, query, true)
+	return c.getAfterSession(ctx, operation, endpoint, query, true, c.sessionGeneration())
 }
 
-func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool) ([]byte, error) {
+func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool, generation uint64) ([]byte, error) {
 	body, status, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, nil, "", c.config.MaxResponseBytes)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		if retryAuth {
-			c.invalidateSession()
+			c.invalidateSession(generation)
 			if err := c.ensureSession(ctx); err != nil {
 				return nil, err
 			}
-			return c.getAfterSession(ctx, operation, endpoint, query, false)
+			return c.getAfterSession(ctx, operation, endpoint, query, false, c.sessionGeneration())
 		}
 		return nil, statusError(operation, status)
 	}
