@@ -1,0 +1,19 @@
+[
+  {
+    "id": 990,
+    "path": "/downloads/series/Synthetic Series - S01E01.mkv",
+    "relativePath": "Synthetic Series - S01E01.mkv",
+    "series": {"id": 201, "title": "Synthetic Series", "tvdbId": 6363},
+    "seasonNumber": 1,
+    "episodes": [
+      {"id": 301, "seriesId": 201, "seasonNumber": 1, "episodeNumber": 1, "absoluteEpisodeNumber": 1},
+      {"id": 302, "seriesId": 201, "seasonNumber": 1, "episodeNumber": 2, "absoluteEpisodeNumber": 2}
+    ],
+    "releaseGroup": "SyntheticGroup",
+    "quality": {"quality": {"name": "WEB-1080p"}},
+    "languages": [{"id": 1, "name": "English"}],
+    "downloadId": "synthetic-sonarr-download",
+    "releaseType": "singleEpisode",
+    "rejections": []
+  }
+]

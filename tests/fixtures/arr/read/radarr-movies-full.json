@@ -1,0 +1,20 @@
+[
+  {
+    "id": 101,
+    "title": "Synthetic Film (2024)",
+    "tmdbId": 4242,
+    "imdbId": "tt0000042",
+    "monitored": true,
+    "movieFile": {
+      "id": 501,
+      "path": "/downloads/movies/Synthetic Film (2024).mkv",
+      "size": 123456789
+    }
+  },
+  {
+    "id": 102,
+    "title": "Missing Synthetic Film",
+    "tmdbId": 5252,
+    "monitored": false
+  }
+]

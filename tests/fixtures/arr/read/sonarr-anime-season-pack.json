@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1101,
+    "path": "/downloads/incoming/anime-season-pack.mkv",
+    "series": {"id": 201, "title": "Synthetic Anime"},
+    "seasonNumber": 1,
+    "episodes": [
+      {"id": 401, "seriesId": 201, "seasonNumber": 1, "episodeNumber": 1, "absoluteEpisodeNumber": 1},
+      {"id": 402, "seriesId": 201, "seasonNumber": 1, "episodeNumber": 2, "absoluteEpisodeNumber": 2}
+    ],
+    "releaseType": "seasonPack",
+    "rejections": []
+  }
+]

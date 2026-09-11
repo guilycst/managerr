@@ -1,0 +1,8 @@
+[
+  {"id": 1001, "path": "/downloads/incoming/video.mkv", "movie": {"id": 101}, "rejections": []},
+  {"id": 1002, "path": "/downloads/incoming/video.en.srt", "movie": {"id": 101}, "languages": [{"id": 1, "name": "English", "isoCode": "en"}], "rejections": []},
+  {"id": 1003, "path": "/downloads/incoming/video.forced.en.srt", "movie": {"id": 101}, "languages": [{"id": 1, "name": "English", "isoCode": "en"}], "rejections": []},
+  {"id": 1004, "path": "/downloads/incoming/video.sdh.en.srt", "movie": {"id": 101}, "languages": [{"id": 1, "name": "English", "isoCode": "en"}], "rejections": []},
+  {"id": 1005, "path": "/downloads/incoming/video.idx", "movie": {"id": 101}, "rejections": []},
+  {"id": 1006, "path": "/downloads/incoming/video.sub", "movie": {"id": 101}, "rejections": []}
+]

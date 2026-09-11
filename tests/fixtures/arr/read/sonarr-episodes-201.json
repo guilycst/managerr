@@ -1,6 +1,7 @@
 [
   {
     "id": 301,
+    "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 1,
     "episodeFileId": 801,
@@ -12,6 +13,7 @@
   },
   {
     "id": 302,
+    "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 2,
     "episodeFileId": 801,
@@ -23,6 +25,7 @@
   },
   {
     "id": 303,
+    "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 3,
     "episodeFileId": 802,
