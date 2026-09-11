@@ -43,6 +43,18 @@
           "git diff --check"
         ],
         "blocker": "Vacuum, lint, architecture import checks and the versioned hook are still pending"
+      },
+      {
+        "sha": "6fc8e0ed1bb71337360b4e7478d6cc1651d04867",
+        "message": "build(tools): pin guardrail analyzers",
+        "checks": [
+          "GOWORK=off go test ./... (tools)",
+          "GOWORK=off go vet ./... (tools)",
+          "GOWORK=off go mod verify (tools)",
+          "GOWORK=off go tool github.com/daveshanley/vacuum version",
+          "GOWORK=off go tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint version"
+        ],
+        "blocker": "Vacuum policy, lint configuration, architecture import checks and the versioned hook are still pending"
       }
     ],
     "requiredChecks": [
