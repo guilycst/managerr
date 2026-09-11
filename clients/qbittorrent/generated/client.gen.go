@@ -36,10 +36,12 @@ type TorrentFile struct {
 	Index        int64   `json:"index"`
 	IsSeed       bool    `json:"is_seed"`
 	Name         string  `json:"name"`
-	PieceRange   []int64 `json:"piece_range"`
-	Priority     int64   `json:"priority"`
-	Progress     float64 `json:"progress"`
-	Size         int64   `json:"size"`
+
+	// PieceRange Inclusive nonnegative starting and ending piece indices; no sentinel is accepted.
+	PieceRange []int64 `json:"piece_range"`
+	Priority   int64   `json:"priority"`
+	Progress   float64 `json:"progress"`
+	Size       int64   `json:"size"`
 }
 
 // TorrentInfo defines model for TorrentInfo.
@@ -157,6 +159,7 @@ type GetCategoriesParams struct {
 
 // GetTorrentFilesParams defines parameters for GetTorrentFiles.
 type GetTorrentFilesParams struct {
+	// Hash A nonempty qBittorrent hash, at most 128 characters, with no pipe, whitespace, control byte or invalid UTF-8.
 	Hash TorrentHash `form:"hash" json:"hash"`
 
 	// Indexes Pipe-separated file indexes, supported by WebAPI 2.8.2+.
@@ -168,15 +171,25 @@ type GetTorrentFilesParams struct {
 
 // ListTorrentsParams defines parameters for ListTorrents.
 type ListTorrentsParams struct {
-	Filter   *string `form:"filter,omitempty" json:"filter,omitempty"`
-	Category *string `form:"category,omitempty" json:"category,omitempty"`
-	Tag      *string `form:"tag,omitempty" json:"tag,omitempty"`
-	Sort     *string `form:"sort,omitempty" json:"sort,omitempty"`
-	Reverse  *bool   `form:"reverse,omitempty" json:"reverse,omitempty"`
-	Limit    *int32  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset   *int32  `form:"offset,omitempty" json:"offset,omitempty"`
+	// Filter Optional qBittorrent filter name, at most 64 characters.
+	Filter *string `form:"filter,omitempty" json:"filter,omitempty"`
 
-	// Hashes Pipe-separated upstream torrent hashes.
+	// Category Optional category name, at most 512 characters.
+	Category *string `form:"category,omitempty" json:"category,omitempty"`
+
+	// Tag Optional tag name, at most 512 characters.
+	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Sort Optional sort field, at most 64 characters.
+	Sort    *string `form:"sort,omitempty" json:"sort,omitempty"`
+	Reverse *bool   `form:"reverse,omitempty" json:"reverse,omitempty"`
+	Limit   *int32  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset  *int32  `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Hashes Pipe-separated upstream torrent hashes. Each logical hash is
+	// nonempty, at most 128 characters, contains no pipe, whitespace,
+	// control byte or invalid UTF-8, and occurs at most once. The
+	// decoded joined value, including separators, is at most 4096 bytes.
 	Hashes *string `form:"hashes,omitempty" json:"hashes,omitempty"`
 
 	// Cookie SID cookie set by the login response; the handwritten client manages it.
@@ -185,6 +198,7 @@ type ListTorrentsParams struct {
 
 // GetTorrentPropertiesParams defines parameters for GetTorrentProperties.
 type GetTorrentPropertiesParams struct {
+	// Hash A nonempty qBittorrent hash, at most 128 characters, with no pipe, whitespace, control byte or invalid UTF-8.
 	Hash TorrentHash `form:"hash" json:"hash"`
 
 	// Cookie SID cookie set by the login response; the handwritten client manages it.
@@ -287,8 +301,9 @@ type ClientInterface interface {
 	// LoginWithBody Establish a qBittorrent WebUI cookie session
 	//
 	// The upstream response is text/plain. A successful response contains
-	// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-	// return HTTP 200 with a failure body; callers must verify the body.
+	// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+	// configured origin. Invalid credentials may also return HTTP 200 with
+	// a failure body; callers must verify both the body and the cookie.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -298,8 +313,9 @@ type ClientInterface interface {
 	// LoginWithFormdataBody Establish a qBittorrent WebUI cookie session
 	//
 	// The upstream response is text/plain. A successful response contains
-	// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-	// return HTTP 200 with a failure body; callers must verify the body.
+	// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+	// configured origin. Invalid credentials may also return HTTP 200 with
+	// a failure body; callers must verify both the body and the cookie.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type.
 	//
@@ -370,8 +386,9 @@ func (c *Client) GetWebAPIVersion(ctx context.Context, params *GetWebAPIVersionP
 // LoginWithBody Establish a qBittorrent WebUI cookie session
 //
 // The upstream response is text/plain. A successful response contains
-// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-// return HTTP 200 with a failure body; callers must verify the body.
+// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+// configured origin. Invalid credentials may also return HTTP 200 with
+// a failure body; callers must verify both the body and the cookie.
 //
 // Takes any type of body and a specified content type.
 //
@@ -391,8 +408,9 @@ func (c *Client) LoginWithBody(ctx context.Context, contentType string, body io.
 // LoginWithFormdataBody Establish a qBittorrent WebUI cookie session
 //
 // The upstream response is text/plain. A successful response contains
-// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-// return HTTP 200 with a failure body; callers must verify the body.
+// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+// configured origin. Invalid credentials may also return HTTP 200 with
+// a failure body; callers must verify both the body and the cookie.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type.
 //
@@ -1053,8 +1071,9 @@ type ClientWithResponsesInterface interface {
 	// LoginWithBodyWithResponse Establish a qBittorrent WebUI cookie session
 	//
 	// The upstream response is text/plain. A successful response contains
-	// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-	// return HTTP 200 with a failure body; callers must verify the body.
+	// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+	// configured origin. Invalid credentials may also return HTTP 200 with
+	// a failure body; callers must verify both the body and the cookie.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1064,8 +1083,9 @@ type ClientWithResponsesInterface interface {
 	// LoginWithFormdataBodyWithResponse Establish a qBittorrent WebUI cookie session
 	//
 	// The upstream response is text/plain. A successful response contains
-	// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-	// return HTTP 200 with a failure body; callers must verify the body.
+	// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+	// configured origin. Invalid credentials may also return HTTP 200 with
+	// a failure body; callers must verify both the body and the cookie.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1449,8 +1469,9 @@ func (c *ClientWithResponses) GetWebAPIVersionWithResponse(ctx context.Context, 
 // LoginWithBodyWithResponse Establish a qBittorrent WebUI cookie session
 //
 // The upstream response is text/plain. A successful response contains
-// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-// return HTTP 200 with a failure body; callers must verify the body.
+// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+// configured origin. Invalid credentials may also return HTTP 200 with
+// a failure body; callers must verify both the body and the cookie.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -1466,8 +1487,9 @@ func (c *ClientWithResponses) LoginWithBodyWithResponse(ctx context.Context, con
 // LoginWithFormdataBodyWithResponse Establish a qBittorrent WebUI cookie session
 //
 // The upstream response is text/plain. A successful response contains
-// the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-// return HTTP 200 with a failure body; callers must verify the body.
+// the literal `Ok.` and sets a nonempty, usable SID cookie for the
+// configured origin. Invalid credentials may also return HTTP 200 with
+// a failure body; callers must verify both the body and the cookie.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 //

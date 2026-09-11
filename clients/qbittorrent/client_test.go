@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,9 +74,9 @@ func TestReadSurfaceAndNormalization(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case apiAppVersion:
-			_, _ = io.WriteString(w, "v5.0.0\n")
+			_, _ = io.WriteString(w, "v5.0.0")
 		case apiWebAPI:
-			_, _ = io.WriteString(w, "2.11.3\n")
+			_, _ = io.WriteString(w, "2.11.3")
 		case apiTorrentInfo:
 			query := r.URL.Query()
 			if got, want := query.Get("filter"), "completed"; got != want {
@@ -271,6 +272,7 @@ func TestResponseBoundsAndHTTPErrors(t *testing.T) {
 			name: "bounded body",
 			handle: func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
 					_, _ = io.WriteString(w, "Ok.")
 					return
 				}
@@ -286,6 +288,7 @@ func TestResponseBoundsAndHTTPErrors(t *testing.T) {
 			name: "rate limited",
 			handle: func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
 					_, _ = io.WriteString(w, "Ok.")
 					return
 				}
@@ -303,6 +306,7 @@ func TestResponseBoundsAndHTTPErrors(t *testing.T) {
 			name: "malformed JSON",
 			handle: func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
 					_, _ = io.WriteString(w, "Ok.")
 					return
 				}
@@ -333,6 +337,7 @@ func TestContextCancellationAndTransportTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.URL.Path == apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
 			_, _ = io.WriteString(w, "Ok.")
 			return
 		}
@@ -362,6 +367,7 @@ func TestContextCancellationAndTransportTimeout(t *testing.T) {
 
 	timeoutServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
 			_, _ = io.WriteString(w, "Ok.")
 			return
 		}
@@ -412,7 +418,7 @@ func TestRedirectIsNotFollowedAndOptionsAreValidated(t *testing.T) {
 	for _, options := range []TorrentListOptions{
 		{Limit: -1},
 		{Offset: defaultMaxItems + 1},
-		{Category: strings.Repeat("x", maxQueryTextBytes+1)},
+		{Category: strings.Repeat("x", maxCategoryChars+1)},
 		{Hashes: []string{""}},
 	} {
 		if _, err := client.ListTorrents(context.Background(), options); err == nil || !IsCode(err, ErrorInvalidInput) {
@@ -434,6 +440,499 @@ func TestEndpointValidation(t *testing.T) {
 			t.Errorf("New(%q) succeeded, want endpoint validation error", endpoint)
 		}
 	}
+}
+
+func TestLoginRequiresUsableSIDCookie(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		cookie *http.Cookie
+		wantOK bool
+	}{
+		{name: "missing", wantOK: false},
+		{name: "empty", cookie: &http.Cookie{Name: "SID", Value: "", Path: "/"}, wantOK: false},
+		{name: "wrong name", cookie: &http.Cookie{Name: "SESSION", Value: testSID, Path: "/"}, wantOK: false},
+		{name: "wrong path", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/unrelated"}, wantOK: false},
+		{name: "app-only path", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: apiAppVersion}, wantOK: false},
+		{name: "secure cookie over HTTP", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/", Secure: true}, wantOK: false},
+		{name: "wrong domain", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/", Domain: "other.invalid"}, wantOK: false},
+		{name: "usable API path", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/api/v2/"}, wantOK: true},
+		{name: "usable", cookie: &http.Cookie{Name: "SID", Value: testSID, Path: "/"}, wantOK: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != apiLogin || r.Method != http.MethodPost {
+					t.Errorf("login request = %s %s, want POST %s", r.Method, r.URL.Path, apiLogin)
+				}
+				if test.cookie != nil {
+					http.SetCookie(w, test.cookie)
+				}
+				_, _ = io.WriteString(w, "Ok.")
+			}))
+			defer server.Close()
+
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			err = client.Login(context.Background())
+			if test.wantOK {
+				if err != nil {
+					t.Fatalf("Login: %v", err)
+				}
+				if !client.authenticated {
+					t.Fatal("authenticated = false after usable SID")
+				}
+				return
+			}
+			if err == nil || !IsCode(err, ErrorUnauthorized) {
+				t.Fatalf("Login error = %v, want unauthorized", err)
+			}
+			if client.authenticated {
+				t.Fatal("authenticated = true without usable SID")
+			}
+		})
+	}
+}
+
+func TestConcurrentLoginIsIdempotentAndExpiredSessionReauthenticates(t *testing.T) {
+	var loginCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			loginCount.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	const callers = 16
+	var wg sync.WaitGroup
+	errorsCh := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errorsCh <- client.Login(context.Background())
+		}()
+	}
+	wg.Wait()
+	close(errorsCh)
+	for loginErr := range errorsCh {
+		if loginErr != nil {
+			t.Fatalf("concurrent Login: %v", loginErr)
+		}
+	}
+	if got := loginCount.Load(); got != 1 {
+		t.Fatalf("concurrent login count = %d, want one", got)
+	}
+
+	var reauthCount atomic.Int32
+	var readCount atomic.Int32
+	reauthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case apiLogin:
+			login := reauthCount.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: fmt.Sprintf("session-%d", login), Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+		case apiAppVersion:
+			if readCount.Add(1) == 1 {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = io.WriteString(w, strings.Repeat("expired session detail", 8))
+				return
+			}
+			_, _ = io.WriteString(w, "v5.0.0")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer reauthServer.Close()
+	reauthClient, err := New(Config{Endpoint: reauthServer.URL, Username: testUsername, Password: testPassword, MaxResponseBytes: 64})
+	if err != nil {
+		t.Fatalf("New reauth client: %v", err)
+	}
+	version, err := reauthClient.ApplicationVersion(context.Background())
+	if err != nil || version != "v5.0.0" {
+		t.Fatalf("ApplicationVersion = %q, error %v; want one reauthentication and success", version, err)
+	}
+	if got := reauthCount.Load(); got != 2 {
+		t.Fatalf("reauth login count = %d, want exactly two", got)
+	}
+}
+
+func TestHashValidationAndAggregateBound(t *testing.T) {
+	valid40 := strings.Repeat("a", 40)
+	valid64 := strings.Repeat("b", 64)
+	for _, hashes := range [][]string{{valid40}, {valid64}, {valid40, valid64}} {
+		query, err := listQuery(TorrentListOptions{Hashes: hashes})
+		if err != nil {
+			t.Fatalf("listQuery hashes %v: %v", hashes, err)
+		}
+		if got := query.Get("hashes"); got != strings.Join(hashes, "|") {
+			t.Fatalf("hashes query = %q, want %q", got, strings.Join(hashes, "|"))
+		}
+	}
+	for _, hash := range []string{
+		"",
+		valid40 + "|tail",
+		"head|" + valid40,
+		valid40 + " ",
+		" " + valid40,
+		"\t" + valid40,
+		"\x00" + valid40,
+		string([]byte{0xff}),
+	} {
+		if _, err := listQuery(TorrentListOptions{Hashes: []string{hash}}); err == nil || !IsCode(err, ErrorInvalidInput) {
+			t.Fatalf("hash %q accepted with error %v, want invalid input", hash, err)
+		}
+	}
+	if _, err := listQuery(TorrentListOptions{Hashes: []string{valid40, valid40}}); err == nil || !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("duplicate hash error = %v, want invalid input", err)
+	}
+
+	exact := make([]string, 32)
+	for i := 0; i < 31; i++ {
+		prefix := fmt.Sprintf("%02d", i)
+		exact[i] = prefix + strings.Repeat("x", 128-len(prefix))
+	}
+	exact[31] = "last" + strings.Repeat("y", 93)
+	query, err := listQuery(TorrentListOptions{Hashes: exact})
+	if err != nil {
+		t.Fatalf("exact aggregate listQuery: %v", err)
+	}
+	if got := len(query.Get("hashes")); got != maxHashAggregateBytes {
+		t.Fatalf("exact aggregate bytes = %d, want %d", got, maxHashAggregateBytes)
+	}
+	exact[31] = "last" + strings.Repeat("y", 94)
+	if _, err := listQuery(TorrentListOptions{Hashes: exact}); err == nil || !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("one-over aggregate error = %v, want invalid input", err)
+	}
+}
+
+func TestInputBoundsMatchOpenAPI(t *testing.T) {
+	fields := []struct {
+		name  string
+		max   int
+		build func(string) TorrentListOptions
+	}{
+		{name: "filter", max: maxFilterChars, build: func(value string) TorrentListOptions { return TorrentListOptions{Filter: value} }},
+		{name: "category", max: maxCategoryChars, build: func(value string) TorrentListOptions { return TorrentListOptions{Category: value} }},
+		{name: "tag", max: maxTagChars, build: func(value string) TorrentListOptions { return TorrentListOptions{Tag: value} }},
+		{name: "sort", max: maxSortChars, build: func(value string) TorrentListOptions { return TorrentListOptions{Sort: value} }},
+	}
+	for _, field := range fields {
+		if _, err := listQuery(field.build(strings.Repeat("x", field.max))); err != nil {
+			t.Errorf("%s exact bound error = %v", field.name, err)
+		}
+		if _, err := listQuery(field.build(strings.Repeat("x", field.max+1))); err == nil || !IsCode(err, ErrorInvalidInput) {
+			t.Errorf("%s one-over error = %v, want invalid input", field.name, err)
+		}
+	}
+
+	base := Config{Endpoint: "http://synthetic.invalid", Username: testUsername, Password: testPassword}
+	for _, test := range []struct {
+		name   string
+		config Config
+	}{
+		{name: "empty username", config: Config{Endpoint: base.Endpoint, Password: base.Password}},
+		{name: "empty password", config: Config{Endpoint: base.Endpoint, Username: base.Username}},
+		{name: "username one over", config: Config{Endpoint: base.Endpoint, Username: strings.Repeat("u", maxUsernameChars+1), Password: base.Password}},
+		{name: "password one over", config: Config{Endpoint: base.Endpoint, Username: base.Username, Password: strings.Repeat("p", maxPasswordChars+1)}},
+	} {
+		if _, err := New(test.config); err == nil {
+			t.Errorf("New %s succeeded, want credential validation error", test.name)
+		}
+	}
+	if _, err := New(Config{Endpoint: base.Endpoint, Username: strings.Repeat("u", maxUsernameChars), Password: strings.Repeat("p", maxPasswordChars)}); err != nil {
+		t.Fatalf("New exact credential bounds: %v", err)
+	}
+}
+
+func TestVersionValidation(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		body     string
+		want     string
+	}{
+		{name: "application stable", endpoint: apiAppVersion, body: "v5.0.0", want: "v5.0.0"},
+		{name: "application hyphen suffix", endpoint: apiAppVersion, body: "v5.0.0-alpha1", want: "v5.0.0-alpha1"},
+		{name: "application direct suffix", endpoint: apiAppVersion, body: "v5.0.0beta1", want: "v5.0.0beta1"},
+		{name: "application build suffix", endpoint: apiAppVersion, body: "v5.0.0+git20260911", want: "v5.0.0+git20260911"},
+		{name: "web API major minor", endpoint: apiWebAPI, body: "2.11", want: "2.11"},
+		{name: "web API stable", endpoint: apiWebAPI, body: "2.11.3", want: "2.11.3"},
+		{name: "web API suffix", endpoint: apiWebAPI, body: "2.11.3-rc1+git20260911", want: "2.11.3-rc1+git20260911"},
+		{name: "application multiline", endpoint: apiAppVersion, body: "v5.0.0\nunexpected"},
+		{name: "application control", endpoint: apiAppVersion, body: "v5.0.0\x00unexpected"},
+		{name: "application HTML", endpoint: apiAppVersion, body: "<html>upstream error</html>"},
+		{name: "application trailing token", endpoint: apiAppVersion, body: "v5.0.0 trailing"},
+		{name: "application leading space", endpoint: apiAppVersion, body: " v5.0.0"},
+		{name: "application trailing space", endpoint: apiAppVersion, body: "v5.0.0 "},
+		{name: "application empty", endpoint: apiAppVersion, body: ""},
+		{name: "application oversized", endpoint: apiAppVersion, body: "v5.0.0-" + strings.Repeat("x", maxVersionBytes)},
+		{name: "web API application shape", endpoint: apiWebAPI, body: "v5.0.0"},
+		{name: "web API HTML", endpoint: apiWebAPI, body: "<html>2.11</html>"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path != test.endpoint {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_, _ = io.WriteString(w, test.body)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			var got string
+			if test.endpoint == apiAppVersion {
+				got, err = client.ApplicationVersion(context.Background())
+			} else {
+				got, err = client.WebAPIVersion(context.Background())
+			}
+			if test.want != "" {
+				if err != nil || got != test.want {
+					t.Fatalf("version = %q, error %v; want %q", got, err, test.want)
+				}
+				return
+			}
+			if err == nil || !IsCode(err, ErrorUnknown) {
+				t.Fatalf("version = %q, error %v; want malformed unknown", got, err)
+			}
+		})
+	}
+}
+
+func TestOversizedHTTPStatusesRetainClassificationAndAuthRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		status           int
+		wantCode         ErrorCode
+		wantRetryable    bool
+		recoverAfterAuth bool
+		oversized        bool
+		wantLogins       int32
+	}{
+		{name: "small unauthorized", status: http.StatusUnauthorized, wantCode: ErrorUnauthorized, wantLogins: 2},
+		{name: "small forbidden", status: http.StatusForbidden, wantCode: ErrorUnauthorized, wantLogins: 2},
+		{name: "small rate limited", status: http.StatusTooManyRequests, wantCode: ErrorRateLimited, wantRetryable: true, wantLogins: 1},
+		{name: "small server failure", status: http.StatusInternalServerError, wantCode: ErrorUnavailable, wantRetryable: true, wantLogins: 1},
+		{name: "oversized unauthorized", status: http.StatusUnauthorized, recoverAfterAuth: true, oversized: true, wantLogins: 2},
+		{name: "oversized forbidden", status: http.StatusForbidden, recoverAfterAuth: true, oversized: true, wantLogins: 2},
+		{name: "always oversized unauthorized", status: http.StatusUnauthorized, wantCode: ErrorUnauthorized, oversized: true, wantLogins: 2},
+		{name: "oversized rate limited", status: http.StatusTooManyRequests, wantCode: ErrorRateLimited, oversized: true, wantRetryable: true, wantLogins: 1},
+		{name: "oversized server failure", status: http.StatusInternalServerError, wantCode: ErrorUnavailable, oversized: true, wantRetryable: true, wantLogins: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logins atomic.Int32
+			var reads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					login := logins.Add(1)
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: fmt.Sprintf("sid-%d", login), Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path != apiAppVersion {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				read := reads.Add(1)
+				if test.recoverAfterAuth && read > 1 {
+					_, _ = io.WriteString(w, "v5.0.0")
+					return
+				}
+				w.WriteHeader(test.status)
+				body := "safe synthetic status detail"
+				if test.oversized {
+					body = "oversized secret upstream response " + strings.Repeat("x", 128)
+				}
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword, MaxResponseBytes: 64})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			_, err = client.ApplicationVersion(context.Background())
+			if test.recoverAfterAuth {
+				if err != nil {
+					t.Fatalf("ApplicationVersion error = %v, want recovery", err)
+				}
+			} else {
+				var upstream UpstreamError
+				if !errors.As(err, &upstream) || upstream.Code != test.wantCode || upstream.Retryable != test.wantRetryable {
+					t.Fatalf("error = %#v, want code %s retryable=%t", err, test.wantCode, test.wantRetryable)
+				}
+			}
+			if strings.Contains(errString(err), "oversized secret upstream response") {
+				t.Fatalf("error leaked bounded response body: %v", err)
+			}
+			if got := logins.Load(); got != test.wantLogins {
+				t.Fatalf("login count = %d, want %d", got, test.wantLogins)
+			}
+		})
+	}
+}
+
+func TestPieceRangesRequireOrderedNonnegativeIndices(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		range_ string
+		wantOK bool
+	}{
+		{name: "single piece", range_: "[0,0]", wantOK: true},
+		{name: "multi piece", range_: "[0,127]", wantOK: true},
+		{name: "negative start", range_: "[-1,5]"},
+		{name: "negative end", range_: "[0,-1]"},
+		{name: "reversed", range_: "[5,4]"},
+		{name: "wrong length", range_: "[0]"},
+		{name: "too many", range_: "[0,1,2]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == apiFiles {
+					_, _ = io.WriteString(w, `[{"piece_range":`+test.range_+`}]`)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			files, err := client.GetTorrentFiles(context.Background(), testHash)
+			if test.wantOK {
+				if err != nil || len(files) != 1 {
+					t.Fatalf("files = %#v, error %v; want one valid file", files, err)
+				}
+				return
+			}
+			if err == nil || !IsCode(err, ErrorUnknown) {
+				t.Fatalf("files = %#v, error %v; want malformed unknown", files, err)
+			}
+		})
+	}
+}
+
+func TestUnsupportedAndResourceStatusClassification(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		path        string
+		status      int
+		wantCode    ErrorCode
+		wantRetry   bool
+		resource404 bool
+	}{
+		{name: "version 404", path: apiAppVersion, status: http.StatusNotFound, wantCode: ErrorUnsupported},
+		{name: "version 405", path: apiAppVersion, status: http.StatusMethodNotAllowed, wantCode: ErrorUnsupported},
+		{name: "version 501", path: apiAppVersion, status: http.StatusNotImplemented, wantCode: ErrorUnsupported},
+		{name: "resource 404", path: apiProperties, status: http.StatusNotFound, wantCode: ErrorUnavailable, resource404: true},
+		{name: "resource 500", path: apiProperties, status: http.StatusInternalServerError, wantCode: ErrorUnavailable, wantRetry: true, resource404: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path != test.path {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				w.WriteHeader(test.status)
+				_, _ = io.WriteString(w, "safe synthetic status detail")
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if test.resource404 {
+				_, err = client.GetTorrentProperties(context.Background(), testHash)
+			} else {
+				_, err = client.ApplicationVersion(context.Background())
+			}
+			var upstream UpstreamError
+			if !errors.As(err, &upstream) || upstream.Code != test.wantCode || upstream.Retryable != test.wantRetry {
+				t.Fatalf("error = %#v, want code %s retryable=%t", err, test.wantCode, test.wantRetry)
+			}
+		})
+	}
+}
+
+func TestEndpointPathFormsAndRequestURI(t *testing.T) {
+	var requestURIs []string
+	var origins []string
+	var referers []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestURIs = append(requestURIs, r.URL.RequestURI())
+		origins = append(origins, r.Header.Get("Origin"))
+		referers = append(referers, r.Header.Get("Referer"))
+		if r.URL.Path == "/proxy"+apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		if r.URL.Path == "/proxy"+apiAppVersion {
+			_, _ = io.WriteString(w, "v5.0.0")
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL + "/proxy/", Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New clean proxy prefix: %v", err)
+	}
+	if _, err := client.ApplicationVersion(context.Background()); err != nil {
+		t.Fatalf("ApplicationVersion clean proxy prefix: %v", err)
+	}
+	if got, want := strings.Join(requestURIs, "\n"), "/proxy/api/v2/auth/login\n/proxy/api/v2/app/version"; got != want {
+		t.Fatalf("request URIs = %q, want %q", got, want)
+	}
+	for i := range origins {
+		if origins[i] != server.URL || referers[i] != server.URL+"/" {
+			t.Fatalf("request %d Origin/Referer = %q/%q, want %q/%q", i, origins[i], referers[i], server.URL, server.URL+"/")
+		}
+	}
+	for _, endpoint := range []string{
+		server.URL + "/base/./admin",
+		server.URL + "/base/../admin",
+		server.URL + "/base/%2e%2e/admin",
+		server.URL + "/base/%2F/admin",
+		server.URL + "/base/%5C/admin",
+		server.URL + "/base//admin",
+	} {
+		if _, err := New(Config{Endpoint: endpoint, Username: testUsername, Password: testPassword}); err == nil {
+			t.Errorf("New(%q) succeeded, want ambiguous endpoint rejection", endpoint)
+		}
+	}
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func fixture(t *testing.T, name string) []byte {

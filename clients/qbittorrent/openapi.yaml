@@ -25,8 +25,9 @@ paths:
       summary: Establish a qBittorrent WebUI cookie session
       description: |
         The upstream response is text/plain. A successful response contains
-        the literal `Ok.` and sets a SID cookie. Invalid credentials may also
-        return HTTP 200 with a failure body; callers must verify the body.
+        the literal `Ok.` and sets a nonempty, usable SID cookie for the
+        configured origin. Invalid credentials may also return HTTP 200 with
+        a failure body; callers must verify both the body and the cookie.
       x-mastarr-read-only: session establishment only
       requestBody:
         required: true
@@ -41,6 +42,7 @@ paths:
             text/plain:
               schema:
                 type: string
+                enum: [Ok.]
               example: Ok.
         '403':
           $ref: '#/components/responses/Forbidden'
@@ -57,13 +59,17 @@ paths:
         - $ref: '#/components/parameters/CookieHeader'
       responses:
         '200':
-          description: Application version as plain text.
+          description: |
+            One whitespace-free qBittorrent application version token in the
+            documented numeric form with an optional alphanumeric build or
+            prerelease suffix.
           content:
             text/plain:
               schema:
                 type: string
                 minLength: 1
                 maxLength: 128
+                pattern: '^v[0-9]+\.[0-9]+\.[0-9]+([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$'
               example: v5.0.0-synthetic
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -82,13 +88,17 @@ paths:
         - $ref: '#/components/parameters/CookieHeader'
       responses:
         '200':
-          description: WebAPI version as plain text.
+          description: |
+            One whitespace-free qBittorrent WebAPI version token in the
+            documented numeric form with an optional alphanumeric build or
+            prerelease suffix.
           content:
             text/plain:
               schema:
                 type: string
                 minLength: 1
                 maxLength: 128
+                pattern: '^[0-9]+\.[0-9]+(\.[0-9]+)?([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$'
               example: 2.11.3-synthetic
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -113,24 +123,28 @@ paths:
         - name: filter
           in: query
           required: false
+          description: Optional qBittorrent filter name, at most 64 characters.
           schema:
             type: string
             maxLength: 64
         - name: category
           in: query
           required: false
+          description: Optional category name, at most 512 characters.
           schema:
             type: string
             maxLength: 512
         - name: tag
           in: query
           required: false
+          description: Optional tag name, at most 512 characters.
           schema:
             type: string
             maxLength: 512
         - name: sort
           in: query
           required: false
+          description: Optional sort field, at most 64 characters.
           schema:
             type: string
             maxLength: 64
@@ -159,7 +173,11 @@ paths:
         - name: hashes
           in: query
           required: false
-          description: Pipe-separated upstream torrent hashes.
+          description: |
+            Pipe-separated upstream torrent hashes. Each logical hash is
+            nonempty, at most 128 characters, contains no pipe, whitespace,
+            control byte or invalid UTF-8, and occurs at most once. The
+            decoded joined value, including separators, is at most 4096 bytes.
           schema:
             type: string
             maxLength: 4096
@@ -399,6 +417,7 @@ components:
       name: hash
       in: query
       required: true
+      description: A nonempty qBittorrent hash, at most 128 characters, with no pipe, whitespace, control byte or invalid UTF-8.
       schema:
         type: string
         minLength: 1
@@ -631,10 +650,11 @@ components:
         priority: {type: integer, format: int64}
         is_seed: {type: boolean}
         piece_range:
+          description: Inclusive nonnegative starting and ending piece indices; no sentinel is accepted.
           type: array
           minItems: 2
           maxItems: 2
-          items: {type: integer, format: int64}
+          items: {type: integer, format: int64, minimum: 0}
         availability: {type: number, format: double}
 
     Category:

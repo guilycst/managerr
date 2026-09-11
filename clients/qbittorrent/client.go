@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,9 +33,14 @@ const (
 	defaultMaxFiles               = 100_000
 	defaultHTTPTimeout            = 15 * time.Second
 	maxVersionBytes               = 128
-	maxHashBytes                  = 128
-	maxQueryTextBytes             = 4 << 10
-	maxCredentialBytes            = 4 << 10
+	maxHashChars                  = 128
+	maxHashAggregateBytes         = 4 << 10
+	maxUsernameChars              = 256
+	maxPasswordChars              = 1024
+	maxFilterChars                = 64
+	maxCategoryChars              = 512
+	maxTagChars                   = 512
+	maxSortChars                  = 64
 )
 
 const (
@@ -46,6 +52,11 @@ const (
 	apiFiles       = "/api/v2/torrents/files"
 	apiCategories  = "/api/v2/torrents/categories"
 	apiTags        = "/api/v2/torrents/tags"
+)
+
+var (
+	applicationVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$`)
+	webAPIVersionPattern      = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$`)
 )
 
 // ErrorCode classifies a sanitized qBittorrent failure. Error messages never
@@ -273,7 +284,10 @@ func New(config Config) (*Client, error) {
 	if config.MaxItems > defaultMaxItems || config.MaxFiles > defaultMaxFiles {
 		return nil, errors.New("qBittorrent item bound exceeds compatibility ceiling")
 	}
-	if len(config.Username) > maxCredentialBytes || len(config.Password) > maxCredentialBytes {
+	if config.Username == "" || config.Password == "" {
+		return nil, errors.New("qBittorrent credentials are required")
+	}
+	if !validCredential(config.Username, maxUsernameChars) || !validCredential(config.Password, maxPasswordChars) {
 		return nil, errors.New("qBittorrent credential exceeds compatibility bound")
 	}
 
@@ -414,7 +428,7 @@ func (c *Client) GetTorrentFiles(ctx context.Context, hash string) ([]TorrentFil
 	}
 	result := make([]TorrentFile, len(files))
 	for i := range files {
-		if len(files[i].PieceRange) != 2 {
+		if len(files[i].PieceRange) != 2 || files[i].PieceRange[0] < 0 || files[i].PieceRange[1] < files[i].PieceRange[0] {
 			return nil, malformed("qbit.torrents.files")
 		}
 		result[i] = normalizeFile(files[i])
@@ -468,7 +482,7 @@ func (c *Client) Tags(ctx context.Context) ([]string, error) {
 		return nil, bounded("qbit.torrents.tags", c.config.MaxItems)
 	}
 	for _, tag := range tags {
-		if len(tag) > maxQueryTextBytes || !utf8.ValidString(tag) {
+		if !validBoundedText(tag, maxTagChars, false) {
 			return nil, malformed("qbit.torrents.tags")
 		}
 	}
@@ -483,8 +497,15 @@ func (c *Client) readVersion(ctx context.Context, operation, endpoint string) (s
 	if err != nil {
 		return "", err
 	}
-	version := strings.TrimSpace(string(body))
-	if version == "" || len(version) > maxVersionBytes || !utf8.ValidString(version) {
+	version := string(body)
+	if len(version) == 0 || len(version) > maxVersionBytes || !utf8.ValidString(version) || strings.IndexFunc(version, unicode.IsSpace) >= 0 || strings.IndexFunc(version, unicode.IsControl) >= 0 {
+		return "", malformed(operation)
+	}
+	pattern := applicationVersionPattern
+	if operation == "qbit.app.webapi_version" {
+		pattern = webAPIVersionPattern
+	}
+	if !pattern.MatchString(version) {
 		return "", malformed(operation)
 	}
 	return version, nil
@@ -502,14 +523,17 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	form := url.Values{}
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
-	body, status, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	if status != 0 && (status < http.StatusOK || status >= http.StatusMultipleChoices) {
+		return statusError("qbit.auth.login", status)
+	}
 	if err != nil {
 		return err
 	}
-	if status < http.StatusOK || status >= http.StatusMultipleChoices {
-		return statusError("qbit.auth.login", status)
-	}
 	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
+		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+	}
+	if !c.hasUsableSID(cookies) {
 		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
 	}
 	c.authenticated = true
@@ -533,10 +557,7 @@ func (c *Client) get(ctx context.Context, operation, endpoint string, query url.
 }
 
 func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool) ([]byte, error) {
-	body, status, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, nil, "", c.config.MaxResponseBytes)
-	if err != nil {
-		return nil, err
-	}
+	body, status, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, nil, "", c.config.MaxResponseBytes)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		if retryAuth {
 			c.invalidateSession()
@@ -547,15 +568,18 @@ func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string
 		}
 		return nil, statusError(operation, status)
 	}
-	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+	if status != 0 && (status < http.StatusOK || status >= http.StatusMultipleChoices) {
 		return nil, statusError(operation, status)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return body, nil
 }
 
-func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, body io.Reader, contentType string, maxBytes int64) ([]byte, int, error) {
+func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, error) {
 	if err := contextError(ctx); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	requestURL := *c.endpoint
 	requestURL.Path = strings.TrimRight(c.endpoint.Path, "/") + endpoint
@@ -563,7 +587,7 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	requestURL.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
 	if err != nil {
-		return nil, 0, UpstreamError{Code: ErrorInvalidInput, Operation: operation}
+		return nil, 0, nil, UpstreamError{Code: ErrorInvalidInput, Operation: operation}
 	}
 	request.Header.Set("Accept", "application/json, text/plain")
 	request.Header.Set("User-Agent", "mastarr-qbittorrent-client/0.0.1")
@@ -575,19 +599,20 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, 0, ctxErr
+			return nil, 0, nil, ctxErr
 		}
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+			return nil, 0, nil, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
 		}
-		return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+		return nil, 0, nil, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
 	}
 	defer response.Body.Close()
+	cookies := response.Cookies()
 	data, err := readBounded(response.Body, maxBytes)
 	if err != nil {
-		return nil, response.StatusCode, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
+		return nil, response.StatusCode, cookies, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
 	}
-	return data, response.StatusCode, nil
+	return data, response.StatusCode, cookies, nil
 }
 
 func (c *Client) origin() string {
@@ -608,22 +633,41 @@ func parseEndpoint(raw string) (*url.URL, error) {
 	if !utf8.ValidString(endpoint.Host) {
 		return nil, errors.New("qBittorrent endpoint is invalid")
 	}
+	// Keep the configured path as a literal reverse-proxy prefix. Dot
+	// segments, escaped path bytes and repeated separators have different
+	// normalization rules across proxies, so they are rejected at the origin
+	// boundary instead of being sent for a server to interpret.
+	if strings.Contains(endpoint.Path, "%") || strings.Contains(endpoint.Path, "\\") || strings.Contains(endpoint.Path, "//") {
+		return nil, errors.New("qBittorrent endpoint path is ambiguous")
+	}
+	if endpoint.RawPath != "" && strings.Contains(endpoint.RawPath, "%") {
+		return nil, errors.New("qBittorrent endpoint path is ambiguous")
+	}
+	for _, segment := range strings.Split(endpoint.Path, "/") {
+		if segment == "." || segment == ".." {
+			return nil, errors.New("qBittorrent endpoint path is ambiguous")
+		}
+	}
 	return endpoint, nil
 }
 
 func listQuery(options TorrentListOptions) (url.Values, error) {
 	query := url.Values{}
-	for key, value := range map[string]string{
-		"filter":   options.Filter,
-		"category": options.Category,
-		"tag":      options.Tag,
-		"sort":     options.Sort,
+	for _, field := range []struct {
+		key   string
+		value string
+		max   int
+	}{
+		{key: "filter", value: options.Filter, max: maxFilterChars},
+		{key: "category", value: options.Category, max: maxCategoryChars},
+		{key: "tag", value: options.Tag, max: maxTagChars},
+		{key: "sort", value: options.Sort, max: maxSortChars},
 	} {
-		if err := validateQueryText(value); err != nil {
+		if err := validateQueryText(field.value, field.max); err != nil {
 			return nil, err
 		}
-		if value != "" {
-			query.Set(key, value)
+		if field.value != "" {
+			query.Set(field.key, field.value)
 		}
 	}
 	if options.Reverse {
@@ -640,9 +684,22 @@ func listQuery(options TorrentListOptions) (url.Values, error) {
 	}
 	if len(options.Hashes) > 0 {
 		hashes := make([]string, len(options.Hashes))
+		seen := make(map[string]struct{}, len(options.Hashes))
+		joinedBytes := 0
 		for i, hash := range options.Hashes {
 			if err := validateHash(hash); err != nil {
 				return nil, err
+			}
+			if _, exists := seen[hash]; exists {
+				return nil, invalidInput("qbit.torrents.info")
+			}
+			seen[hash] = struct{}{}
+			if i > 0 {
+				joinedBytes++
+			}
+			joinedBytes += len(hash)
+			if joinedBytes > maxHashAggregateBytes {
+				return nil, invalidInput("qbit.torrents.info")
 			}
 			hashes[i] = hash
 		}
@@ -652,17 +709,104 @@ func listQuery(options TorrentListOptions) (url.Values, error) {
 }
 
 func validateHash(hash string) error {
-	if hash == "" || len(hash) > maxHashBytes || !utf8.ValidString(hash) || strings.IndexFunc(hash, unicode.IsControl) >= 0 {
+	if !validBoundedText(hash, maxHashChars, true) || strings.Contains(hash, "|") || strings.IndexFunc(hash, unicode.IsSpace) >= 0 {
 		return invalidInput("qbit.torrents.hash")
 	}
 	return nil
 }
 
-func validateQueryText(value string) error {
-	if len(value) > maxQueryTextBytes || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+func validateQueryText(value string, maxChars int) error {
+	if !validBoundedText(value, maxChars, false) {
 		return invalidInput("qbit.torrents.info")
 	}
 	return nil
+}
+
+func validCredential(value string, maxChars int) bool {
+	return value != "" && validBoundedText(value, maxChars, false)
+}
+
+func validBoundedText(value string, maxChars int, rejectEmpty bool) bool {
+	if rejectEmpty && value == "" {
+		return false
+	}
+	return utf8.ValidString(value) && utf8.RuneCountInString(value) <= maxChars && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+func usableSIDValue(value string) bool {
+	return value != "" && utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsSpace) < 0 && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+func (c *Client) hasUsableSID(responseCookies []*http.Cookie) bool {
+	if c.http == nil || c.http.Jar == nil {
+		return false
+	}
+	requestURL := c.apiRootURL()
+	for _, responseCookie := range responseCookies {
+		if responseCookie == nil || responseCookie.Name != "SID" || !usableSIDValue(responseCookie.Value) {
+			continue
+		}
+		if responseCookie.Secure && requestURL.Scheme != "https" {
+			continue
+		}
+		if !cookieDomainApplies(responseCookie.Domain, requestURL.Hostname()) || !cookiePathApplies(responseCookie.Path, requestURL.Path, c.loginPath()) {
+			continue
+		}
+		for _, cookie := range c.http.Jar.Cookies(requestURL) {
+			if cookie.Name == "SID" && cookie.Value == responseCookie.Value && usableSIDValue(cookie.Value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *Client) apiRootURL() *url.URL {
+	requestURL := *c.endpoint
+	requestURL.Path = strings.TrimRight(c.endpoint.Path, "/") + "/api/v2/"
+	requestURL.RawPath = ""
+	requestURL.RawQuery = ""
+	return &requestURL
+}
+
+func (c *Client) loginPath() string {
+	return strings.TrimRight(c.endpoint.Path, "/") + apiLogin
+}
+
+func cookieDomainApplies(cookieDomain, host string) bool {
+	if cookieDomain == "" {
+		return true
+	}
+	cookieDomain = strings.TrimPrefix(strings.ToLower(cookieDomain), ".")
+	host = strings.ToLower(host)
+	return host == cookieDomain || strings.HasSuffix(host, "."+cookieDomain)
+}
+
+func cookiePathApplies(cookiePath, requestPath, sourcePath string) bool {
+	if cookiePath == "" {
+		cookiePath = defaultCookiePath(sourcePath)
+	}
+	if cookiePath == "" || cookiePath[0] != '/' || requestPath == "" || requestPath[0] != '/' {
+		return false
+	}
+	if requestPath == cookiePath {
+		return true
+	}
+	if !strings.HasPrefix(requestPath, cookiePath) {
+		return false
+	}
+	return strings.HasSuffix(cookiePath, "/") || (len(requestPath) > len(cookiePath) && requestPath[len(cookiePath)] == '/')
+}
+
+func defaultCookiePath(sourcePath string) string {
+	if sourcePath == "" || sourcePath[0] != '/' {
+		return "/"
+	}
+	if index := strings.LastIndexByte(sourcePath, '/'); index <= 0 {
+		return "/"
+	} else {
+		return sourcePath[:index]
+	}
 }
 
 func contextError(ctx context.Context) error {
@@ -713,10 +857,14 @@ func statusError(operation string, status int) UpstreamError {
 		code = ErrorUnauthorized
 	case status == http.StatusBadRequest:
 		code = ErrorInvalidInput
+	case status == http.StatusNotFound && isVersionOperation(operation):
+		code = ErrorUnsupported
 	case status == http.StatusNotFound:
 		code = ErrorUnavailable
 	case status == http.StatusConflict:
 		code = ErrorConflict
+	case status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented || status == http.StatusHTTPVersionNotSupported:
+		code = ErrorUnsupported
 	case status == http.StatusTooManyRequests:
 		code = ErrorRateLimited
 		retryable = true
@@ -725,6 +873,10 @@ func statusError(operation string, status int) UpstreamError {
 		retryable = true
 	}
 	return UpstreamError{Code: code, Operation: operation, Status: status, Retryable: retryable}
+}
+
+func isVersionOperation(operation string) bool {
+	return operation == "qbit.app.version" || operation == "qbit.app.webapi_version"
 }
 
 func invalidInput(operation string) UpstreamError {

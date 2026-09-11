@@ -23,12 +23,14 @@ The handwritten client exposes only these operations:
 - generic properties and file contents for one torrent hash;
 - all categories and all tags.
 
-Login accepts the upstream `Ok.` body and stores the returned SID in a cookie
-jar isolated to that client instance. Requests carry the configured origin's
-`Origin` and `Referer` headers, and redirects are rejected so a session-bearing
-request cannot be sent to another location. Credentials are held only in the
-client configuration and login form. Upstream body text is never copied to an
-error; failures are classified by the typed `UpstreamError` codes
+Login accepts the upstream `Ok.` body only when the response also establishes a
+nonempty, usable `SID` cookie for the configured origin. A client requires a
+nonempty UTF-8 username (at most 256 characters) and password (at most 1024
+characters); there is no credential-less login mode. Requests carry the
+configured origin's `Origin` and `Referer` headers, and redirects are rejected
+so a session-bearing request cannot be sent to another location. Credentials
+are held only in the client configuration and login form. Upstream body text is
+never copied to an error; failures are classified by the typed `UpstreamError` codes
 `unavailable`, `rate_limited`, `unauthorized`, `invalid_input`, `conflict`,
 `unsupported` and `unknown`.
 
@@ -37,7 +39,24 @@ checks. The default response bound is 8 MiB, with at most 10,000 inventory
 records, 100,000 files, or 10,000 category/tag values. Bounds reject an
 over-limit response instead of silently truncating evidence. qBittorrent Unix
 timestamps and its `-1` unknown sentinels are preserved in the normalized
-values.
+values. Inventory filter and sort values are limited to 64 characters, category
+and tag values to 512 characters. Hash list members are at most 128 characters,
+cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and
+the decoded joined value including separators is capped at 4096 bytes. Both
+40-character and 64-character hash identities are accepted.
+
+Application versions must be one whitespace-free `vMAJOR.MINOR.PATCH` token;
+WebAPI versions must be one whitespace-free `MAJOR.MINOR` or
+`MAJOR.MINOR.PATCH` token. Either accepts qBittorrent-style alphanumeric
+prerelease/build suffixes such as `-alpha1`, `beta1`, `-rc1` and `+git`; empty,
+multiline, control, HTML and trailing-token responses are rejected. File piece
+ranges are inclusive, nonnegative `[start, end]` pairs with `start <= end`; no
+sentinel is accepted. Version-route 404/405/501 responses are typed as
+`unsupported`, while a torrent resource 404 remains `unavailable`.
+
+The configured endpoint may contain a literal reverse-proxy path prefix, but
+dot segments, percent-encoded path bytes, backslashes and repeated separators
+are rejected so request URI interpretation remains stable across proxies.
 
 The generated models and typed operation request builders in
 `generated/client.gen.go` come from oapi-codegen **v2.8.0**. Regenerate from
