@@ -378,11 +378,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "e28ff3f7e6978a94e6357aa2c998a70b1fc286c6",
       "integratedSha": null,
-      "implementationCommit": "293acffaf250cabdda2c9295f1f612724ef350e4",
+      "implementationCommit": "d713fe432db106503d49870def691af5d4dbc911",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -390,22 +390,13 @@
         "./scripts/generate.sh --check",
         "GOWORK=off go mod verify"
       ],
-      "evidence": [],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/d01_reviewer",
-        "commit": "d35a719465b3f870bb1c2e70a16d0eb18051aa40",
-        "findings": [
-          "P1: coverage must be source/connection scoped before absence is accepted",
-          "P1: restart/cancel/deadline action rows need durable recovery or terminalization",
-          "P1: purge and restore records must not claim the same trash entry concurrently",
-          "P1: download state must use frozen API enum complete",
-          "P1: split foreign keys must preserve aggregate ownership",
-          "P1: database lock must reject symlink aliases of the same file",
-          "P2: API/YAML source ownership must agree with the referenced snapshot"
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "reviewHistory": [
         {
@@ -413,6 +404,13 @@
           "reviewer": "/root/d01_reviewer",
           "commit": "d35a719465b3f870bb1c2e70a16d0eb18051aa40",
           "status": "changes_requested",
+          "correctionCommit": "d713fe432db106503d49870def691af5d4dbc911"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/d01_reviewer",
+          "commit": null,
+          "status": "pending",
           "correctionCommit": null
         }
       ],
@@ -432,7 +430,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round2.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
