@@ -97,8 +97,8 @@
     },
     "C-01": {
       "status": "in_progress",
-      "owner": "/root/c01_implementer",
-      "baseSha": "6a8b9e94558cd991d03f95160b4bcf2d71a597de",
+      "owner": "/root/c01_implementer_retry",
+      "baseSha": "f39f864915800f8b28284c394a53d602e7220b33",
       "integratedSha": null,
       "evidence": [],
       "review": null,
@@ -127,6 +127,11 @@
           "owner": "/root/c01_implementer",
           "status": "interrupted",
           "reason": "bounded implementation window exceeded without files or handoff"
+        },
+        "retryAttempt": {
+          "owner": "/root/c01_implementer_retry",
+          "assignedAt": "2026-09-11",
+          "scope": "minimal complete OpenAPI route/component contract and generation configs"
         }
       }
     },
