@@ -378,7 +378,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "e28ff3f7e6978a94e6357aa2c998a70b1fc286c6",
       "integratedSha": null,
@@ -396,15 +396,15 @@
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": "2656a9bb9de4389b5170e17c6a420d0884eeffd3",
+        "commit": "6c690d7c76c2979fa467edda8ac0a18663df45be",
         "findings": [
-          "P1: populated legacy tracking rows must upgrade conservatively",
-          "P1: populated legacy cross-scope rows must be rejected or quarantined",
-          "P1: in-flight legacy janitor work must be backfilled as reclaimable",
-          "P1: custom lock paths must not allow two owners for one database",
-          "P2: storage needs an explicit approved early-purge claim"
+          "P1: legacy tracking upgrades can preserve an incorrect media identity association",
+          "P1: fresh unscoped unknown tracking rows are accepted as active evidence",
+          "P1: valid terminal janitor history blocks migration preflight",
+          "P1: early purge claim is not bound to the approved target or plan kind",
+          "P1: cancelled or deadline-expired action runs can still claim purge"
         ],
-        "round": 2
+        "round": 3
       },
       "reviewHistory": [
         {
@@ -425,9 +425,19 @@
         {
           "round": 3,
           "reviewer": "/root/d01_reviewer",
+          "commit": "6c690d7c76c2979fa467edda8ac0a18663df45be",
+          "status": "changes_requested",
+          "correctionCommit": null,
+          "receipt": "docs/execution/handoffs/D-01-review-round3.md"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/d01_reviewer",
           "commit": null,
           "status": "pending",
-          "correctionCommit": null
+          "correctionCommit": null,
+          "sourceCommit": "0dce2b9b882130d892fa0e02ffaaf0e2f3761da3",
+          "receipt": "docs/execution/handoffs/D-01-review-round4.md"
         }
       ],
       "dispatch": {
@@ -446,7 +456,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round3.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round4.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
