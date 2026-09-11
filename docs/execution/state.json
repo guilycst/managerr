@@ -320,8 +320,9 @@
         {
           "round": 3,
           "reviewer": "/root/c03_reviewer",
-          "commit": "f06110968e9c86c336acbc7bf7dfe21af7137218",
+          "commit": "58e3de1ae82ad171587349489e1e35557871a9d0",
           "status": "changes_requested",
+          "sourceCommit": "f06110968e9c86c336acbc7bf7dfe21af7137218",
           "correctionCommit": "473c11275f529efd0eb9935967b12791303261a7",
           "receipt": "docs/execution/handoffs/C-03-review-round3.md"
         }
