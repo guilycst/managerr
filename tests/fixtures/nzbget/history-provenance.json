@@ -1,0 +1,34 @@
+[
+  {
+    "NZBID": 42,
+    "ID": 42,
+    "Kind": "NZB",
+    "NZBFilename": "/incoming/Example Film.nzb",
+    "NZBName": "Example Film",
+    "Name": "Example Film",
+    "HistoryTime": 1731144400,
+    "DestDir": "/downloads/movies",
+    "FinalDir": "/downloads/movies/Example Film (2024)",
+    "Category": "movies",
+    "FileSizeLo": 2000000000,
+    "FileSizeHi": 0,
+    "DownloadedSizeLo": 2000000000,
+    "DownloadedSizeHi": 0,
+    "FileCount": 1,
+    "RemainingFileCount": 0,
+    "Health": 1000,
+    "CriticalHealth": 900,
+    "Status": "SUCCESS/ALL",
+    "ParStatus": "SUCCESS",
+    "UnpackStatus": "SUCCESS",
+    "ScriptStatus": "SUCCESS",
+    "MoveStatus": "SUCCESS",
+    "DeleteStatus": "NONE",
+    "MarkStatus": "NONE",
+    "UrlStatus": "NONE",
+    "Parameters": [
+      {"Name": "drone", "Value": "arr-download-42"},
+      {"Name": "source", "Value": "manual"}
+    ]
+  }
+]
