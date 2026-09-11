@@ -1510,21 +1510,31 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "changes_requested",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
       "evidence": [
         "915eaab2568394ae4afb2ab0e580e8db9936fec8 X-10 product",
         "54584d510466281d0bc5a39a7ec161894596e934 X-10 handoff",
-        "docs/execution/handoffs/X-10.md"
+        "docs/execution/handoffs/X-10.md",
+        "8aa5867ebc587d0e61700ed94f15ef2dc8200237 X-10 review round 1"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "8aa5867ebc587d0e61700ed94f15ef2dc8200237",
+        "findings": [
+          "P1 missing-SID login false success",
+          "P1 pipe-delimiter and aggregate hash scope bypass",
+          "P1 oversized error bodies erase HTTP status typing and reauthentication",
+          "P1 malformed success version text accepted",
+          "P2 negative/reversed piece ranges accepted",
+          "P2 unsupported status classification drift",
+          "P2 handwritten bounds and empty-credential policy drift from OpenAPI",
+          "P2 ambiguous dot/encoded-dot/repeated-slash endpoint paths accepted"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -1624,7 +1634,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 and X-11 are in independent review; record both receipts before dispatching C-05 generation/CI wiring.",
+  "nextAction": "X-10 requires correction round 2; X-11 remains in independent review. Do not dispatch C-05 until both client receipts are approved.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
