@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "phase": "implementation",
+  "phase": "guardrails",
   "implementationAuthorized": true,
   "targetRelease": "v0.0.1",
   "applicationAuthentication": "excluded_from_v0.0.1",
@@ -15,10 +15,23 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [
-    "D-01",
-    "X-01"
-  ],
+  "activeImplementationTasks": [],
+  "featureLanesPaused": true,
+  "pauseReason": "Guardrails-first pause requested by user on 2026-09-11",
+  "guardrailBaseline": {
+    "status": "in_progress",
+    "startedAt": "2026-09-11",
+    "commits": [],
+    "requiredChecks": [
+      "deterministic exploded OpenAPI 3.1.1 bundle",
+      "Vacuum with zero warnings or errors",
+      "oapi-codegen reproducibility",
+      "golangci-lint root and UI with GOWORK=off",
+      "architecture import-direction check",
+      "versioned pre-commit hook and CI-equivalent checks"
+    ],
+    "nextAction": "Commit guardrail slices separately, record each SHA, then run the clean-checkout gate"
+  },
   "openGates": [
     "G-01",
     "G-02",
@@ -620,14 +633,16 @@
       "review": null
     },
     "X-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
       "integratedSha": null,
-      "implementationCommit": "d74a735b18a2cc5768dcb9f3ff0656f8540d3cff",
+      "implementationCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
       "evidence": [
         "docs/execution/handoffs/X-01.md",
         "docs/execution/handoffs/X-01-review-round1.md",
+        "dd7156396c649c00190ddc7f25d2e0e12868b1c5 X-01 round-two product",
+        "f219bdf58dd8d0c82a2f279f0f67084734e43c70 X-01 round-two handoff",
         "internal/adapters/qbittorrent/inventory/inventory_test.go",
         "tests/fixtures/qbittorrent/",
         "b89ffa1b9fc829134fed84cf55fd88e614243d91 X-01 round-one review"
@@ -654,8 +669,17 @@
           "commit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
           "status": "changes_requested",
           "sourceCommit": "d74a735b18a2cc5768dcb9f3ff0656f8540d3cff",
-          "correctionCommit": null,
+          "correctionCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
           "receipt": "docs/execution/handoffs/X-01-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/f01_reviewer",
+          "commit": null,
+          "status": "pending",
+          "correctionCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
+          "sourceCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
+          "receipt": "docs/execution/handoffs/X-01-review-round2.md"
         }
       ],
       "dispatch": {
@@ -678,7 +702,9 @@
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
         "correctionRound": 2,
-        "reviewFindingsCommit": "b89ffa1b9fc829134fed84cf55fd88e614243d91"
+        "reviewFindingsCommit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
+        "implementationCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
+        "handoffCommit": "f219bdf58dd8d0c82a2f279f0f67084734e43c70"
       }
     },
     "X-02": {
@@ -933,7 +959,7 @@
       "review": null
     }
   },
-  "nextAction": "Independent round-two review of C-03 correction commit 1ca9e139de8e0854127312b0854dde9d989a78f0",
+  "nextAction": "Guardrails-first pause: add and validate the clean-checkout baseline before resuming feature reviews or lanes",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
