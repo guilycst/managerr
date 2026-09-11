@@ -8,7 +8,7 @@
   "repository": "guilycst/managerr",
   "requestedVisibility": "public",
   "license": "MIT",
-  "publicationVerified": false,
+  "publicationVerified": true,
   "authoritativeRequirements": "docs/specs/spec-001-media-reconciliation/spec-001-media-reconciliation.md",
   "interviewRecord": "docs/product/interview.md",
   "taskDefinitions": "docs/execution/tasks.json",
@@ -330,11 +330,18 @@
       "review": null
     }
   },
-  "nextAction": "Validate and publish planning artifacts; implementation awaits explicit user authorization",
+  "nextAction": "Await explicit implementation authorization; resume from C-00 with current Git/agent ownership checks",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
     "applicationTestsRun": false,
     "evidence": "docs/verification/planning-evidence.md"
+  },
+  "publication": {
+    "url": "https://github.com/guilycst/managerr",
+    "visibility": "PUBLIC",
+    "license": "MIT",
+    "verifiedPlanningCommit": "2cc1f131def11174d9fe9033c61cef0af3794bf4",
+    "verification": "GitHub repository metadata and origin/main matched the published planning commit on 2026-09-11"
   }
 }

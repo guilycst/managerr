@@ -23,3 +23,11 @@ No application modules, generated API, runnable service, runtime tests, containe
 images or deployments were produced. The planning validator is the only executable
 artifact. Implementation tasks remain planned and implementationAuthorized=false.
 No independent implementation review or live-stack acceptance is claimed.
+
+## Publication verified
+
+GitHub reports guilycst/managerr as PUBLIC with MIT License and main as default
+branch. Initial published planning commit is
+`2cc1f131def11174d9fe9033c61cef0af3794bf4`; local HEAD and origin/main matched that
+commit before this verification record was added. The following documentation
+commit records publication evidence without claiming any application completion.
