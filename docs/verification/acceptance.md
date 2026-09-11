@@ -15,7 +15,7 @@ a mocked method was called. Test native adapters in isolation after unit contrac
 | A-02 | R-01 | Discovery | Scan multiple roots, one unreadable, with interrupted pagination. | Per-source partial coverage; inaccessible data is unknown, not absent. |
 | A-03 | R-01 | Discovery | Scheduled/manual overlapping triggers, restart and large directory. | One scan per root, bounded follow-up, persistent progress, no duplicate discoveries. |
 | A-04 | R-02 | Provenance | qBittorrent hash variants, duplicate IDs in two instances, history removed. | Connection-scoped identity; retained evidence distinct from current observations. |
-| A-05 | R-02 | Provenance | NZBGet queue/unpack/history with NZBID, history ID and drone parameter differing. | Ready only after processing; correct Arr correlation and mapped final path. |
+| A-05 | R-02 | Provenance | NZBGet queue/unpack/history with NZBID, its deprecated ID alias, and a differing Arr `drone` parameter. | Ready only after processing; correct Arr correlation and mapped final path. The fixture must not require ID and NZBID to differ. |
 | A-06 | R-02 | Descriptors | Original available, unavailable, then client history/payload purged. | Exact original digest retained where available; unavailable remains honest; no plaintext in ordinary responses/logs. |
 | A-07 | R-03 | Inventory | Arr catalog exceeds one page and includes unmonitored/missing titles. | All records represented; no dependence on Managerr action history. |
 | A-08 | R-03 | Inventory | Arr import succeeds while Jellyfin/Seerr are stale/offline. | Separate registration/import/availability/request dimensions and timestamps; no false availability. |

@@ -61,10 +61,15 @@ Use supported JSON-RPC with positional parameters and configured credentials.
 Observe queue, post-processing and retained history separately. Complete download
 is not ready while unpack/repair/post-processing is ongoing. Prefer FinalDir when
 reported, otherwise DestDir, subject to explicit mapping and filesystem checks.
-Keep NZBID, history item ID and upstream parameters as distinct typed fields.
+Keep NZBID and its deprecated `ID` alias as one upstream identity, while keeping
+queue/history lifecycle observations and upstream parameters as distinct typed
+fields. A history item does not provide a second independent ID merely because
+the client exposes an alias.
 
 Arr's inspected NZBGet adapter uses a `drone` parameter as DownloadId when present,
-otherwise the history item ID. Do not assume NZBID equals Arr's downloadId.
+otherwise the history item ID. Do not assume NZBID equals Arr's downloadId. Test
+a differing Arr `drone` parameter, history pruning and FinalDir/DestDir fallback;
+do not fabricate an independent history ID.
 Correlate through actual history/client evidence and target instance. Categories
 are hints, not proof Arr registered/imported a title.
 
