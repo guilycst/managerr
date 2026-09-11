@@ -502,7 +502,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
@@ -550,14 +550,18 @@
         "docs/execution/handoffs/D-01-review-round11.md",
         "35ad5ca2ba265643134a8fa08d747ee91ad95c73 D-01 correction round-twelve product",
         "c07ba01410949a052ad5276c5f9a48406b49a6a7 D-01 correction round-twelve handoff",
-        "docs/execution/handoffs/D-01-round12.md"
+        "docs/execution/handoffs/D-01-round12.md",
+        "825f2c694372fb0d1a9f0e336b8adc1353f3161f D-01 round-twelve review receipt",
+        "docs/execution/handoffs/D-01-review-round12.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
+        "findings": [
+          "P2: julianday(requested_at) accepts non-Timestamp values such as 1, 12:34, date-only strings, and impossible calendar dates, persisting them and advancing the cancellation generation"
+        ],
         "round": 12
       },
       "reviewHistory": [
@@ -641,6 +645,14 @@
           "status": "changes_requested",
           "sourceCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
           "receipt": "docs/execution/handoffs/D-01-review-round11.md"
+        },
+        {
+          "round": 12,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
+          "status": "changes_requested",
+          "sourceCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
+          "receipt": "docs/execution/handoffs/D-01-review-round12.md"
         }
       ],
       "dispatch": {
@@ -659,22 +671,20 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round12.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round13.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "correctionRound": 12,
+        "correctionRound": 13,
         "correctionOwner": "/root/f01_implementer",
-        "correctionBaseSha": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
-        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round12.md",
+        "correctionBaseSha": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
+        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round13.md",
         "implementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
         "handoffCommit": "c07ba01410949a052ad5276c5f9a48406b49a6a7",
-        "reviewCommit": "559a9b435f648f89e79eca707ba2b86bada51dbf",
+        "reviewCommit": "825f2c694372fb0d1a9f0e336b8adc1353f3161f",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
-        "correctionImplementationCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73",
-        "correctionHandoffCommit": "c07ba01410949a052ad5276c5f9a48406b49a6a7"
+        "reviewSourceCommit": "35ad5ca2ba265643134a8fa08d747ee91ad95c73"
       }
     },
     "D-02": {
@@ -1010,11 +1020,11 @@
       ]
     },
     "X-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "71cb511a5f03727f56d4c534be7c47e8e56b9595",
       "integratedSha": null,
-      "implementationCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
+      "implementationCommit": "31243c71d90717ffa8ca7404817fca541b8ba935",
       "evidence": [
         "docs/execution/handoffs/X-03.md",
         "f12fe75568b263c285fe673598e8b97f7333634c X-03 product",
@@ -1039,20 +1049,18 @@
         "58a5ecb80f5df7352be84cc6d7b33efdb5673328 X-03 correction round-five handoff",
         "docs/execution/handoffs/X-03-correction-round5.md",
         "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548 X-03 review round-five receipt",
-        "docs/execution/handoffs/X-03-review-round5.md"
+        "docs/execution/handoffs/X-03-review-round5.md",
+        "31243c71d90717ffa8ca7404817fca541b8ba935 X-03 correction round-six product",
+        "5dbdc1c7f34061ca0754f9f0b27bcb359e50f7e7 X-03 correction round-six handoff",
+        "docs/execution/handoffs/X-03-correction-round6.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548",
-        "findings": [
-          "P1: caller-controlled Subtitle=true lets an .mkv with missing quality reach the manual-import POST",
-          "P1: Sonarr accepts and posts Radarr-only nested CustomFormat SelectOption.dividerAfter",
-          "P1: Radarr file movieId and Sonarr catalog episode seriesId contradictions can be rewritten into successful or complete wrong-title evidence",
-          "P2: exact duplicate Sonarr episode rows are silently accepted instead of remaining a review issue"
-        ],
-        "round": 5
+        "commit": null,
+        "findings": [],
+        "round": 6
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1076,14 +1084,16 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "implementationCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
-        "handoffCommit": "58a5ecb80f5df7352be84cc6d7b33efdb5673328",
+        "implementationCommit": "31243c71d90717ffa8ca7404817fca541b8ba935",
+        "handoffCommit": "5dbdc1c7f34061ca0754f9f0b27bcb359e50f7e7",
         "reviewSourceCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
         "reviewCommit": "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548",
         "correctionRound": 6,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "5a4ceaac7307f264cdfacca126a88f319d76a842",
-        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round6.md"
+        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round6.md",
+        "correctionImplementationCommit": "31243c71d90717ffa8ca7404817fca541b8ba935",
+        "correctionHandoffCommit": "5dbdc1c7f34061ca0754f9f0b27bcb359e50f7e7"
       },
       "reviewHistory": [
         {
@@ -1434,7 +1444,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent D-01 round-twelve, X-04 round-two, and X-03 round-six reviews",
+  "nextAction": "Complete independent X-03 round-six, X-04 round-two, and D-01 round-twelve reviews; queue D-01 round-thirteen correction",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
