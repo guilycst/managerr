@@ -502,11 +502,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
+      "implementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -537,18 +537,17 @@
         "eb2f8076f5aef8bfb33cb58f81ada53b7759a189 D-01 round-nine correction product",
         "94228102c14bcaa6bec4199cd1b9feff018d13c0 D-01 round-nine handoff",
         "5f58a72d6ab4484dc1f4851236152bbae3e7a4ed D-01 round-nine review receipt",
-        "docs/execution/handoffs/D-01-review-round9.md"
+        "docs/execution/handoffs/D-01-review-round9.md",
+        "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c D-01 round-ten correction product",
+        "42758d4ec54854d5df9cbc60be5b4fe421c0e17c D-01 round-ten handoff"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
-        "reviewer": "/root/d01_reviewer",
-        "commit": "5f58a72d6ab4484dc1f4851236152bbae3e7a4ed",
-        "findings": [
-          "P1: an initial-dispatch terminal crash leaves an action running without an exact approved-purge recovery/finalization path",
-          "P1: finalization rewrites an applied purge outcome as already_satisfied and hides the irreversible effect"
-        ],
-        "round": 9
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/f01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 10
       },
       "reviewHistory": [
         {
@@ -633,7 +632,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round9.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round10.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -642,10 +641,10 @@
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round10.md",
-        "implementationCommit": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
-        "correctionImplementationCommit": "eb2f8076f5aef8bfb33cb58f81ada53b7759a189",
-        "correctionHandoffCommit": "94228102c14bcaa6bec4199cd1b9feff018d13c0",
-        "handoffCommit": "94228102c14bcaa6bec4199cd1b9feff018d13c0",
+        "implementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+        "correctionImplementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+        "correctionHandoffCommit": "42758d4ec54854d5df9cbc60be5b4fe421c0e17c",
+        "handoffCommit": "42758d4ec54854d5df9cbc60be5b4fe421c0e17c",
         "reviewCommit": "5f58a72d6ab4484dc1f4851236152bbae3e7a4ed"
       }
     },
@@ -982,11 +981,11 @@
       ]
     },
     "X-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "71cb511a5f03727f56d4c534be7c47e8e56b9595",
       "integratedSha": null,
-      "implementationCommit": "e01deb6d90662e34d67cbd8190daf1c553035217",
+      "implementationCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
       "evidence": [
         "docs/execution/handoffs/X-03.md",
         "f12fe75568b263c285fe673598e8b97f7333634c X-03 product",
@@ -1002,19 +1001,17 @@
         "e01deb6d90662e34d67cbd8190daf1c553035217 X-03 correction round-three product",
         "29768b68238cc2023af7149592da7b0bd4fa192a X-03 correction round-three handoff",
         "ad3fb145cf746580c9416aa365d4de7e41787133 X-03 review round-three receipt",
-        "docs/execution/handoffs/X-03-review-round3.md"
+        "docs/execution/handoffs/X-03-review-round3.md",
+        "7c2c3712fd69865d03f0a13308633fadc7ba7228 X-03 correction round-four product",
+        "37e501801c6d6d66735913e03d5997e56c9eaa38 X-03 correction round-four handoff"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "ad3fb145cf746580c9416aa365d4de7e41787133",
-        "findings": [
-          "P1: history deletion drift can omit an event while terminal coverage reports complete",
-          "P1: untyped quality or customFormats objects can pass mapping into POST",
-          "P1: contradictory Sonarr episodeFileId/nested file IDs or repeated IDs with conflicting paths and sizes are accepted"
-        ],
-        "round": 3
+        "commit": null,
+        "findings": [],
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1032,19 +1029,19 @@
           "A-11",
           "A-16"
         ],
-        "reviewPath": "docs/execution/handoffs/X-03-review-round3.md",
+        "reviewPath": "docs/execution/handoffs/X-03-review-round4.md",
         "handoffPath": "docs/execution/handoffs/X-03.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "implementationCommit": "e01deb6d90662e34d67cbd8190daf1c553035217",
-        "handoffCommit": "29768b68238cc2023af7149592da7b0bd4fa192a",
+        "implementationCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
+        "handoffCommit": "37e501801c6d6d66735913e03d5997e56c9eaa38",
         "reviewSourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
         "reviewCommit": "ad3fb145cf746580c9416aa365d4de7e41787133",
         "correctionRound": 4,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "e01deb6d90662e34d67cbd8190daf1c553035217",
+        "correctionBaseSha": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
         "correctionReviewPath": "docs/execution/handoffs/X-03-review-round4.md",
         "correctionImplementationCommit": "e01deb6d90662e34d67cbd8190daf1c553035217",
         "correctionHandoffCommit": "29768b68238cc2023af7149592da7b0bd4fa192a"
@@ -1350,7 +1347,7 @@
       "review": null
     }
   },
-  "nextAction": "Run D-01 round-ten and X-03 round-four corrections while X-04 builds its read adapters",
+  "nextAction": "Complete independent D-01 round-ten and X-03 round-four reviews while X-04 builds",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
