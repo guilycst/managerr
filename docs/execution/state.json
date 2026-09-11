@@ -181,7 +181,7 @@
     },
     "C-02": {
       "status": "in_progress",
-      "owner": "/root/c02_implementer_retry",
+      "owner": "/root",
       "baseSha": "36156ee0dcb61d7859753b62c5f5cf655e77b9e3",
       "integratedSha": null,
       "evidence": [],
@@ -215,7 +215,13 @@
           "owner": "/root/c02_implementer_retry",
           "assignedAt": "2026-09-11",
           "scope": "minimal independent modules, pinned tools, generation script and GOWORK=off CI",
-          "status": "in_progress"
+          "status": "interrupted",
+          "reason": "bounded retry window exceeded without handoff or file changes"
+        },
+        "coordinatorTakeover": {
+          "owner": "/root",
+          "assignedAt": "2026-09-11",
+          "reason": "two bounded Luna attempts produced no files; preserve module baseline gate by implementing owned slice directly"
         }
       }
     },
@@ -500,7 +506,7 @@
       "review": null
     }
   },
-  "nextAction": "Await bounded C-02 retry, then dispatch independent review",
+  "nextAction": "Coordinator takeover of C-02, then dispatch independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
