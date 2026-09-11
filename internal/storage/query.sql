@@ -148,12 +148,12 @@ RETURNING *;
 
 -- name: CreateCoverageSnapshot :one
 INSERT INTO coverage_snapshots (
-    id, scan_id, source_id, connection_id, root_id, completeness,
+    id, scan_id, source_id, connection_id, root_id, media_identity_id, completeness,
     reason_codes_json, observed_count, snapshot_revision, started_at,
     completed_at, observed_at, created_at
 ) VALUES (
     sqlc.arg(id), sqlc.arg(scan_id), sqlc.arg(source_id), sqlc.arg(connection_id),
-    sqlc.arg(root_id), sqlc.arg(completeness), sqlc.arg(reason_codes_json),
+    sqlc.arg(root_id), sqlc.arg(media_identity_id), sqlc.arg(completeness), sqlc.arg(reason_codes_json),
     sqlc.arg(observed_count), sqlc.arg(snapshot_revision), sqlc.arg(started_at),
     sqlc.arg(completed_at), sqlc.arg(observed_at), sqlc.arg(created_at)
 )
@@ -310,12 +310,12 @@ ORDER BY last_seen_at DESC, id DESC LIMIT sqlc.arg(limit) OFFSET sqlc.arg(offset
 
 -- name: CreateTrackingObservation :one
 INSERT INTO tracking_observations (
-    id, external_record_id, media_identity_id, connection_id, dimension, status,
-    evidence_json, coverage_id, observed_at, registered_at, imported_at
+    id, external_record_id, media_identity_id, connection_id, root_id, dimension, status,
+    evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at
 ) VALUES (
     sqlc.arg(id), sqlc.arg(external_record_id), sqlc.arg(media_identity_id),
-    sqlc.arg(connection_id), sqlc.arg(dimension), sqlc.arg(status),
-    sqlc.arg(evidence_json), sqlc.arg(coverage_id), sqlc.arg(observed_at),
+    sqlc.arg(connection_id), sqlc.arg(root_id), sqlc.arg(dimension), sqlc.arg(status),
+    sqlc.arg(evidence_json), sqlc.arg(coverage_id), sqlc.arg(coverage_max_age_seconds), sqlc.arg(observed_at),
     sqlc.arg(registered_at), sqlc.arg(imported_at)
 )
 RETURNING *;
@@ -454,12 +454,77 @@ RETURNING *;
 -- name: GetActionRun :one
 SELECT * FROM action_runs WHERE id = sqlc.arg(id);
 
--- name: ListDueActionRuns :many
-SELECT * FROM action_runs
+-- name: RecoverRunningActionRuns :many
+-- Startup recovery turns every previously claimed dispatch into read-only
+-- reconciliation. No external call is retried from a running row blindly.
+UPDATE action_runs SET
+    state = 'reconciling', next_attempt_at = sqlc.arg(now),
+    claimed_by = NULL, lease_until = NULL, version = version + 1,
+    updated_at = sqlc.arg(now)
+WHERE state = 'running'
+RETURNING *;
+
+-- name: RecoverExpiredActionRuns :many
+-- A live worker can use the same transition when a lease expires between
+-- scheduler ticks; callers must reconcile before any new dispatch.
+UPDATE action_runs SET
+    state = 'reconciling', next_attempt_at = sqlc.arg(now),
+    claimed_by = NULL, lease_until = NULL, version = version + 1,
+    updated_at = sqlc.arg(now)
+WHERE state = 'running'
+  AND (lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;
+
+-- name: RecoverRunningActionAttempts :many
+UPDATE action_attempts SET
+    state = 'reconciling',
+    outcome_certainty = CASE
+        WHEN phase = 'dispatch' OR outcome_certainty = 'uncertain' THEN 'uncertain'
+        ELSE outcome_certainty
+    END
+WHERE state = 'running'
+RETURNING *;
+
+-- name: FinalizeCancelledActionRuns :many
+-- Cancellation is terminal for undispatched queue work. A running or
+-- reconciling row remains visible until its possible effect is reconciled.
+UPDATE action_runs SET
+    state = 'cancelled', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = sqlc.arg(now)
+WHERE state IN ('queued', 'waiting_dependency')
+  AND cancellation_requested_at IS NOT NULL
+RETURNING *;
+
+-- name: FinalizeDeadlineActionRuns :many
+UPDATE action_runs SET
+    state = 'deadline_exceeded', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = sqlc.arg(now)
 WHERE state IN ('queued', 'waiting_dependency')
   AND cancellation_requested_at IS NULL
+  AND deadline_at IS NOT NULL AND deadline_at <= sqlc.arg(now)
+RETURNING *;
+
+-- name: FinalizeCancelledActionAttempts :many
+UPDATE action_attempts SET
+    state = 'cancelled', finished_at = sqlc.arg(now)
+WHERE action_run_id IN (SELECT id FROM action_runs WHERE state = 'cancelled')
+  AND state IN ('running', 'reconciling')
+RETURNING *;
+
+-- name: FinalizeDeadlineActionAttempts :many
+UPDATE action_attempts SET
+    state = 'failed', finished_at = sqlc.arg(now),
+    error_code = 'deadline_exceeded', error_detail = 'action deadline exceeded'
+WHERE action_run_id IN (SELECT id FROM action_runs WHERE state = 'deadline_exceeded')
+  AND state IN ('running', 'reconciling')
+RETURNING *;
+
+-- name: ListDueActionRuns :many
+SELECT * FROM action_runs
+WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-  AND (deadline_at IS NULL OR deadline_at > sqlc.arg(now))
+  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > sqlc.arg(now))
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
 ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
 LIMIT sqlc.arg(limit);
@@ -471,10 +536,10 @@ UPDATE action_runs SET
     updated_at = sqlc.arg(now)
 WHERE id = sqlc.arg(id)
   AND version = sqlc.arg(version)
-  AND state IN ('queued', 'waiting_dependency')
-  AND cancellation_requested_at IS NULL
+  AND state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-  AND (deadline_at IS NULL OR deadline_at > sqlc.arg(now))
+  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > sqlc.arg(now))
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
 RETURNING *;
 
@@ -600,8 +665,11 @@ UPDATE trash_entries SET
     state = sqlc.arg(state), trashed_at = sqlc.arg(trashed_at),
     hold_reason = sqlc.arg(hold_reason), client_state_json = sqlc.arg(client_state_json),
     purge_claimed_at = sqlc.arg(purge_claimed_at), restore_requested_at = sqlc.arg(restore_requested_at),
-    updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)
+    active_operation = sqlc.arg(active_operation),
+    operation_claimed_by = sqlc.arg(operation_claimed_by),
+    operation_lease_until = sqlc.arg(operation_lease_until),
+    version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
 RETURNING *;
 
 -- name: CreateTrashItem :one
@@ -636,12 +704,47 @@ RETURNING *;
 SELECT * FROM janitor_records
 WHERE trash_entry_id = sqlc.arg(trash_entry_id) AND operation = sqlc.arg(operation);
 
+-- name: RecoverRunningJanitorRecords :many
+-- The trigger on janitor_records releases the worker lease on the shared
+-- trash entry while preserving its active operation for safe reconciliation.
+UPDATE janitor_records SET
+    state = 'reconciling', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = sqlc.arg(now)
+WHERE state = 'running'
+RETURNING *;
+
+-- name: RecoverExpiredJanitorRecords :many
+UPDATE janitor_records SET
+    state = 'reconciling', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = sqlc.arg(now)
+WHERE state = 'running'
+  AND (lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;
+
+-- name: ListDueJanitorRecords :many
+SELECT * FROM janitor_records
+WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
+LIMIT sqlc.arg(limit);
+
 -- name: ClaimJanitorRecord :one
 UPDATE janitor_records SET
     state = 'running', claimed_by = sqlc.arg(worker_id), lease_until = sqlc.arg(lease_until),
-    updated_at = sqlc.arg(now)
+    version = version + 1, updated_at = sqlc.arg(now)
 WHERE id = sqlc.arg(id)
+  AND version = sqlc.arg(version)
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+RETURNING *;
+
+-- name: UpdateJanitorRecord :one
+UPDATE janitor_records SET
+    state = sqlc.arg(state), next_attempt_at = sqlc.arg(next_attempt_at),
+    claimed_by = sqlc.arg(claimed_by), lease_until = sqlc.arg(lease_until),
+    outcome_json = sqlc.arg(outcome_json), version = version + 1,
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
 RETURNING *;

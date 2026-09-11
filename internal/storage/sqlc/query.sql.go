@@ -17,10 +17,10 @@ UPDATE action_runs SET
     updated_at = ?3
 WHERE id = ?4
   AND version = ?5
-  AND state IN ('queued', 'waiting_dependency')
-  AND cancellation_requested_at IS NULL
+  AND state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
-  AND (deadline_at IS NULL OR deadline_at > ?3)
+  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > ?3)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
 RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
 `
@@ -66,12 +66,13 @@ func (q *Queries) ClaimActionRun(ctx context.Context, arg *ClaimActionRunParams)
 const claimJanitorRecord = `-- name: ClaimJanitorRecord :one
 UPDATE janitor_records SET
     state = 'running', claimed_by = ?1, lease_until = ?2,
-    updated_at = ?3
+    version = version + 1, updated_at = ?3
 WHERE id = ?4
+  AND version = ?5
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
 `
 
 type ClaimJanitorRecordParams struct {
@@ -79,6 +80,7 @@ type ClaimJanitorRecordParams struct {
 	LeaseUntil sql.NullString `json:"lease_until"`
 	Now        string         `json:"now"`
 	ID         string         `json:"id"`
+	Version    int64          `json:"version"`
 }
 
 func (q *Queries) ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecordParams) (*JanitorRecord, error) {
@@ -87,6 +89,7 @@ func (q *Queries) ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecor
 		arg.LeaseUntil,
 		arg.Now,
 		arg.ID,
+		arg.Version,
 	)
 	var i JanitorRecord
 	err := row.Scan(
@@ -100,6 +103,7 @@ func (q *Queries) ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecor
 		&i.OutcomeJson,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Version,
 	)
 	return &i, err
 }
@@ -552,16 +556,16 @@ func (q *Queries) CreateConnection(ctx context.Context, arg *CreateConnectionPar
 
 const createCoverageSnapshot = `-- name: CreateCoverageSnapshot :one
 INSERT INTO coverage_snapshots (
-    id, scan_id, source_id, connection_id, root_id, completeness,
+    id, scan_id, source_id, connection_id, root_id, media_identity_id, completeness,
     reason_codes_json, observed_count, snapshot_revision, started_at,
     completed_at, observed_at, created_at
 ) VALUES (
     ?1, ?2, ?3, ?4,
-    ?5, ?6, ?7,
-    ?8, ?9, ?10,
-    ?11, ?12, ?13
+    ?5, ?6, ?7, ?8,
+    ?9, ?10, ?11,
+    ?12, ?13, ?14
 )
-RETURNING id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at
+RETURNING id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at, media_identity_id
 `
 
 type CreateCoverageSnapshotParams struct {
@@ -570,6 +574,7 @@ type CreateCoverageSnapshotParams struct {
 	SourceID         sql.NullString `json:"source_id"`
 	ConnectionID     sql.NullString `json:"connection_id"`
 	RootID           sql.NullString `json:"root_id"`
+	MediaIdentityID  sql.NullString `json:"media_identity_id"`
 	Completeness     string         `json:"completeness"`
 	ReasonCodesJson  string         `json:"reason_codes_json"`
 	ObservedCount    int64          `json:"observed_count"`
@@ -587,6 +592,7 @@ func (q *Queries) CreateCoverageSnapshot(ctx context.Context, arg *CreateCoverag
 		arg.SourceID,
 		arg.ConnectionID,
 		arg.RootID,
+		arg.MediaIdentityID,
 		arg.Completeness,
 		arg.ReasonCodesJson,
 		arg.ObservedCount,
@@ -611,6 +617,7 @@ func (q *Queries) CreateCoverageSnapshot(ctx context.Context, arg *CreateCoverag
 		&i.CompletedAt,
 		&i.ObservedAt,
 		&i.CreatedAt,
+		&i.MediaIdentityID,
 	)
 	return &i, err
 }
@@ -1002,7 +1009,7 @@ INSERT INTO janitor_records (
     ?5, ?6, ?7,
     ?8, ?9, ?10
 )
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
 `
 
 type CreateJanitorRecordParams struct {
@@ -1043,6 +1050,7 @@ func (q *Queries) CreateJanitorRecord(ctx context.Context, arg *CreateJanitorRec
 		&i.OutcomeJson,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Version,
 	)
 	return &i, err
 }
@@ -1459,29 +1467,31 @@ func (q *Queries) CreateStorageRoot(ctx context.Context, arg *CreateStorageRootP
 
 const createTrackingObservation = `-- name: CreateTrackingObservation :one
 INSERT INTO tracking_observations (
-    id, external_record_id, media_identity_id, connection_id, dimension, status,
-    evidence_json, coverage_id, observed_at, registered_at, imported_at
+    id, external_record_id, media_identity_id, connection_id, root_id, dimension, status,
+    evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at
 ) VALUES (
     ?1, ?2, ?3,
-    ?4, ?5, ?6,
-    ?7, ?8, ?9,
-    ?10, ?11
+    ?4, ?5, ?6, ?7,
+    ?8, ?9, ?10, ?11,
+    ?12, ?13
 )
-RETURNING id, external_record_id, media_identity_id, connection_id, dimension, status, evidence_json, coverage_id, observed_at, registered_at, imported_at
+RETURNING id, external_record_id, media_identity_id, connection_id, root_id, dimension, status, evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at
 `
 
 type CreateTrackingObservationParams struct {
-	ID               string         `json:"id"`
-	ExternalRecordID sql.NullString `json:"external_record_id"`
-	MediaIdentityID  sql.NullString `json:"media_identity_id"`
-	ConnectionID     sql.NullString `json:"connection_id"`
-	Dimension        string         `json:"dimension"`
-	Status           string         `json:"status"`
-	EvidenceJson     string         `json:"evidence_json"`
-	CoverageID       sql.NullString `json:"coverage_id"`
-	ObservedAt       string         `json:"observed_at"`
-	RegisteredAt     sql.NullString `json:"registered_at"`
-	ImportedAt       sql.NullString `json:"imported_at"`
+	ID                    string         `json:"id"`
+	ExternalRecordID      sql.NullString `json:"external_record_id"`
+	MediaIdentityID       sql.NullString `json:"media_identity_id"`
+	ConnectionID          string         `json:"connection_id"`
+	RootID                sql.NullString `json:"root_id"`
+	Dimension             string         `json:"dimension"`
+	Status                string         `json:"status"`
+	EvidenceJson          string         `json:"evidence_json"`
+	CoverageID            sql.NullString `json:"coverage_id"`
+	CoverageMaxAgeSeconds sql.NullInt64  `json:"coverage_max_age_seconds"`
+	ObservedAt            string         `json:"observed_at"`
+	RegisteredAt          sql.NullString `json:"registered_at"`
+	ImportedAt            sql.NullString `json:"imported_at"`
 }
 
 func (q *Queries) CreateTrackingObservation(ctx context.Context, arg *CreateTrackingObservationParams) (*TrackingObservation, error) {
@@ -1490,10 +1500,12 @@ func (q *Queries) CreateTrackingObservation(ctx context.Context, arg *CreateTrac
 		arg.ExternalRecordID,
 		arg.MediaIdentityID,
 		arg.ConnectionID,
+		arg.RootID,
 		arg.Dimension,
 		arg.Status,
 		arg.EvidenceJson,
 		arg.CoverageID,
+		arg.CoverageMaxAgeSeconds,
 		arg.ObservedAt,
 		arg.RegisteredAt,
 		arg.ImportedAt,
@@ -1504,10 +1516,12 @@ func (q *Queries) CreateTrackingObservation(ctx context.Context, arg *CreateTrac
 		&i.ExternalRecordID,
 		&i.MediaIdentityID,
 		&i.ConnectionID,
+		&i.RootID,
 		&i.Dimension,
 		&i.Status,
 		&i.EvidenceJson,
 		&i.CoverageID,
+		&i.CoverageMaxAgeSeconds,
 		&i.ObservedAt,
 		&i.RegisteredAt,
 		&i.ImportedAt,
@@ -1528,7 +1542,7 @@ INSERT INTO trash_entries (
     ?11, ?12,
     ?13, ?14, ?15
 )
-RETURNING id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at
+RETURNING id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at, active_operation, operation_claimed_by, operation_lease_until, version
 `
 
 type CreateTrashEntryParams struct {
@@ -1585,6 +1599,10 @@ func (q *Queries) CreateTrashEntry(ctx context.Context, arg *CreateTrashEntryPar
 		&i.RestoreRequestedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActiveOperation,
+		&i.OperationClaimedBy,
+		&i.OperationLeaseUntil,
+		&i.Version,
 	)
 	return &i, err
 }
@@ -1776,6 +1794,196 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, arg *CreateWorkflowSte
 	return &i, err
 }
 
+const finalizeCancelledActionAttempts = `-- name: FinalizeCancelledActionAttempts :many
+UPDATE action_attempts SET
+    state = 'cancelled', finished_at = ?1
+WHERE action_run_id IN (SELECT id FROM action_runs WHERE state = 'cancelled')
+  AND state IN ('running', 'reconciling')
+RETURNING id, action_run_id, attempt_number, phase, state, started_at, finished_at, error_code, error_detail, outcome_certainty, external_id, evidence_json
+`
+
+func (q *Queries) FinalizeCancelledActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, finalizeCancelledActionAttempts, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionAttempt{}
+	for rows.Next() {
+		var i ActionAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActionRunID,
+			&i.AttemptNumber,
+			&i.Phase,
+			&i.State,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ErrorCode,
+			&i.ErrorDetail,
+			&i.OutcomeCertainty,
+			&i.ExternalID,
+			&i.EvidenceJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const finalizeCancelledActionRuns = `-- name: FinalizeCancelledActionRuns :many
+UPDATE action_runs SET
+    state = 'cancelled', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = ?1
+WHERE state IN ('queued', 'waiting_dependency')
+  AND cancellation_requested_at IS NOT NULL
+RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+`
+
+// Cancellation is terminal for undispatched queue work. A running or
+// reconciling row remains visible until its possible effect is reconciled.
+func (q *Queries) FinalizeCancelledActionRuns(ctx context.Context, now string) ([]*ActionRun, error) {
+	rows, err := q.db.QueryContext(ctx, finalizeCancelledActionRuns, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionRun{}
+	for rows.Next() {
+		var i ActionRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlanID,
+			&i.PlanRevision,
+			&i.PlanDigest,
+			&i.State,
+			&i.DesiredStateJson,
+			&i.NextAttemptAt,
+			&i.DeadlineAt,
+			&i.CancellationRequestedAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.Version,
+			&i.OutcomeJson,
+			&i.UnresolvedCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const finalizeDeadlineActionAttempts = `-- name: FinalizeDeadlineActionAttempts :many
+UPDATE action_attempts SET
+    state = 'failed', finished_at = ?1,
+    error_code = 'deadline_exceeded', error_detail = 'action deadline exceeded'
+WHERE action_run_id IN (SELECT id FROM action_runs WHERE state = 'deadline_exceeded')
+  AND state IN ('running', 'reconciling')
+RETURNING id, action_run_id, attempt_number, phase, state, started_at, finished_at, error_code, error_detail, outcome_certainty, external_id, evidence_json
+`
+
+func (q *Queries) FinalizeDeadlineActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, finalizeDeadlineActionAttempts, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionAttempt{}
+	for rows.Next() {
+		var i ActionAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActionRunID,
+			&i.AttemptNumber,
+			&i.Phase,
+			&i.State,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ErrorCode,
+			&i.ErrorDetail,
+			&i.OutcomeCertainty,
+			&i.ExternalID,
+			&i.EvidenceJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const finalizeDeadlineActionRuns = `-- name: FinalizeDeadlineActionRuns :many
+UPDATE action_runs SET
+    state = 'deadline_exceeded', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = ?1
+WHERE state IN ('queued', 'waiting_dependency')
+  AND cancellation_requested_at IS NULL
+  AND deadline_at IS NOT NULL AND deadline_at <= ?1
+RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+`
+
+func (q *Queries) FinalizeDeadlineActionRuns(ctx context.Context, now string) ([]*ActionRun, error) {
+	rows, err := q.db.QueryContext(ctx, finalizeDeadlineActionRuns, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionRun{}
+	for rows.Next() {
+		var i ActionRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlanID,
+			&i.PlanRevision,
+			&i.PlanDigest,
+			&i.State,
+			&i.DesiredStateJson,
+			&i.NextAttemptAt,
+			&i.DeadlineAt,
+			&i.CancellationRequestedAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.Version,
+			&i.OutcomeJson,
+			&i.UnresolvedCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getActionPlan = `-- name: GetActionPlan :one
 SELECT id, kind, state, current_revision, current_digest, created_at, updated_at FROM action_plans WHERE id = ?1
 `
@@ -1924,7 +2132,7 @@ func (q *Queries) GetConnection(ctx context.Context, id string) (*Connection, er
 }
 
 const getCoverageSnapshot = `-- name: GetCoverageSnapshot :one
-SELECT id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at FROM coverage_snapshots WHERE id = ?1
+SELECT id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at, media_identity_id FROM coverage_snapshots WHERE id = ?1
 `
 
 func (q *Queries) GetCoverageSnapshot(ctx context.Context, id string) (*CoverageSnapshot, error) {
@@ -1944,6 +2152,7 @@ func (q *Queries) GetCoverageSnapshot(ctx context.Context, id string) (*Coverage
 		&i.CompletedAt,
 		&i.ObservedAt,
 		&i.CreatedAt,
+		&i.MediaIdentityID,
 	)
 	return &i, err
 }
@@ -2108,7 +2317,7 @@ func (q *Queries) GetIdempotencyRecord(ctx context.Context, arg *GetIdempotencyR
 }
 
 const getJanitorRecord = `-- name: GetJanitorRecord :one
-SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at FROM janitor_records
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version FROM janitor_records
 WHERE trash_entry_id = ?1 AND operation = ?2
 `
 
@@ -2131,6 +2340,7 @@ func (q *Queries) GetJanitorRecord(ctx context.Context, arg *GetJanitorRecordPar
 		&i.OutcomeJson,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Version,
 	)
 	return &i, err
 }
@@ -2255,7 +2465,7 @@ func (q *Queries) GetStorageRoot(ctx context.Context, id string) (*StorageRoot, 
 }
 
 const getTrashEntry = `-- name: GetTrashEntry :one
-SELECT id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at FROM trash_entries WHERE id = ?1
+SELECT id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at, active_operation, operation_claimed_by, operation_lease_until, version FROM trash_entries WHERE id = ?1
 `
 
 func (q *Queries) GetTrashEntry(ctx context.Context, id string) (*TrashEntry, error) {
@@ -2277,6 +2487,10 @@ func (q *Queries) GetTrashEntry(ctx context.Context, id string) (*TrashEntry, er
 		&i.RestoreRequestedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActiveOperation,
+		&i.OperationClaimedBy,
+		&i.OperationLeaseUntil,
+		&i.Version,
 	)
 	return &i, err
 }
@@ -2556,7 +2770,7 @@ func (q *Queries) ListConnections(ctx context.Context, arg *ListConnectionsParam
 }
 
 const listCoverageSnapshots = `-- name: ListCoverageSnapshots :many
-SELECT id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at FROM coverage_snapshots
+SELECT id, scan_id, source_id, connection_id, root_id, completeness, reason_codes_json, observed_count, snapshot_revision, started_at, completed_at, observed_at, created_at, media_identity_id FROM coverage_snapshots
 WHERE (?1 IS NULL OR connection_id = ?1)
   AND (?2 IS NULL OR root_id = ?2)
 ORDER BY observed_at DESC, id DESC LIMIT ?4 OFFSET ?3
@@ -2597,6 +2811,7 @@ func (q *Queries) ListCoverageSnapshots(ctx context.Context, arg *ListCoverageSn
 			&i.CompletedAt,
 			&i.ObservedAt,
 			&i.CreatedAt,
+			&i.MediaIdentityID,
 		); err != nil {
 			return nil, err
 		}
@@ -2713,10 +2928,10 @@ func (q *Queries) ListDownloads(ctx context.Context, arg *ListDownloadsParams) (
 
 const listDueActionRuns = `-- name: ListDueActionRuns :many
 SELECT id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at FROM action_runs
-WHERE state IN ('queued', 'waiting_dependency')
-  AND cancellation_requested_at IS NULL
+WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (state = 'reconciling' OR cancellation_requested_at IS NULL)
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
-  AND (deadline_at IS NULL OR deadline_at > ?1)
+  AND (state = 'reconciling' OR deadline_at IS NULL OR deadline_at > ?1)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?1)
 ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
 LIMIT ?2
@@ -2767,8 +2982,57 @@ func (q *Queries) ListDueActionRuns(ctx context.Context, arg *ListDueActionRunsP
 	return items, nil
 }
 
+const listDueJanitorRecords = `-- name: ListDueJanitorRecords :many
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version FROM janitor_records
+WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?1)
+ORDER BY COALESCE(next_attempt_at, created_at), created_at, id
+LIMIT ?2
+`
+
+type ListDueJanitorRecordsParams struct {
+	Now   sql.NullString `json:"now"`
+	Limit int64          `json:"limit"`
+}
+
+func (q *Queries) ListDueJanitorRecords(ctx context.Context, arg *ListDueJanitorRecordsParams) ([]*JanitorRecord, error) {
+	rows, err := q.db.QueryContext(ctx, listDueJanitorRecords, arg.Now, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*JanitorRecord{}
+	for rows.Next() {
+		var i JanitorRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.TrashEntryID,
+			&i.Operation,
+			&i.State,
+			&i.NextAttemptAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.OutcomeJson,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDueTrashEntries = `-- name: ListDueTrashEntries :many
-SELECT id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at FROM trash_entries
+SELECT id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at, active_operation, operation_claimed_by, operation_lease_until, version FROM trash_entries
 WHERE state = 'trashed' AND expires_at <= ?1
 ORDER BY expires_at, id LIMIT ?2
 `
@@ -2803,6 +3067,10 @@ func (q *Queries) ListDueTrashEntries(ctx context.Context, arg *ListDueTrashEntr
 			&i.RestoreRequestedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ActiveOperation,
+			&i.OperationClaimedBy,
+			&i.OperationLeaseUntil,
+			&i.Version,
 		); err != nil {
 			return nil, err
 		}
@@ -3153,7 +3421,7 @@ func (q *Queries) ListStorageRoots(ctx context.Context, arg *ListStorageRootsPar
 }
 
 const listTrackingObservations = `-- name: ListTrackingObservations :many
-SELECT id, external_record_id, media_identity_id, connection_id, dimension, status, evidence_json, coverage_id, observed_at, registered_at, imported_at FROM tracking_observations
+SELECT id, external_record_id, media_identity_id, connection_id, root_id, dimension, status, evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at FROM tracking_observations
 WHERE (?1 IS NULL OR external_record_id = ?1)
   AND (?2 IS NULL OR media_identity_id = ?2)
   AND (?3 IS NULL OR connection_id = ?3)
@@ -3180,10 +3448,12 @@ func (q *Queries) ListTrackingObservations(ctx context.Context, arg *ListTrackin
 			&i.ExternalRecordID,
 			&i.MediaIdentityID,
 			&i.ConnectionID,
+			&i.RootID,
 			&i.Dimension,
 			&i.Status,
 			&i.EvidenceJson,
 			&i.CoverageID,
+			&i.CoverageMaxAgeSeconds,
 			&i.ObservedAt,
 			&i.RegisteredAt,
 			&i.ImportedAt,
@@ -3336,6 +3606,245 @@ func (q *Queries) PutEncryptedCredential(ctx context.Context, arg *PutEncryptedC
 		&i.UpdatedAt,
 	)
 	return &i, err
+}
+
+const recoverExpiredActionRuns = `-- name: RecoverExpiredActionRuns :many
+UPDATE action_runs SET
+    state = 'reconciling', next_attempt_at = ?1,
+    claimed_by = NULL, lease_until = NULL, version = version + 1,
+    updated_at = ?1
+WHERE state = 'running'
+  AND (lease_until IS NULL OR lease_until <= ?1)
+RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+`
+
+// A live worker can use the same transition when a lease expires between
+// scheduler ticks; callers must reconcile before any new dispatch.
+func (q *Queries) RecoverExpiredActionRuns(ctx context.Context, now sql.NullString) ([]*ActionRun, error) {
+	rows, err := q.db.QueryContext(ctx, recoverExpiredActionRuns, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionRun{}
+	for rows.Next() {
+		var i ActionRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlanID,
+			&i.PlanRevision,
+			&i.PlanDigest,
+			&i.State,
+			&i.DesiredStateJson,
+			&i.NextAttemptAt,
+			&i.DeadlineAt,
+			&i.CancellationRequestedAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.Version,
+			&i.OutcomeJson,
+			&i.UnresolvedCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recoverExpiredJanitorRecords = `-- name: RecoverExpiredJanitorRecords :many
+UPDATE janitor_records SET
+    state = 'reconciling', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = ?1
+WHERE state = 'running'
+  AND (lease_until IS NULL OR lease_until <= ?1)
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+`
+
+func (q *Queries) RecoverExpiredJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error) {
+	rows, err := q.db.QueryContext(ctx, recoverExpiredJanitorRecords, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*JanitorRecord{}
+	for rows.Next() {
+		var i JanitorRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.TrashEntryID,
+			&i.Operation,
+			&i.State,
+			&i.NextAttemptAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.OutcomeJson,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recoverRunningActionAttempts = `-- name: RecoverRunningActionAttempts :many
+UPDATE action_attempts SET
+    state = 'reconciling',
+    outcome_certainty = CASE
+        WHEN phase = 'dispatch' OR outcome_certainty = 'uncertain' THEN 'uncertain'
+        ELSE outcome_certainty
+    END
+WHERE state = 'running'
+RETURNING id, action_run_id, attempt_number, phase, state, started_at, finished_at, error_code, error_detail, outcome_certainty, external_id, evidence_json
+`
+
+func (q *Queries) RecoverRunningActionAttempts(ctx context.Context) ([]*ActionAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, recoverRunningActionAttempts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionAttempt{}
+	for rows.Next() {
+		var i ActionAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActionRunID,
+			&i.AttemptNumber,
+			&i.Phase,
+			&i.State,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ErrorCode,
+			&i.ErrorDetail,
+			&i.OutcomeCertainty,
+			&i.ExternalID,
+			&i.EvidenceJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recoverRunningActionRuns = `-- name: RecoverRunningActionRuns :many
+UPDATE action_runs SET
+    state = 'reconciling', next_attempt_at = ?1,
+    claimed_by = NULL, lease_until = NULL, version = version + 1,
+    updated_at = ?1
+WHERE state = 'running'
+RETURNING id, plan_id, plan_revision, plan_digest, state, desired_state_json, next_attempt_at, deadline_at, cancellation_requested_at, claimed_by, lease_until, version, outcome_json, unresolved_count, created_at, updated_at
+`
+
+// Startup recovery turns every previously claimed dispatch into read-only
+// reconciliation. No external call is retried from a running row blindly.
+func (q *Queries) RecoverRunningActionRuns(ctx context.Context, now sql.NullString) ([]*ActionRun, error) {
+	rows, err := q.db.QueryContext(ctx, recoverRunningActionRuns, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ActionRun{}
+	for rows.Next() {
+		var i ActionRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.PlanID,
+			&i.PlanRevision,
+			&i.PlanDigest,
+			&i.State,
+			&i.DesiredStateJson,
+			&i.NextAttemptAt,
+			&i.DeadlineAt,
+			&i.CancellationRequestedAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.Version,
+			&i.OutcomeJson,
+			&i.UnresolvedCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recoverRunningJanitorRecords = `-- name: RecoverRunningJanitorRecords :many
+UPDATE janitor_records SET
+    state = 'reconciling', claimed_by = NULL, lease_until = NULL,
+    version = version + 1, updated_at = ?1
+WHERE state = 'running'
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+`
+
+// The trigger on janitor_records releases the worker lease on the shared
+// trash entry while preserving its active operation for safe reconciliation.
+func (q *Queries) RecoverRunningJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error) {
+	rows, err := q.db.QueryContext(ctx, recoverRunningJanitorRecords, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*JanitorRecord{}
+	for rows.Next() {
+		var i JanitorRecord
+		if err := rows.Scan(
+			&i.ID,
+			&i.TrashEntryID,
+			&i.Operation,
+			&i.State,
+			&i.NextAttemptAt,
+			&i.ClaimedBy,
+			&i.LeaseUntil,
+			&i.OutcomeJson,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const requestActionCancellation = `-- name: RequestActionCancellation :one
@@ -3645,6 +4154,55 @@ func (q *Queries) UpdateActionRunOutcome(ctx context.Context, arg *UpdateActionR
 	return &i, err
 }
 
+const updateJanitorRecord = `-- name: UpdateJanitorRecord :one
+UPDATE janitor_records SET
+    state = ?1, next_attempt_at = ?2,
+    claimed_by = ?3, lease_until = ?4,
+    outcome_json = ?5, version = version + 1,
+    updated_at = ?6
+WHERE id = ?7 AND version = ?8
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version
+`
+
+type UpdateJanitorRecordParams struct {
+	State         string         `json:"state"`
+	NextAttemptAt sql.NullString `json:"next_attempt_at"`
+	ClaimedBy     sql.NullString `json:"claimed_by"`
+	LeaseUntil    sql.NullString `json:"lease_until"`
+	OutcomeJson   string         `json:"outcome_json"`
+	UpdatedAt     string         `json:"updated_at"`
+	ID            string         `json:"id"`
+	Version       int64          `json:"version"`
+}
+
+func (q *Queries) UpdateJanitorRecord(ctx context.Context, arg *UpdateJanitorRecordParams) (*JanitorRecord, error) {
+	row := q.db.QueryRowContext(ctx, updateJanitorRecord,
+		arg.State,
+		arg.NextAttemptAt,
+		arg.ClaimedBy,
+		arg.LeaseUntil,
+		arg.OutcomeJson,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.Version,
+	)
+	var i JanitorRecord
+	err := row.Scan(
+		&i.ID,
+		&i.TrashEntryID,
+		&i.Operation,
+		&i.State,
+		&i.NextAttemptAt,
+		&i.ClaimedBy,
+		&i.LeaseUntil,
+		&i.OutcomeJson,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return &i, err
+}
+
 const updateScan = `-- name: UpdateScan :one
 UPDATE scans SET
     state = ?1, completeness = ?2,
@@ -3707,20 +4265,27 @@ UPDATE trash_entries SET
     state = ?1, trashed_at = ?2,
     hold_reason = ?3, client_state_json = ?4,
     purge_claimed_at = ?5, restore_requested_at = ?6,
-    updated_at = ?7
-WHERE id = ?8
-RETURNING id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at
+    active_operation = ?7,
+    operation_claimed_by = ?8,
+    operation_lease_until = ?9,
+    version = version + 1, updated_at = ?10
+WHERE id = ?11 AND version = ?12
+RETURNING id, root_id, state, original_prefix, trash_prefix, manifest_json, retention_seconds, trashed_at, expires_at, hold_reason, client_state_json, purge_claimed_at, restore_requested_at, created_at, updated_at, active_operation, operation_claimed_by, operation_lease_until, version
 `
 
 type UpdateTrashEntryStateParams struct {
-	State              string         `json:"state"`
-	TrashedAt          sql.NullString `json:"trashed_at"`
-	HoldReason         sql.NullString `json:"hold_reason"`
-	ClientStateJson    string         `json:"client_state_json"`
-	PurgeClaimedAt     sql.NullString `json:"purge_claimed_at"`
-	RestoreRequestedAt sql.NullString `json:"restore_requested_at"`
-	UpdatedAt          string         `json:"updated_at"`
-	ID                 string         `json:"id"`
+	State               string         `json:"state"`
+	TrashedAt           sql.NullString `json:"trashed_at"`
+	HoldReason          sql.NullString `json:"hold_reason"`
+	ClientStateJson     string         `json:"client_state_json"`
+	PurgeClaimedAt      sql.NullString `json:"purge_claimed_at"`
+	RestoreRequestedAt  sql.NullString `json:"restore_requested_at"`
+	ActiveOperation     sql.NullString `json:"active_operation"`
+	OperationClaimedBy  sql.NullString `json:"operation_claimed_by"`
+	OperationLeaseUntil sql.NullString `json:"operation_lease_until"`
+	UpdatedAt           string         `json:"updated_at"`
+	ID                  string         `json:"id"`
+	Version             int64          `json:"version"`
 }
 
 func (q *Queries) UpdateTrashEntryState(ctx context.Context, arg *UpdateTrashEntryStateParams) (*TrashEntry, error) {
@@ -3731,8 +4296,12 @@ func (q *Queries) UpdateTrashEntryState(ctx context.Context, arg *UpdateTrashEnt
 		arg.ClientStateJson,
 		arg.PurgeClaimedAt,
 		arg.RestoreRequestedAt,
+		arg.ActiveOperation,
+		arg.OperationClaimedBy,
+		arg.OperationLeaseUntil,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.Version,
 	)
 	var i TrashEntry
 	err := row.Scan(
@@ -3751,6 +4320,10 @@ func (q *Queries) UpdateTrashEntryState(ctx context.Context, arg *UpdateTrashEnt
 		&i.RestoreRequestedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActiveOperation,
+		&i.OperationClaimedBy,
+		&i.OperationLeaseUntil,
+		&i.Version,
 	)
 	return &i, err
 }

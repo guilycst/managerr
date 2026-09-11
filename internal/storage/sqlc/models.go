@@ -130,6 +130,7 @@ type CoverageSnapshot struct {
 	CompletedAt      sql.NullString `json:"completed_at"`
 	ObservedAt       string         `json:"observed_at"`
 	CreatedAt        string         `json:"created_at"`
+	MediaIdentityID  sql.NullString `json:"media_identity_id"`
 }
 
 type Descriptor struct {
@@ -244,6 +245,7 @@ type JanitorRecord struct {
 	OutcomeJson   string         `json:"outcome_json"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
+	Version       int64          `json:"version"`
 }
 
 type MediaIdentity struct {
@@ -345,35 +347,41 @@ type StorageRoot struct {
 }
 
 type TrackingObservation struct {
-	ID               string         `json:"id"`
-	ExternalRecordID sql.NullString `json:"external_record_id"`
-	MediaIdentityID  sql.NullString `json:"media_identity_id"`
-	ConnectionID     sql.NullString `json:"connection_id"`
-	Dimension        string         `json:"dimension"`
-	Status           string         `json:"status"`
-	EvidenceJson     string         `json:"evidence_json"`
-	CoverageID       sql.NullString `json:"coverage_id"`
-	ObservedAt       string         `json:"observed_at"`
-	RegisteredAt     sql.NullString `json:"registered_at"`
-	ImportedAt       sql.NullString `json:"imported_at"`
+	ID                    string         `json:"id"`
+	ExternalRecordID      sql.NullString `json:"external_record_id"`
+	MediaIdentityID       sql.NullString `json:"media_identity_id"`
+	ConnectionID          string         `json:"connection_id"`
+	RootID                sql.NullString `json:"root_id"`
+	Dimension             string         `json:"dimension"`
+	Status                string         `json:"status"`
+	EvidenceJson          string         `json:"evidence_json"`
+	CoverageID            sql.NullString `json:"coverage_id"`
+	CoverageMaxAgeSeconds sql.NullInt64  `json:"coverage_max_age_seconds"`
+	ObservedAt            string         `json:"observed_at"`
+	RegisteredAt          sql.NullString `json:"registered_at"`
+	ImportedAt            sql.NullString `json:"imported_at"`
 }
 
 type TrashEntry struct {
-	ID                 string         `json:"id"`
-	RootID             string         `json:"root_id"`
-	State              string         `json:"state"`
-	OriginalPrefix     string         `json:"original_prefix"`
-	TrashPrefix        string         `json:"trash_prefix"`
-	ManifestJson       string         `json:"manifest_json"`
-	RetentionSeconds   int64          `json:"retention_seconds"`
-	TrashedAt          sql.NullString `json:"trashed_at"`
-	ExpiresAt          string         `json:"expires_at"`
-	HoldReason         sql.NullString `json:"hold_reason"`
-	ClientStateJson    string         `json:"client_state_json"`
-	PurgeClaimedAt     sql.NullString `json:"purge_claimed_at"`
-	RestoreRequestedAt sql.NullString `json:"restore_requested_at"`
-	CreatedAt          string         `json:"created_at"`
-	UpdatedAt          string         `json:"updated_at"`
+	ID                  string         `json:"id"`
+	RootID              string         `json:"root_id"`
+	State               string         `json:"state"`
+	OriginalPrefix      string         `json:"original_prefix"`
+	TrashPrefix         string         `json:"trash_prefix"`
+	ManifestJson        string         `json:"manifest_json"`
+	RetentionSeconds    int64          `json:"retention_seconds"`
+	TrashedAt           sql.NullString `json:"trashed_at"`
+	ExpiresAt           string         `json:"expires_at"`
+	HoldReason          sql.NullString `json:"hold_reason"`
+	ClientStateJson     string         `json:"client_state_json"`
+	PurgeClaimedAt      sql.NullString `json:"purge_claimed_at"`
+	RestoreRequestedAt  sql.NullString `json:"restore_requested_at"`
+	CreatedAt           string         `json:"created_at"`
+	UpdatedAt           string         `json:"updated_at"`
+	ActiveOperation     sql.NullString `json:"active_operation"`
+	OperationClaimedBy  sql.NullString `json:"operation_claimed_by"`
+	OperationLeaseUntil sql.NullString `json:"operation_lease_until"`
+	Version             int64          `json:"version"`
 }
 
 type TrashItem struct {

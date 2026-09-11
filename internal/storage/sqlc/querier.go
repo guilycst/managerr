@@ -6,6 +6,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
@@ -46,6 +47,12 @@ type Querier interface {
 	CreateTrashItem(ctx context.Context, arg *CreateTrashItemParams) (*TrashItem, error)
 	CreateWorkflowRun(ctx context.Context, arg *CreateWorkflowRunParams) (*WorkflowRun, error)
 	CreateWorkflowStep(ctx context.Context, arg *CreateWorkflowStepParams) (*WorkflowStep, error)
+	FinalizeCancelledActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error)
+	// Cancellation is terminal for undispatched queue work. A running or
+	// reconciling row remains visible until its possible effect is reconciled.
+	FinalizeCancelledActionRuns(ctx context.Context, now string) ([]*ActionRun, error)
+	FinalizeDeadlineActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error)
+	FinalizeDeadlineActionRuns(ctx context.Context, now string) ([]*ActionRun, error)
 	GetActionPlan(ctx context.Context, id string) (*ActionPlan, error)
 	GetActionPlanRevision(ctx context.Context, arg *GetActionPlanRevisionParams) (*ActionPlanRevision, error)
 	GetActionPlanRevisionByDigest(ctx context.Context, arg *GetActionPlanRevisionByDigestParams) (*ActionPlanRevision, error)
@@ -77,6 +84,7 @@ type Querier interface {
 	ListDiscoveries(ctx context.Context, arg *ListDiscoveriesParams) ([]*Discovery, error)
 	ListDownloads(ctx context.Context, arg *ListDownloadsParams) ([]*Download, error)
 	ListDueActionRuns(ctx context.Context, arg *ListDueActionRunsParams) ([]*ActionRun, error)
+	ListDueJanitorRecords(ctx context.Context, arg *ListDueJanitorRecordsParams) ([]*JanitorRecord, error)
 	ListDueTrashEntries(ctx context.Context, arg *ListDueTrashEntriesParams) ([]*TrashEntry, error)
 	ListEncryptedCredentials(ctx context.Context, connectionID string) ([]*ListEncryptedCredentialsRow, error)
 	ListExternalRecords(ctx context.Context, arg *ListExternalRecordsParams) ([]*ExternalRecord, error)
@@ -89,6 +97,17 @@ type Querier interface {
 	ListTrashItems(ctx context.Context, entryID string) ([]*TrashItem, error)
 	ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error)
 	PutEncryptedCredential(ctx context.Context, arg *PutEncryptedCredentialParams) (*EncryptedCredential, error)
+	// A live worker can use the same transition when a lease expires between
+	// scheduler ticks; callers must reconcile before any new dispatch.
+	RecoverExpiredActionRuns(ctx context.Context, now sql.NullString) ([]*ActionRun, error)
+	RecoverExpiredJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error)
+	RecoverRunningActionAttempts(ctx context.Context) ([]*ActionAttempt, error)
+	// Startup recovery turns every previously claimed dispatch into read-only
+	// reconciliation. No external call is retried from a running row blindly.
+	RecoverRunningActionRuns(ctx context.Context, now sql.NullString) ([]*ActionRun, error)
+	// The trigger on janitor_records releases the worker lease on the shared
+	// trash entry while preserving its active operation for safe reconciliation.
+	RecoverRunningJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error)
 	RequestActionCancellation(ctx context.Context, arg *RequestActionCancellationParams) (*ActionRun, error)
 	RetireConnection(ctx context.Context, arg *RetireConnectionParams) (*Connection, error)
 	RetirePathMapping(ctx context.Context, arg *RetirePathMappingParams) (*PathMapping, error)
@@ -97,6 +116,7 @@ type Querier interface {
 	UpdateActionEffect(ctx context.Context, arg *UpdateActionEffectParams) (*ActionEffect, error)
 	UpdateActionPlanState(ctx context.Context, arg *UpdateActionPlanStateParams) (*ActionPlan, error)
 	UpdateActionRunOutcome(ctx context.Context, arg *UpdateActionRunOutcomeParams) (*ActionRun, error)
+	UpdateJanitorRecord(ctx context.Context, arg *UpdateJanitorRecordParams) (*JanitorRecord, error)
 	UpdateScan(ctx context.Context, arg *UpdateScanParams) (*Scan, error)
 	UpdateTrashEntryState(ctx context.Context, arg *UpdateTrashEntryStateParams) (*TrashEntry, error)
 	UpdateWorkflowRunState(ctx context.Context, arg *UpdateWorkflowRunStateParams) (*WorkflowRun, error)

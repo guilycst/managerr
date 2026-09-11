@@ -70,6 +70,27 @@ func OpenWithOptions(options Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A database or its parent can be replaced through a symlink between path
+	// normalization and opening the file. Re-resolve both identities while the
+	// process lock is held and fail closed if either spelling changed.
+	if path != ":memory:" {
+		verifiedPath, err := canonicalizePath(path)
+		if err != nil || verifiedPath != path {
+			_ = lock.close()
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("storage database path changed while acquiring lock")
+		}
+	}
+	verifiedLockPath, err := canonicalizePath(lockPath)
+	if err != nil || verifiedLockPath != lockPath {
+		_ = lock.close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("storage lock path changed while acquiring lock")
+	}
 
 	busyTimeout := options.BusyTimeout
 	if busyTimeout <= 0 {
@@ -188,7 +209,10 @@ func (store *Store) migrate(migrationFS fs.FS) error {
 		_ = migrationDB.Close()
 		return fmt.Errorf("create migration source: %w", err)
 	}
-	driver, err := migratedb.WithInstance(migrationDB, &migratedb.Config{})
+	// The correction migration rebuilds SQLite tables with foreign-key checks
+	// temporarily disabled. It manages that narrow migration boundary itself;
+	// failed runs remain dirty and therefore cannot serve traffic.
+	driver, err := migratedb.WithInstance(migrationDB, &migratedb.Config{NoTxWrap: true})
 	if err != nil {
 		_ = migrationDB.Close()
 		return fmt.Errorf("create sqlite migration driver: %w", err)
@@ -223,7 +247,11 @@ func normalizeDatabasePath(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return "", fmt.Errorf("create storage database directory: %w", err)
 	}
-	return abs, nil
+	canonical, err := canonicalizePath(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve storage database identity: %w", err)
+	}
+	return canonical, nil
 }
 
 func normalizeLockPath(path string) (string, error) {
@@ -237,7 +265,37 @@ func normalizeLockPath(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return "", fmt.Errorf("create storage lock directory: %w", err)
 	}
-	return abs, nil
+	canonical, err := canonicalizePath(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve storage lock identity: %w", err)
+	}
+	return canonical, nil
+}
+
+// canonicalizePath resolves an existing file or directory and resolves the
+// nearest existing parent for a path that will be created. Dangling symlinks
+// are rejected so an alias cannot acquire a lock for a different future file.
+func canonicalizePath(path string) (string, error) {
+	canonical, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(canonical), nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if info, lstatErr := os.Lstat(path); lstatErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("dangling symlink %q", path)
+		}
+		return filepath.Clean(path), nil
+	} else if !errors.Is(lstatErr, fs.ErrNotExist) {
+		return "", lstatErr
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(filepath.Join(parent, filepath.Base(path))), nil
 }
 
 func sqliteDSN(path string, busyTimeout time.Duration) string {
