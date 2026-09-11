@@ -502,11 +502,11 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+      "implementationCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
@@ -541,18 +541,19 @@
         "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c D-01 round-ten correction product",
         "42758d4ec54854d5df9cbc60be5b4fe421c0e17c D-01 round-ten handoff",
         "5f3632a397b1a858a8493c7528c9a80cc94164a6 D-01 round-ten review receipt",
-        "docs/execution/handoffs/D-01-review-round10.md"
+        "docs/execution/handoffs/D-01-review-round10.md",
+        "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972 D-01 correction round-eleven product",
+        "c354dfd73c46f7bf08f4ad007d93c2df23daca9d D-01 correction round-eleven handoff",
+        "docs/execution/handoffs/D-01-round11.md",
+        "root race red in unowned Seerr test: internal/adapters/seerr/client_test.go:397"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "5f3632a397b1a858a8493c7528c9a80cc94164a6",
-        "findings": [
-          "P1: cancellation after the initial-dispatch janitor/trash terminal transaction advances only the still-running action version, so FinalizeApprovedPurgeAction returns sql.ErrNoRows and the applied purge remains permanently fenced",
-          "P1: succeeded janitor outcomes with outcome='applied' trust zero, malformed, contradictory alias, or duplicate-key evidence and mislabel the action succeeded/applied without coherent effect evidence"
-        ],
-        "round": 10
+        "commit": null,
+        "findings": [],
+        "round": 11
       },
       "reviewHistory": [
         {
@@ -654,11 +655,13 @@
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
         "correctionReviewPath": "docs/execution/handoffs/D-01-review-round11.md",
-        "implementationCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
-        "handoffCommit": "42758d4ec54854d5df9cbc60be5b4fe421c0e17c",
+        "implementationCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
+        "handoffCommit": "c354dfd73c46f7bf08f4ad007d93c2df23daca9d",
         "reviewCommit": "5f3632a397b1a858a8493c7528c9a80cc94164a6",
         "handoffPath": "docs/execution/handoffs/D-01.md",
-        "reviewSourceCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c"
+        "reviewSourceCommit": "a929c71126dbfcad24f1fcebdcf0eb9e920bf79c",
+        "correctionImplementationCommit": "ce6cc272deeb7bf93c10d4bb7a6d8f93f03f4972",
+        "correctionHandoffCommit": "c354dfd73c46f7bf08f4ad007d93c2df23daca9d"
       }
     },
     "D-02": {
@@ -1386,7 +1389,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete X-03 correction round six, D-01 correction round eleven, and X-04 build",
+  "nextAction": "Complete independent D-01 round-eleven and X-03 round-five reviews while X-04 builds",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
