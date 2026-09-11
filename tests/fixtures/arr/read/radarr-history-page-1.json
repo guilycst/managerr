@@ -1,0 +1,17 @@
+{
+  "page": 1,
+  "pageSize": 1,
+  "totalRecords": 2,
+  "records": [
+    {
+      "id": 901,
+      "eventType": "grabbed",
+      "date": "2026-09-11T12:00:00Z",
+      "sourceTitle": "Synthetic Film",
+      "movieId": 101,
+      "downloadId": "synthetic-download-1",
+      "successful": true,
+      "quality": {"quality": {"name": "HDTV-1080p"}}
+    }
+  ]
+}

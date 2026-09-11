@@ -1,0 +1,17 @@
+{
+  "page": 2,
+  "pageSize": 1,
+  "totalRecords": 2,
+  "records": [
+    {
+      "id": 902,
+      "eventType": "imported",
+      "date": "2026-09-11T12:01:00Z",
+      "sourceTitle": "Synthetic Film",
+      "movieId": 101,
+      "destination": "/library/movies/Synthetic Film (2024).mkv",
+      "successful": true,
+      "quality": "HDTV-1080p"
+    }
+  ]
+}

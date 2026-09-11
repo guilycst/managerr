@@ -1,0 +1,4 @@
+[
+  {"id": 1, "path": "/library/movies", "name": "Movies"},
+  {"id": 2, "path": "/library/alternate", "name": "Alternate"}
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": 901,
+    "path": "/downloads/series/Synthetic Series - S01E01.mkv",
+    "relativePath": "Synthetic Series - S01E01.mkv",
+    "series": {"id": 201, "title": "Synthetic Series", "tvdbId": 6363},
+    "episodes": [{"id": 301, "seasonNumber": 1, "episodeNumber": 1}],
+    "rejections": []
+  },
+  {
+    "id": 902,
+    "path": "/downloads/series/Synthetic Series - S01E02.mkv",
+    "relativePath": "Synthetic Series - S01E02.mkv",
+    "series": {"id": 201, "title": "Synthetic Series", "tvdbId": 6363},
+    "episodes": [{"id": 302, "seasonNumber": 1, "episodeNumber": 2}],
+    "rejections": [
+      {"code": "EpisodeFileExists", "reason": "The selected episode already has a file"}
+    ]
+  }
+]
