@@ -1161,11 +1161,11 @@
       ]
     },
     "X-04": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "e1cf5447ab27f64390875a5350fcefcf5dd88a40",
       "integratedSha": null,
-      "implementationCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
+      "implementationCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
       "evidence": [
         "82a8a80b05cd150716dcdc1f41965f30148cbbdc superseded empty X-04 product commit",
         "9ea995acef259301117c3c446c3ab80b1af18b45 superseded handoff that referenced the empty product",
@@ -1179,17 +1179,18 @@
         "bc597dcab95755ffa8e664a1a106dec1936ae934 X-04 correction round-two handoff",
         "docs/execution/handoffs/X-04-correction-round2.md",
         "c07f13891f19ba40a49ed6d2415e8a19e78a6110 X-04 review round-two receipt",
-        "docs/execution/handoffs/X-04-review-round2.md"
+        "docs/execution/handoffs/X-04-review-round2.md",
+        "b5594b668185245304f70a0f46c1f77ae7b76d7b X-04 correction round-three product",
+        "f1dfeafe50212bd0d763eb61e5d8c15fd9c4da6c X-04 correction round-three handoff",
+        "docs/execution/handoffs/X-04-correction-round3.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
-        "findings": [
-          "P1: Jellyfin promotes mapped item-level Path with no native MediaSources to Playable and observeMediaSource ignores Protocol/LocationType/MediaType, so remote, virtual, offline, missing-field, or mismatched sources become playable from path alone"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1220,14 +1221,16 @@
         "attempt": 2,
         "reviewerReassignedFrom": "/root/f01_reviewer",
         "reviewerReassignmentReason": "f01 reviewer is reserved for the D-01 round-ten independent review",
-        "implementationCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
-        "handoffCommit": "bc597dcab95755ffa8e664a1a106dec1936ae934",
-        "reviewSourceCommit": "1df74b45b100b891b6afdf54567d2658d0f6228b",
+        "implementationCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
+        "handoffCommit": "f1dfeafe50212bd0d763eb61e5d8c15fd9c4da6c",
+        "reviewSourceCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
         "reviewCommit": "c07f13891f19ba40a49ed6d2415e8a19e78a6110",
         "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "1df74b45b100b891b6afdf54567d2658d0f6228b",
-        "correctionReviewPath": "docs/execution/handoffs/X-04-review-round3.md"
+        "correctionReviewPath": "docs/execution/handoffs/X-04-review-round3.md",
+        "correctionImplementationCommit": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
+        "correctionHandoffCommit": "f1dfeafe50212bd0d763eb61e5d8c15fd9c4da6c"
       },
       "reviewHistory": [
         {
@@ -1476,7 +1479,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete D-01 correction round fourteen and X-04 correction round three review",
+  "nextAction": "Complete independent X-04 round-three review and D-01 correction round-fourteen review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
