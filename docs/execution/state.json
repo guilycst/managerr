@@ -1558,11 +1558,16 @@
       "implementationCommit": "915eaab2568394ae4afb2ab0e580e8db9936fec8"
     },
     "X-11": {
-      "status": "assigned",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
-      "evidence": [],
+      "evidence": [
+        "ed0d4d274e6fae5b6f59c2d40ab60f81aaadb421 X-11 product",
+        "7b88619ba7371b1379e1d2a50c756c703d7fd02a X-11 correction head",
+        "70babc71eacc5ed632432d21cd7147b55656373c X-11 handoff",
+        "docs/execution/handoffs/X-11.md"
+      ],
       "review": {
         "status": "pending",
         "decision": "pending",
@@ -1595,8 +1600,12 @@
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77"
-      }
+        "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
+        "implementationCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a",
+        "handoffCommit": "70babc71eacc5ed632432d21cd7147b55656373c",
+        "reviewSourceCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a"
+      },
+      "implementationCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a"
     },
     "X-12": {
       "status": "planned",
@@ -1615,7 +1624,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 is in independent review; keep X-11 in progress, then record both review receipts before dispatching C-05 generation/CI wiring.",
+  "nextAction": "X-10 and X-11 are in independent review; record both receipts before dispatching C-05 generation/CI wiring.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
