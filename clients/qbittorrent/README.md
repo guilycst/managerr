@@ -46,8 +46,10 @@ over-limit response instead of silently truncating evidence. qBittorrent Unix
 timestamps and its `-1` unknown sentinels are preserved in the normalized
 values. Every inventory record must carry one 40-character v1 or 64-character
 v2 hexadecimal hash; one malformed or duplicate logical identity rejects the
-complete observation. Concurrent authentication is single-flight, and callers
-waiting for it retain context cancellation semantics.
+complete observation. Concurrent authentication is single-flight: callers
+joining one attempt observe that attempt's result, while a later call can
+deliberately retry after it drains. Callers waiting for it retain context
+cancellation semantics.
 Inventory filter and sort values are limited to 64 characters, category
 and tag values to 512 characters. Hash list members are at most 128 characters,
 cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and

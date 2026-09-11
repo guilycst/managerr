@@ -131,7 +131,16 @@ type Client struct {
 
 	authMu        sync.Mutex
 	authenticated bool
-	authInFlight  chan struct{}
+	authInFlight  *authFlight
+}
+
+// authFlight publishes one immutable result to every caller that joined the
+// same authentication attempt. The result is written while authMu is held
+// and read only after done is closed, so a failed flight cannot turn every
+// waiter into a new login leader.
+type authFlight struct {
+	done chan struct{}
+	err  error
 }
 
 // Versions contains both read-only version probes.
@@ -538,8 +547,8 @@ func (c *Client) ensureSession(ctx context.Context) error {
 			return nil
 		}
 		if c.authInFlight == nil {
-			done := make(chan struct{})
-			c.authInFlight = done
+			flight := &authFlight{done: make(chan struct{})}
+			c.authInFlight = flight
 			c.authMu.Unlock()
 
 			err := c.authenticate(ctx)
@@ -551,10 +560,9 @@ func (c *Client) ensureSession(ctx context.Context) error {
 					c.authenticated = true
 				}
 			}
-			if c.authInFlight == done {
-				c.authInFlight = nil
-				close(done)
-			}
+			flight.err = err
+			c.authInFlight = nil
+			close(flight.done)
 			c.authMu.Unlock()
 			if err != nil {
 				return err
@@ -564,11 +572,14 @@ func (c *Client) ensureSession(ctx context.Context) error {
 			}
 			return nil
 		}
-		done := c.authInFlight
+		flight := c.authInFlight
 		c.authMu.Unlock()
 		select {
-		case <-done:
-			// Re-check authentication and this caller's context in the next loop.
+		case <-flight.done:
+			if err := contextError(ctx); err != nil {
+				return err
+			}
+			return flight.err
 		case <-contextDone(ctx):
 			return contextError(ctx)
 		}

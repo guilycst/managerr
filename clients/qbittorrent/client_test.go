@@ -1519,6 +1519,88 @@ func TestAuthenticationWaitersHonorCancellation(t *testing.T) {
 	}
 }
 
+func TestConcurrentAuthenticationFailureIsShared(t *testing.T) {
+	const callers = 8
+	loginStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	var loginCount atomic.Int32
+	var allowRetry atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != apiLogin {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		attempt := loginCount.Add(1)
+		if attempt == 1 {
+			close(loginStarted)
+			<-releaseFirst
+		}
+		if allowRetry.Load() {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "synthetic authentication failure detail")
+	}))
+	defer server.Close()
+	defer releaseOnce.Do(func() { close(releaseFirst) })
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			<-start
+			results <- client.Login(context.Background())
+		}()
+	}
+	close(start)
+	select {
+	case <-loginStarted:
+	case <-time.After(time.Second):
+		t.Fatal("shared login did not reach server")
+	}
+	// Keep the first request blocked long enough for all callers to join its
+	// flight. They must receive its result instead of becoming new leaders.
+	time.Sleep(20 * time.Millisecond)
+	releaseOnce.Do(func() { close(releaseFirst) })
+	var sharedError string
+	for i := 0; i < callers; i++ {
+		select {
+		case loginErr := <-results:
+			var upstream UpstreamError
+			if !errors.As(loginErr, &upstream) || upstream.Code != ErrorUnauthorized || upstream.Status != http.StatusForbidden || upstream.Retryable {
+				t.Fatalf("login %d error = %#v, want shared unauthorized 403", i, loginErr)
+			}
+			if strings.Contains(errString(loginErr), "synthetic authentication failure detail") {
+				t.Fatalf("login %d leaked upstream response body: %v", i, loginErr)
+			}
+			if sharedError == "" {
+				sharedError = loginErr.Error()
+			} else if loginErr.Error() != sharedError {
+				t.Fatalf("login %d error = %q, want shared error %q", i, loginErr, sharedError)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("login %d did not receive shared result", i)
+		}
+	}
+	if got := loginCount.Load(); got != 1 {
+		t.Fatalf("concurrent failed login attempts = %d, want one shared attempt", got)
+	}
+
+	allowRetry.Store(true)
+	if err := client.Login(context.Background()); err != nil {
+		t.Fatalf("later independent login retry: %v", err)
+	}
+	if got := loginCount.Load(); got != 2 {
+		t.Fatalf("later independent login attempts = %d, want one deliberate retry", got)
+	}
+}
+
 func TestNonpositiveInjectedTimeoutUsesSafeDefault(t *testing.T) {
 	for _, test := range []struct {
 		name    string
