@@ -21,9 +21,9 @@ contract lanes.
   matrix is claimed complete.
 
 No application runtime, generated consumers, runnable service, container images or
-deployments were produced. C-00 evidence is complete and the C-01 OpenAPI contract
-has passed its independent round-two review in
-`docs/execution/handoffs/C-01-review-round2.md`; C-02 is the next implementation
+deployments were produced. C-00 and C-01 evidence is complete, and C-02's
+independent round-two review is recorded in
+`docs/execution/handoffs/C-02-review-round2.md`; C-03 is the next implementation
 lane. Runtime behavior and live-stack acceptance are not claimed.
 
 ## Publication verified

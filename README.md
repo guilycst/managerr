@@ -2,7 +2,8 @@
 
 Review downloaded media and reconcile it with Radarr, Sonarr, Jellyfin, and Seerr.
 
-Status: specification only, targeting v0.0.1. No runnable application exists yet.
+Status: implementation in progress, targeting v0.0.1. The API contract and
+module/tool baseline are complete; the runnable application is still being built.
 [MIT licensed](LICENSE).
 
 Managerr will discover video and subtitles in configured download directories,
@@ -39,8 +40,9 @@ basic auth and application OIDC are deferred to v0.0.2.
 
 Start interrupted work at [RESUME.md](docs/execution/RESUME.md).
 Run `python3 scripts/check_planning.py` to validate planning links, task
-references, dependencies, and execution-state structure.
+references, dependencies, and execution-state structure. Execution progress and
+review receipts live in [state.json](docs/execution/state.json).
 
-All implementation tasks remain pending. Implementation, release, and live
-operation require their respective authorization. Public examples and tests
-must use synthetic media and endpoints.
+Implementation is authorized for v0.0.1. Release and live operation require
+their respective gates. Public examples and tests must use synthetic media and
+endpoints.
