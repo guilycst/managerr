@@ -37,13 +37,17 @@ never copied to an error; failures are classified by the typed `UpstreamError` c
 Only the documented HTTP 200 response is accepted for login and each read;
 other 2xx statuses are typed as unsupported before body decoding. JSON
 responses are decoded with exact case-sensitive field names, duplicate-member
-rejection, raw UTF-8 validation, unknown-field rejection and trailing-data
-checks. The default response bound is 8 MiB, with at most 10,000 inventory
+rejection, raw UTF-8 validation, unknown-field rejection, trailing-data checks,
+and presence validation for every OpenAPI-required member of inventory,
+properties, file and category objects. Null object values and null required
+members are rejected. The default response bound is 8 MiB, with at most 10,000 inventory
 records, 100,000 files, or 10,000 category/tag values. Bounds reject an
 over-limit response instead of silently truncating evidence. qBittorrent Unix
 timestamps and its `-1` unknown sentinels are preserved in the normalized
 values. Every inventory record must carry one 40-character v1 or 64-character
-v2 hexadecimal hash; one malformed identity rejects the complete observation.
+v2 hexadecimal hash; one malformed or duplicate logical identity rejects the
+complete observation. Concurrent authentication is single-flight, and callers
+waiting for it retain context cancellation semantics.
 Inventory filter and sort values are limited to 64 characters, category
 and tag values to 512 characters. Hash list members are at most 128 characters,
 cannot contain `|`, whitespace, controls or invalid UTF-8, cannot repeat, and

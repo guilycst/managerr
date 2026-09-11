@@ -131,6 +131,7 @@ type Client struct {
 
 	authMu        sync.Mutex
 	authenticated bool
+	authInFlight  chan struct{}
 }
 
 // Versions contains both read-only version probes.
@@ -378,10 +379,16 @@ func (c *Client) ListTorrents(ctx context.Context, options TorrentListOptions) (
 	if len(records) > c.config.MaxItems {
 		return nil, bounded("qbit.torrents.info", c.config.MaxItems)
 	}
+	seen := make(map[string]struct{}, len(records))
 	for i := range records {
 		if !validInventoryHash(records[i].Hash) {
 			return nil, malformed("qbit.torrents.info")
 		}
+		identity := canonicalHashIdentity(records[i].Hash)
+		if _, exists := seen[identity]; exists {
+			return nil, malformed("qbit.torrents.info")
+		}
+		seen[identity] = struct{}{}
 	}
 	result := make([]Torrent, len(records))
 	for i := range records {
@@ -518,14 +525,57 @@ func (c *Client) readVersion(ctx context.Context, operation, endpoint string) (s
 }
 
 func (c *Client) ensureSession(ctx context.Context) error {
-	if err := contextError(ctx); err != nil {
-		return err
+	for {
+		if err := contextError(ctx); err != nil {
+			return err
+		}
+		c.authMu.Lock()
+		if c.authenticated {
+			c.authMu.Unlock()
+			if err := contextError(ctx); err != nil {
+				return err
+			}
+			return nil
+		}
+		if c.authInFlight == nil {
+			done := make(chan struct{})
+			c.authInFlight = done
+			c.authMu.Unlock()
+
+			err := c.authenticate(ctx)
+			c.authMu.Lock()
+			if err == nil {
+				if ctxErr := contextError(ctx); ctxErr != nil {
+					err = ctxErr
+				} else {
+					c.authenticated = true
+				}
+			}
+			if c.authInFlight == done {
+				c.authInFlight = nil
+				close(done)
+			}
+			c.authMu.Unlock()
+			if err != nil {
+				return err
+			}
+			if err := contextError(ctx); err != nil {
+				return err
+			}
+			return nil
+		}
+		done := c.authInFlight
+		c.authMu.Unlock()
+		select {
+		case <-done:
+			// Re-check authentication and this caller's context in the next loop.
+		case <-contextDone(ctx):
+			return contextError(ctx)
+		}
 	}
-	c.authMu.Lock()
-	defer c.authMu.Unlock()
-	if c.authenticated {
-		return nil
-	}
+}
+
+func (c *Client) authenticate(ctx context.Context) error {
 	form := url.Values{}
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
@@ -542,7 +592,6 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	if !c.hasUsableSID(cookies) {
 		return UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
 	}
-	c.authenticated = true
 	return nil
 }
 
@@ -852,6 +901,13 @@ func contextError(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func contextDone(ctx context.Context) <-chan struct{} {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Done()
+}
+
 func decodeJSON(data []byte, target any) error {
 	if len(bytes.TrimSpace(data)) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return errors.New("empty JSON response")
@@ -902,6 +958,9 @@ func (s *jsonMemberScanner) value(valueType reflect.Type) error {
 	if err != nil {
 		return err
 	}
+	if token == nil {
+		return errors.New("null JSON value")
+	}
 	switch delimiter := token.(type) {
 	case json.Delim:
 		switch delimiter {
@@ -921,6 +980,7 @@ func (s *jsonMemberScanner) object(valueType reflect.Type) error {
 	valueType = indirectJSONType(valueType)
 	fields := jsonStructFields(valueType)
 	mapElement := jsonMapElementType(valueType)
+	required := jsonRequiredFields(valueType)
 	seen := make(map[string]struct{})
 	for s.decoder.More() {
 		token, err := s.decoder.Token()
@@ -957,6 +1017,11 @@ func (s *jsonMemberScanner) object(valueType reflect.Type) error {
 	}
 	if delimiter, ok := end.(json.Delim); !ok || delimiter != '}' {
 		return errors.New("JSON object is not closed")
+	}
+	for fieldName := range required {
+		if _, present := seen[fieldName]; !present {
+			return errors.New("missing required JSON object member")
+		}
 	}
 	return nil
 }
@@ -1009,6 +1074,24 @@ func jsonStructFields(valueType reflect.Type) map[string]reflect.Type {
 		fields[name] = field.Type
 	}
 	return fields
+}
+
+// jsonRequiredFields mirrors the frozen OpenAPI required sets for the four
+// fixed response objects. Their current schemas require every declared
+// member, including fields whose valid upstream value is zero or false.
+func jsonRequiredFields(valueType reflect.Type) map[string]struct{} {
+	valueType = indirectJSONType(valueType)
+	switch valueType {
+	case reflect.TypeOf(generated.TorrentInfo{}), reflect.TypeOf(generated.TorrentProperties{}), reflect.TypeOf(generated.TorrentFile{}), reflect.TypeOf(generated.Category{}):
+		fields := jsonStructFields(valueType)
+		required := make(map[string]struct{}, len(fields))
+		for name := range fields {
+			required[name] = struct{}{}
+		}
+		return required
+	default:
+		return nil
+	}
 }
 
 func jsonMapElementType(valueType reflect.Type) reflect.Type {

@@ -3,6 +3,7 @@ package qbittorrent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -799,6 +800,7 @@ func TestOversizedHTTPStatusesRetainClassificationAndAuthRecovery(t *testing.T) 
 }
 
 func TestPieceRangesRequireOrderedNonnegativeIndices(t *testing.T) {
+	fileFixture := fixture(t, "torrent-files.json")
 	for _, test := range []struct {
 		name   string
 		range_ string
@@ -820,7 +822,8 @@ func TestPieceRangesRequireOrderedNonnegativeIndices(t *testing.T) {
 					return
 				}
 				if r.URL.Path == apiFiles {
-					_, _ = io.WriteString(w, `[{"piece_range":`+test.range_+`}]`)
+					body := bytes.Replace(fileFixture, []byte(`[0, 127]`), []byte(test.range_), 1)
+					_, _ = w.Write(body)
 					return
 				}
 				w.WriteHeader(http.StatusNotFound)
@@ -832,8 +835,8 @@ func TestPieceRangesRequireOrderedNonnegativeIndices(t *testing.T) {
 			}
 			files, err := client.GetTorrentFiles(context.Background(), testHash)
 			if test.wantOK {
-				if err != nil || len(files) != 1 {
-					t.Fatalf("files = %#v, error %v; want one valid file", files, err)
+				if err != nil || len(files) != 2 {
+					t.Fatalf("files = %#v, error %v; want complete fixture", files, err)
 				}
 				return
 			}
@@ -1106,6 +1109,7 @@ func TestOnlyDocumentedHTTP200ResponsesBecomeEvidence(t *testing.T) {
 func TestStrictJSONMembersAndUTF8(t *testing.T) {
 	valid40 := testHash
 	valid64 := strings.Repeat("a", 64)
+	base := fixture(t, "torrent-info.json")
 	strictCases := []struct {
 		name     string
 		path     string
@@ -1117,8 +1121,8 @@ func TestStrictJSONMembersAndUTF8(t *testing.T) {
 		{name: "raw invalid UTF-8 in hash", path: apiTorrentInfo, body: append([]byte(`[{"hash":"`), append([]byte{0xff}, []byte(`"}]`)...)...)},
 		{name: "raw invalid UTF-8 in path", path: apiTorrentInfo, body: append([]byte(`[{"hash":"`+valid40+`","content_path":"`), append([]byte{0xff}, []byte(`"}]`)...)...)},
 		{name: "duplicate nested category member", path: apiCategories, body: []byte(`{"synthetic":{"name":"one","name":"two","savePath":"/synthetic"}}`)},
-		{name: "valid Unicode value", path: apiTorrentInfo, body: []byte(`[{"hash":"` + valid40 + `","name":"媒体"}]`), wantSize: 1},
-		{name: "repeated member names across records", path: apiTorrentInfo, body: []byte(`[{"hash":"` + valid40 + `"},{"hash":"` + valid64 + `"}]`), wantSize: 2},
+		{name: "valid Unicode value", path: apiTorrentInfo, body: inventoryWithName(base, valid40, "媒体"), wantSize: 1},
+		{name: "repeated member names across records", path: apiTorrentInfo, body: combineInventoryRecords(inventoryWithHash(base, valid40), inventoryWithHash(base, valid64)), wantSize: 2},
 	}
 	for _, test := range strictCases {
 		t.Run(test.name, func(t *testing.T) {
@@ -1220,6 +1224,301 @@ func TestInventoryHashesRequireSupportedIdentities(t *testing.T) {
 	}
 }
 
+func TestRequiredResponseMembersAndNullValuesAreRejected(t *testing.T) {
+	inventory := fixture(t, "torrent-info.json")
+	properties := fixture(t, "torrent-properties.json")
+	files := fixture(t, "torrent-files.json")
+	categories := fixture(t, "categories.json")
+	type readFunc func(*Client) (int, error)
+	cases := []struct {
+		name string
+		path string
+		body []byte
+		read readFunc
+	}{
+		{name: "inventory missing first member", path: apiTorrentInfo, body: removeArrayMember(t, inventory, "added_on"), read: func(client *Client) (int, error) {
+			value, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			return len(value), err
+		}},
+		{name: "inventory missing middle member", path: apiTorrentInfo, body: removeArrayMember(t, inventory, "name"), read: func(client *Client) (int, error) {
+			value, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			return len(value), err
+		}},
+		{name: "inventory missing last member", path: apiTorrentInfo, body: removeArrayMember(t, inventory, "upspeed"), read: func(client *Client) (int, error) {
+			value, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			return len(value), err
+		}},
+		{name: "properties missing first member", path: apiProperties, body: removeObjectMember(t, properties, "save_path"), read: func(client *Client) (int, error) {
+			_, err := client.GetTorrentProperties(context.Background(), testHash)
+			return 0, err
+		}},
+		{name: "properties missing middle member", path: apiProperties, body: removeObjectMember(t, properties, "addition_date"), read: func(client *Client) (int, error) {
+			_, err := client.GetTorrentProperties(context.Background(), testHash)
+			return 0, err
+		}},
+		{name: "properties missing last member", path: apiProperties, body: removeObjectMember(t, properties, "isPrivate"), read: func(client *Client) (int, error) {
+			_, err := client.GetTorrentProperties(context.Background(), testHash)
+			return 0, err
+		}},
+		{name: "files missing first member", path: apiFiles, body: removeArrayMember(t, files, "index"), read: func(client *Client) (int, error) {
+			value, err := client.GetTorrentFiles(context.Background(), testHash)
+			return len(value), err
+		}},
+		{name: "files missing middle member", path: apiFiles, body: removeArrayMember(t, files, "piece_range"), read: func(client *Client) (int, error) {
+			value, err := client.GetTorrentFiles(context.Background(), testHash)
+			return len(value), err
+		}},
+		{name: "files missing last member", path: apiFiles, body: removeArrayMember(t, files, "availability"), read: func(client *Client) (int, error) {
+			value, err := client.GetTorrentFiles(context.Background(), testHash)
+			return len(value), err
+		}},
+		{name: "category missing first member", path: apiCategories, body: removeCategoryMember(t, categories, "name"), read: func(client *Client) (int, error) {
+			value, err := client.Categories(context.Background())
+			return len(value), err
+		}},
+		{name: "category missing last member", path: apiCategories, body: removeCategoryMember(t, categories, "savePath"), read: func(client *Client) (int, error) {
+			value, err := client.Categories(context.Background())
+			return len(value), err
+		}},
+		{name: "inventory null top-level", path: apiTorrentInfo, body: []byte("null"), read: func(client *Client) (int, error) {
+			value, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			return len(value), err
+		}},
+		{name: "inventory null array value", path: apiTorrentInfo, body: []byte("[null]"), read: func(client *Client) (int, error) {
+			value, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			return len(value), err
+		}},
+		{name: "properties null top-level", path: apiProperties, body: []byte("null"), read: func(client *Client) (int, error) {
+			_, err := client.GetTorrentProperties(context.Background(), testHash)
+			return 0, err
+		}},
+		{name: "files null top-level", path: apiFiles, body: []byte("null"), read: func(client *Client) (int, error) {
+			value, err := client.GetTorrentFiles(context.Background(), testHash)
+			return len(value), err
+		}},
+		{name: "files null array value", path: apiFiles, body: []byte("[null]"), read: func(client *Client) (int, error) {
+			value, err := client.GetTorrentFiles(context.Background(), testHash)
+			return len(value), err
+		}},
+		{name: "categories null top-level", path: apiCategories, body: []byte("null"), read: func(client *Client) (int, error) {
+			value, err := client.Categories(context.Background())
+			return len(value), err
+		}},
+		{name: "categories null map value", path: apiCategories, body: []byte(`{"synthetic":null}`), read: func(client *Client) (int, error) {
+			value, err := client.Categories(context.Background())
+			return len(value), err
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == test.path {
+					_, _ = w.Write(test.body)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			count, err := test.read(client)
+			if err == nil || !IsCode(err, ErrorUnknown) || count != 0 {
+				t.Fatalf("read count = %d, error = %v; want malformed unknown and no partial evidence", count, err)
+			}
+		})
+	}
+}
+
+func TestCanonicalResponseFixturesAcceptZeroValuedRequiredFields(t *testing.T) {
+	inventory := fixture(t, "torrent-info.json")
+	properties := fixture(t, "torrent-properties.json")
+	files := fixture(t, "torrent-files.json")
+	categories := fixture(t, "categories.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		switch r.URL.Path {
+		case apiTorrentInfo:
+			_, _ = w.Write(inventory)
+		case apiProperties:
+			_, _ = w.Write(properties)
+		case apiFiles:
+			_, _ = w.Write(files)
+		case apiCategories:
+			_, _ = w.Write(categories)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	torrents, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+	if err != nil || len(torrents) != 1 || torrents[0].AmountLeft != 0 || torrents[0].AutoTMM != true || torrents[0].DLSpeed != 0 {
+		t.Fatalf("canonical inventory = %#v, error %v; want zero-valued required fields accepted", torrents, err)
+	}
+	property, err := client.GetTorrentProperties(context.Background(), testHash)
+	if err != nil || property.TotalWasted != 0 || property.DLSpeed != 0 || property.IsPrivate {
+		t.Fatalf("canonical properties = %#v, error %v; want zero-valued required fields accepted", property, err)
+	}
+	fileValues, err := client.GetTorrentFiles(context.Background(), testHash)
+	if err != nil || len(fileValues) != 2 || fileValues[0].Index != 0 || fileValues[0].Progress != 1 {
+		t.Fatalf("canonical files = %#v, error %v; want zero-valued required fields accepted", fileValues, err)
+	}
+	categoryValues, err := client.Categories(context.Background())
+	if err != nil || len(categoryValues) != 1 || categoryValues["synthetic"].Name != "synthetic" {
+		t.Fatalf("canonical categories = %#v, error %v; want complete required values accepted", categoryValues, err)
+	}
+}
+
+func TestDuplicateInventoryIdentitiesRejectWholeResponse(t *testing.T) {
+	base := fixture(t, "torrent-info.json")
+	valid64 := strings.Repeat("a", 64)
+	cases := []struct {
+		name      string
+		body      []byte
+		wantCount int
+		wantHash  string
+	}{
+		{name: "duplicate exact v1", body: combineInventoryRecords(inventoryWithHash(base, testHash), inventoryWithHash(base, testHash))},
+		{name: "duplicate mixed-case v1", body: combineInventoryRecords(inventoryWithHash(base, testHash), inventoryWithHash(base, strings.ToUpper(testHash)))},
+		{name: "duplicate exact v2", body: combineInventoryRecords(inventoryWithHash(base, valid64), inventoryWithHash(base, valid64))},
+		{name: "duplicate mixed-case v2", body: combineInventoryRecords(inventoryWithHash(base, valid64), inventoryWithHash(base, strings.ToUpper(valid64)))},
+		{name: "distinct v1 and v2", body: combineInventoryRecords(inventoryWithHash(base, testHash), inventoryWithHash(base, valid64)), wantCount: 2, wantHash: testHash},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				if r.URL.Path == apiTorrentInfo {
+					_, _ = w.Write(test.body)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			torrents, err := client.ListTorrents(context.Background(), TorrentListOptions{})
+			if test.wantCount == 0 {
+				if err == nil || !IsCode(err, ErrorUnknown) || len(torrents) != 0 {
+					t.Fatalf("ListTorrents = %#v, error %v; want whole-response rejection", torrents, err)
+				}
+				return
+			}
+			if err != nil || len(torrents) != test.wantCount || torrents[0].Hash != test.wantHash {
+				t.Fatalf("ListTorrents = %#v, error %v; want distinct identities with original spelling", torrents, err)
+			}
+		})
+	}
+}
+
+func TestAuthenticationWaitersHonorCancellation(t *testing.T) {
+	for _, waiterCount := range []int{1, 8} {
+		t.Run(fmt.Sprintf("%d_waiters", waiterCount), func(t *testing.T) {
+			loginStarted := make(chan struct{})
+			releaseLogin := make(chan struct{})
+			var releaseOnce sync.Once
+			var loginCount atomic.Int32
+			var readCount atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case apiLogin:
+					if loginCount.Add(1) == 1 {
+						close(loginStarted)
+						<-releaseLogin
+					}
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+				case apiAppVersion:
+					readCount.Add(1)
+					_, _ = io.WriteString(w, "v5.0.0")
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			defer releaseOnce.Do(func() { close(releaseLogin) })
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			activeDone := make(chan error, 1)
+			go func() { activeDone <- client.Login(context.Background()) }()
+			select {
+			case <-loginStarted:
+			case <-time.After(time.Second):
+				t.Fatal("active login did not reach server")
+			}
+
+			waiterDone := make([]chan error, waiterCount)
+			cancel := make([]context.CancelFunc, waiterCount)
+			for i := range waiterDone {
+				ctx, cancelFunc := context.WithCancel(context.Background())
+				cancel[i] = cancelFunc
+				waiterDone[i] = make(chan error, 1)
+				go func(done chan<- error, waiterContext context.Context) {
+					if waiterCount == 1 {
+						done <- client.Login(waiterContext)
+						return
+					}
+					_, waiterErr := client.ApplicationVersion(waiterContext)
+					done <- waiterErr
+				}(waiterDone[i], ctx)
+			}
+			// Let every waiter enter the in-flight authentication selection before
+			// cancellation, then prove cancellation does not depend on login release.
+			time.Sleep(20 * time.Millisecond)
+			for _, cancelFunc := range cancel {
+				cancelFunc()
+			}
+			for i, done := range waiterDone {
+				select {
+				case waiterErr := <-done:
+					if !errors.Is(waiterErr, context.Canceled) {
+						t.Fatalf("waiter %d error = %v, want context.Canceled", i, waiterErr)
+					}
+				case <-time.After(200 * time.Millisecond):
+					t.Fatalf("waiter %d did not honor cancellation while login was blocked", i)
+				}
+			}
+			if got := readCount.Load(); got != 0 {
+				t.Fatalf("canceled waiter read count = %d, want zero", got)
+			}
+			releaseOnce.Do(func() { close(releaseLogin) })
+			select {
+			case activeErr := <-activeDone:
+				if activeErr != nil {
+					t.Fatalf("active login error = %v, want success", activeErr)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("active login did not finish after release")
+			}
+			if got := loginCount.Load(); got != 1 {
+				t.Fatalf("login count = %d, want one active login", got)
+			}
+		})
+	}
+}
+
 func TestNonpositiveInjectedTimeoutUsesSafeDefault(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -1250,6 +1549,69 @@ func TestNonpositiveInjectedTimeoutUsesSafeDefault(t *testing.T) {
 func inventoryWithHash(base []byte, hash string) []byte {
 	needle := `"hash": "` + testHash + `"`
 	return []byte(strings.Replace(string(base), needle, `"hash": "`+hash+`"`, 1))
+}
+
+func inventoryWithName(base []byte, hash, name string) []byte {
+	body := inventoryWithHash(base, hash)
+	return []byte(strings.Replace(string(body), `"name": "synthetic-example"`, `"name": "`+name+`"`, 1))
+}
+
+func combineInventoryRecords(records ...[]byte) []byte {
+	parts := make([]string, 0, len(records))
+	for _, record := range records {
+		value := strings.TrimSpace(string(record))
+		value = strings.TrimPrefix(value, "[")
+		value = strings.TrimSuffix(value, "]")
+		parts = append(parts, value)
+	}
+	return []byte("[" + strings.Join(parts, ",") + "]")
+}
+
+func removeArrayMember(t *testing.T, body []byte, member string) []byte {
+	t.Helper()
+	var records []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &records); err != nil {
+		t.Fatalf("decode array fixture: %v", err)
+	}
+	if len(records) == 0 {
+		t.Fatal("array fixture is empty")
+	}
+	delete(records[0], member)
+	result, err := json.Marshal(records)
+	if err != nil {
+		t.Fatalf("encode array fixture: %v", err)
+	}
+	return result
+}
+
+func removeObjectMember(t *testing.T, body []byte, member string) []byte {
+	t.Helper()
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil {
+		t.Fatalf("decode object fixture: %v", err)
+	}
+	delete(object, member)
+	result, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("encode object fixture: %v", err)
+	}
+	return result
+}
+
+func removeCategoryMember(t *testing.T, body []byte, member string) []byte {
+	t.Helper()
+	var categories map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(body, &categories); err != nil {
+		t.Fatalf("decode category fixture: %v", err)
+	}
+	for _, category := range categories {
+		delete(category, member)
+	}
+	result, err := json.Marshal(categories)
+	if err != nil {
+		t.Fatalf("encode category fixture: %v", err)
+	}
+	return result
 }
 
 func inventoryWithRawInvalidHash(base []byte) []byte {
