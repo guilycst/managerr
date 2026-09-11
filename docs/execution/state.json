@@ -464,11 +464,11 @@
       "review": null
     },
     "F-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
-      "implementationCommit": "68d5508c0cbc455ac22f835a1767b2a973dd160b",
+      "implementationCommit": "31572c442e81d3f3fa17e2835fb6d1232106b503",
       "evidence": [
         "docs/execution/handoffs/F-01.md",
         "docs/execution/handoffs/F-01-review-round1.md",
@@ -476,16 +476,12 @@
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/f01_reviewer",
-        "commit": "e8c58feb59418b7237759671a039150039e1a79b",
-        "findings": [
-          "P1: cumulative enumeration cursor must enforce the total bound without a late per-page error",
-          "P1: unsupported child entries must remain visible with a reason instead of aborting the whole page",
-          "P1: capability output must preserve configured evidence and read-only unsupported states"
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "reviewHistory": [
         {
@@ -493,6 +489,13 @@
           "reviewer": "/root/f01_reviewer",
           "commit": "e8c58feb59418b7237759671a039150039e1a79b",
           "status": "changes_requested",
+          "correctionCommit": "31572c442e81d3f3fa17e2835fb6d1232106b503"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/f01_reviewer",
+          "commit": null,
+          "status": "pending",
           "correctionCommit": null
         }
       ],
@@ -509,7 +512,7 @@
           "A-21",
           "A-23"
         ],
-        "reviewPath": "docs/execution/handoffs/F-01-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/F-01-review-round2.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
