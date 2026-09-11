@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-01"
+    "D-01",
+    "X-01"
   ],
   "openGates": [
     "G-01",
@@ -615,24 +616,44 @@
       "review": null
     },
     "X-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/f01_implementer",
-      "baseSha": "857cea4",
+      "baseSha": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
       "integratedSha": null,
       "implementationCommit": "d74a735b18a2cc5768dcb9f3ff0656f8540d3cff",
       "evidence": [
         "docs/execution/handoffs/X-01.md",
+        "docs/execution/handoffs/X-01-review-round1.md",
         "internal/adapters/qbittorrent/inventory/inventory_test.go",
-        "tests/fixtures/qbittorrent/"
+        "tests/fixtures/qbittorrent/",
+        "b89ffa1b9fc829134fed84cf55fd88e614243d91 X-01 round-one review"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
+        "findings": [
+          "P1: caller-provided HTTP cookie jars can cross qBittorrent adapter sessions",
+          "P1: offset pagination can omit or duplicate torrents while reporting complete coverage",
+          "P1: cursors are forgeable and accepted page bounds can emit a cursor rejected by the decoder",
+          "P1: missing or unknown qBittorrent state can be reported processing-complete",
+          "P1: ambiguous equal-length mappings drop exact file observations",
+          "P2: empty bencode dictionaries are reported as available torrent descriptors"
+        ],
         "round": 1
       },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
+          "status": "changes_requested",
+          "sourceCommit": "d74a735b18a2cc5768dcb9f3ff0656f8540d3cff",
+          "correctionCommit": null,
+          "receipt": "docs/execution/handoffs/X-01-review-round1.md"
+        }
+      ],
       "dispatch": {
         "assignedAt": "2026-09-11",
         "model": "gpt-5.6-luna",
@@ -647,11 +668,13 @@
           "A-09",
           "A-28"
         ],
-        "reviewPath": "docs/execution/handoffs/X-01-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/X-01-review-round2.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
-        }
+        },
+        "correctionRound": 2,
+        "reviewFindingsCommit": "b89ffa1b9fc829134fed84cf55fd88e614243d91"
       }
     },
     "X-02": {
