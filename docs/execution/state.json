@@ -270,7 +270,7 @@
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "implementationCommit": "1ca9e139de8e0854127312b0854dde9d989a78f0",
+      "implementationCommit": "f06110968e9c86c336acbc7bf7dfe21af7137218",
       "evidence": [
         "docs/execution/handoffs/C-03.md",
         "GOWORK=off go test ./...",
@@ -282,15 +282,22 @@
         "git diff --check",
         "b1be8aee8b95be19e584c576d376ebfe74b00468 domain validation tightening",
         "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..cc0d3501e8bc62378596ecca14763cc65b311a46",
-        "1ca9e139de8e0854127312b0854dde9d989a78f0 coverage freshness validation"
+        "1ca9e139de8e0854127312b0854dde9d989a78f0 coverage freshness validation",
+        "f06110968e9c86c336acbc7bf7dfe21af7137218 manifest evidence, provenance scope, and bootstrap negative tests",
+        "GOWORK=off go test -race ./internal/...",
+        "CGO_ENABLED=0 GOOS=linux GOARCH=amd64/arm64 GOWORK=off go test -run '^$' -exec=true ./internal/...",
+        "GOWORK=off go mod verify (root, ui, tools)",
+        "tools go test, go vet, and go mod tidy -diff",
+        "python3 scripts/check_planning.py --self-test && python3 scripts/check_planning.py",
+        "git diff --check 04368e0ad286db4506717c121bb016c3f274e301..f06110968e9c86c336acbc7bf7dfe21af7137218"
       ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/c03_reviewer",
-        "commit": "1ca9e139de8e0854127312b0854dde9d989a78f0",
+        "commit": "f06110968e9c86c336acbc7bf7dfe21af7137218",
         "findings": [],
-        "round": 2
+        "round": 3
       },
       "reviewHistory": [
         {
@@ -299,6 +306,14 @@
           "commit": "4b64712419406ca5a243a2fa108969dd3240dd6d",
           "status": "changes_requested",
           "correctionCommit": "1ca9e139de8e0854127312b0854dde9d989a78f0"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/c03_reviewer",
+          "commit": "1b4111b76acee7fc7bd7971cf2e322933caf19fb",
+          "status": "changes_requested",
+          "sourceCommit": "cc0d3501e8bc62378596ecca14763cc65b311a46",
+          "correctionCommit": "f06110968e9c86c336acbc7bf7dfe21af7137218"
         }
       ],
       "dispatch": {
@@ -319,7 +334,7 @@
           "A-45",
           "A-60"
         ],
-        "reviewPath": "docs/execution/handoffs/C-03-review.md",
+        "reviewPath": "docs/execution/handoffs/C-03-review-round3.md",
         "nextReviewer": "/root/c03_reviewer",
         "coordinatorDependencyCommit": "04368e0ad286db4506717c121bb016c3f274e301",
         "previousAttempt": {
