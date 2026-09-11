@@ -4,7 +4,7 @@ Status: interview consolidated into the v0.0.1 planning baseline. User answers r
 
 ## Confirmed requirements
 
-- Public repository requested at `guilycst/managerr`. Final license answer: MIT.
+- Public repository requested at `guilycst/mastarr`. Final license answer: MIT.
 - Go, API first, resource-oriented REST API using `oapi-codegen`.
 - A nested Go module serves the UI as a BFF consuming the API.
 - Use the latest released `github.com/araihu/goshtoso` for the UI/BFF. Live release check on 2026-09-11 found stable v0.3.0, published 2026-09-11T02:04:47Z. This is the planning baseline, not an installed dependency; recheck the latest release and pin an explicit version when implementation begins.
@@ -12,7 +12,7 @@ Status: interview consolidated into the v0.0.1 planning baseline. User answers r
 - Detailed specification and implementation tasks organized into lanes, with durable recovery records for future subagents.
 - Unknown titles use two approvals: registration first, then exact file/episode import review.
 - Discovery examines one or more download directories. Client-retained inventory alone is insufficient as the product boundary.
-- Detected media should show which download client downloaded it, when it was downloaded, and the associated torrent or NZB descriptor. Retain Managerr's own copy of the original `.torrent` or `.nzb` when available so it can survive client-history removal. If unavailable, preserve that fact rather than fabricate an original descriptor.
+- Detected media should show which download client downloaded it, when it was downloaded, and the associated torrent or NZB descriptor. Retain Mastarr's own copy of the original `.torrent` or `.nzb` when available so it can survive client-history removal. If unavailable, preserve that fact rather than fabricate an original descriptor.
 - Each discovery should show whether external managers track it, which managers do, and what media they identify it as.
 - Integrations with external managers are ports in a hexagonal architecture. Sonarr, Radarr, and Seerr are named integrations.
 - For untracked media, assist the user in upserting it into external managers.
@@ -40,8 +40,8 @@ Status: interview consolidated into the v0.0.1 planning baseline. User answers r
 - Seerr integration is read-only for now. Expose relevant observed media/request status; creating, approving, cancelling, or deleting Seerr requests is outside v1.
 - Preserve extensibility through the hexagonal ports and independent action architecture so future releases can manage more of the Arr stack from one place. This is a product direction, not authorization to implement every manager/action now.
 - Deploy as portable containers, without requiring Kubernetes or a particular container engine. The user's homelab Kubernetes cluster is the first deployment target, not a product dependency. Filesystem access, supported host/CPU platforms, volumes, and credential/configuration delivery still require concrete deployment contracts.
-- Require all directories Managerr manages to be mounted into its API/executor container. Bind mounts, named volumes, and mounted NAS storage are valid deployment mechanisms. A remote-filesystem access protocol is not required for v1.
-- Support explicit path mappings where Managerr, download clients, and external managers address the same files using different paths. The UI/BFF consumes the API and does not need direct media mounts.
+- Require all directories Mastarr manages to be mounted into its API/executor container. Bind mounts, named volumes, and mounted NAS storage are valid deployment mechanisms. A remote-filesystem access protocol is not required for v1.
+- Support explicit path mappings where Mastarr, download clients, and external managers address the same files using different paths. The UI/BFF consumes the API and does not need direct media mounts.
 - Configure connections, watched directories, and path mappings through both API/UI and static YAML files. File configuration supports GitOps delivery, including mounted Kubernetes ConfigMaps and Secrets, while remaining portable to other container environments.
 - Clearly expose configuration provenance. Static YAML-owned configuration is read-only through the application; changing the source file is the only way to change it. The API/UI must not silently override, delete, or write back a file-owned resource.
 - The REST API also supports external operator integrations for application-managed configuration. Implementing a Kubernetes operator is not requested for v1.
@@ -65,7 +65,7 @@ Status: interview consolidated into the v0.0.1 planning baseline. User answers r
 ## Draft assumptions superseded or awaiting confirmation
 
 - Client-only discovery in the initial draft is superseded by directory discovery.
-- The initial prohibition on Managerr placing files itself is superseded for the explicitly requested library-only copy/hardlink workflow. Its filesystem ownership and safety contract still need design.
+- The initial prohibition on Mastarr placing files itself is superseded for the explicitly requested library-only copy/hardlink workflow. Its filesystem ownership and safety contract still need design.
 - The API contract must be revised to support independent actions and BFF composition. Previous operation/plan schemas are proposals, not frozen contracts.
 - Treating external adapters merely as implementation helpers is superseded by the explicit hexagonal architecture requirement.
 - Seerr observation-only scope is now confirmed for v1. Future Seerr writes must be added explicitly through the established port/action contracts.

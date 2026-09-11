@@ -1,4 +1,4 @@
-# Managerr
+# Mastarr
 
 Review downloaded media and reconcile it with Radarr, Sonarr, Jellyfin, and Seerr.
 
@@ -6,7 +6,7 @@ Status: implementation in progress, targeting v0.0.1. The API contract and
 module/tool baseline are complete; the runnable application is still being built.
 [MIT licensed](LICENSE).
 
-Managerr will discover video and subtitles in configured download directories,
+Mastarr will discover video and subtitles in configured download directories,
 including files whose download history has disappeared. It will show download
 provenance, tracked media, and separate registration, import, and availability
 states for every connected instance.

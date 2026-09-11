@@ -28,7 +28,7 @@ implementation lanes; runtime behavior and live-stack acceptance are not claimed
 
 ## Publication verified
 
-GitHub reports guilycst/managerr as PUBLIC with MIT License and main as default
+GitHub reports guilycst/mastarr as PUBLIC with MIT License and main as default
 branch. Initial published planning commit is
 `2cc1f131def11174d9fe9033c61cef0af3794bf4`; local HEAD and origin/main matched that
 commit before this verification record was added. The following documentation

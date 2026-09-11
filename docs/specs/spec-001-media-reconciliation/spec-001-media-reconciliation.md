@@ -7,7 +7,7 @@ Tasks live in the [implementation plan](../../plans/implementation.md), not here
 
 ## Purpose and scope
 
-Managerr detects downloaded media, explains which external instances track it,
+Mastarr detects downloaded media, explains which external instances track it,
 and executes reviewed actions to bring observed state into the user's chosen
 state. It also lists Arr-tracked media with no matching download. Detection alone
 never authorizes a mutation.
@@ -106,7 +106,7 @@ other process will write later.
 Video discovery includes common video containers; subtitle detection includes
 SRT, ASS, SSA, VTT, and paired IDX/SUB. Parser recognition does not guarantee
 playability. Unsupported extensions remain visible as companions requiring
-classification. Archive extraction and transcoding are not performed by Managerr.
+classification. Archive extraction and transcoding are not performed by Mastarr.
 Season packs expand into individually reviewable video/episode associations.
 Anime absolute numbering stays unresolved until the chosen Sonarr mapping is
 confirmed. Unmatched subtitles remain visible and are never silently discarded.

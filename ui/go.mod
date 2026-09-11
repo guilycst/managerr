@@ -1,4 +1,4 @@
-module github.com/guilycst/managerr/ui
+module github.com/guilycst/mastarr/ui
 
 go 1.27.0
 

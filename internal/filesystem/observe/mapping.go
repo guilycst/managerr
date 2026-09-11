@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/mastarr/internal/domain"
 )
 
 // MapExternalPath translates one upstream namespace path into a configured

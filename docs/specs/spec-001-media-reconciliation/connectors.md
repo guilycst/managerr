@@ -84,7 +84,7 @@ not included; require post-processing to be complete before touching payload.
 ## Radarr and Sonarr
 
 Inventory includes all registrations, monitoring state, files and missing media,
-not just downloads previously managed by Managerr. Resolve identities using
+not just downloads previously managed by Mastarr. Resolve identities using
 supported provider IDs, primarily TMDB for movies and TVDB for series; preserve
 other IDs returned for Jellyfin/Seerr correlation. Native title/episode lookup
 supplies review options. Never scrape metadata sites or infer identity from a
@@ -108,7 +108,7 @@ filterExistingFiles. Movie ID without downloadId can select a library-file query
 do not accidentally preview the destination library as a downloaded source.
 Sonarr's corresponding series/season/file model differs. Generate typed adapter
 DTOs or maintain explicit structs verified against pinned upstream schemas;
-never expose raw arbitrary command JSON through Managerr.
+never expose raw arbitrary command JSON through Mastarr.
 
 Use Copy mode for source-preserving Arr import. Arr may choose copy or hardlink
 based on its own settings/filesystem. Label this as Arr-managed source-preserving
@@ -116,7 +116,7 @@ transfer, not guaranteed hardlink. A strict hardlink request must use a capabili
 that proves it; no hidden fallback to extra disk use.
 
 The inspected native command path can reconstruct accepted ImportDecision objects
-and bypass preview rejections. Managerr must validate native rejection reasons,
+and bypass preview rejections. Mastarr must validate native rejection reasons,
 existing destination/file associations, exact approval, and post-import evidence.
 A preflight cannot alone prevent an external actor replacing a destination between
 check and import. X-05 must establish tested coordination/atomicity conditions.
@@ -150,7 +150,7 @@ and available. `/api/v1/media` uses take/skip and pageInfo in inspected source.
 Validate pagination and complete coverage for requests separately.
 
 Seerr's scans of its configured media server and Arr services may eventually
-reflect an external import. Managerr observes that state without creating a
+reflect an external import. Mastarr observes that state without creating a
 request or forcing a false available marker. Instance topology mismatch remains
 visible; two Seerr/Arr servers need explicit relationships rather than guessed
 shared ownership.

@@ -27,8 +27,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/guilycst/managerr/internal/domain"
-	"github.com/guilycst/managerr/internal/ports"
+	"github.com/guilycst/mastarr/internal/domain"
+	"github.com/guilycst/mastarr/internal/ports"
 )
 
 const (
@@ -1114,7 +1114,7 @@ func (client *Client) requestOnce(ctx context.Context, operation, method, endpoi
 		return nil, 0, errors.New("qBittorrent request could not be created")
 	}
 	request.Header.Set("Accept", "application/json, text/plain")
-	request.Header.Set("User-Agent", "managerr-qbittorrent-inventory/0.0.1")
+	request.Header.Set("User-Agent", "mastarr-qbittorrent-inventory/0.0.1")
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}

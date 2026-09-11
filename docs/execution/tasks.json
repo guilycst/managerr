@@ -608,7 +608,7 @@
       ],
       "ownedPaths": [
         "internal/transport/",
-        "cmd/managerr/"
+        "cmd/mastarr/"
       ],
       "acceptance": [
         "A-38",

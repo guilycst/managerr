@@ -1,4 +1,4 @@
-# Resume Managerr
+# Resume Mastarr
 
 Current deliverable: v0.0.1 implementation. The planning baseline is
 consolidated and implementation is authorized; read `state.json` for the active

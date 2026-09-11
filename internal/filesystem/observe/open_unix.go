@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/mastarr/internal/domain"
 	"golang.org/x/sys/unix"
 )
 

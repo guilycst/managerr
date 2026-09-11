@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/guilycst/managerr/internal/storage/sqlc"
-	"github.com/guilycst/managerr/migrations"
+	"github.com/guilycst/mastarr/internal/storage/sqlc"
+	"github.com/guilycst/mastarr/migrations"
 )
 
 func newTestStore(t *testing.T) *Store {

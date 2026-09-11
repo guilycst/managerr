@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guilycst/managerr/internal/domain"
-	"github.com/guilycst/managerr/internal/ports"
+	"github.com/guilycst/mastarr/internal/domain"
+	"github.com/guilycst/mastarr/internal/ports"
 )
 
 const (

@@ -138,7 +138,7 @@ before a missing title's registration/preview phase is resolved.
 | `arr.import` | connectionId, registered external title ID, exact file/episode map, native preview revision, and required transfer behavior | No arbitrary upstream command payload; require tested capabilities. |
 | `fs.copy` | source manifest and exact destinations | Verify content; preserve source. |
 | `fs.hardlink` | selected regular files and destinations | Same filesystem; never copy fallback. |
-| `fs.move` / `fs.rename` | exact source/destination map and selected executor (`managerr` or `native_client`) | Linked torrents use supported native API; cross-device requires separate approved copy/delete steps. |
+| `fs.move` / `fs.rename` | exact source/destination map and selected executor (`mastarr` or `native_client`) | Linked torrents use supported native API; cross-device requires separate approved copy/delete steps. |
 | `client.stop` | qBittorrent connection/item IDs | Independent action; verify stopped state. Zero upload speed is insufficient. |
 | `client.remove` | qBittorrent connection/item IDs, retainPayload=true | Metadata-only removal, explicit lost-tracking impact. No deleteFiles=true. |
 | `fs.trash` | exact payload manifest, original paths, retention, proven stopped-client prerequisites | Creates per-volume trash entries. Original approval includes expiry purge policy. |

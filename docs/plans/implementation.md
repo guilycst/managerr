@@ -378,7 +378,7 @@ Lane C. Dependencies: D-04, F-03, X-08, W-05.
 
 Wire strict generated server to services for every documented resource, validation/problem responses/ETags/idempotency, startup locking/migrations/key readiness and graceful shutdown. Coordinator integrates shared registrations and schema drift.
 
-- Owned paths: `internal/transport/`, `cmd/managerr/`.
+- Owned paths: `internal/transport/`, `cmd/mastarr/`.
 - Acceptance contributions: A-38, A-39, A-42, A-46, A-47, A-56.
 - Handoff: `docs/execution/handoffs/C-04.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.

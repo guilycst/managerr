@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/mastarr/internal/domain"
 )
 
 func TestParseUnsupportedChildReasonCode(t *testing.T) {

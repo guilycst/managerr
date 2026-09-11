@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/mastarr/internal/domain"
 )
 
 // Page is the bounded result shared by read-only connector inventories.

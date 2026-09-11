@@ -1,7 +1,7 @@
 # Dashboard and BFF
 
-Future v0.0.1 UI in nested module github.com/guilycst/managerr/ui. The BFF serves
-Goshtoso/templ HTML and consumes the generated Managerr HTTP client. It cannot
+Future v0.0.1 UI in nested module github.com/guilycst/mastarr/ui. The BFF serves
+Goshtoso/templ HTML and consumes the generated Mastarr HTTP client. It cannot
 open SQLite, import root internals, access media mounts, call upstreams, or make
 approval/safety decisions. API errors and observed state remain authoritative.
 
@@ -28,7 +28,7 @@ replace is needed because their communication is HTTP.
 | `/` | Counts by discovery/review/workflow state, degraded connections and actionable failures; no unrelated dashboard widgets. |
 | `/discoveries` | Filter root/client/category/tag/readiness/tracking; show media suggestion, completion date or unknown, age, client and descriptor availability. |
 | `/discoveries/{id}` | Exact files/subtitles, evidence and unknowns, per-instance tracking, seeding impacts, suggested title and corrections. |
-| `/media` | Full Arr catalog with instance/monitoring/missing/import/availability filters, including media unrelated to Managerr downloads. |
+| `/media` | Full Arr catalog with instance/monitoring/missing/import/availability filters, including media unrelated to Mastarr downloads. |
 | `/media/{id}` | Provider identity, all instance registrations/files/requests, timestamps and links; distinguish suggestion from verified association. |
 | `/reviews/{planId}` | Saved plan revision, exact actions/files/episodes/fields, conflicts, source preservation, bytes/space, monitoring and deletion impacts. |
 | `/workflows`, `/workflows/{id}` | Ordered steps, approvals, attempts, completed effects, failed vs blocked, unresolved late effects, retry schedule, cancel. |

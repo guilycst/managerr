@@ -42,7 +42,7 @@ still pins the module bytes used by the build.
 
 ## Runtime and shell contract
 
-Use `consoleshell` because Managerr is an operations control plane. The BFF
+Use `consoleshell` because Mastarr is an operations control plane. The BFF
 will configure:
 
 - `consoleshell.Layout` for complete documents and `consoleshell.Fragment` for
@@ -78,7 +78,7 @@ checks passed.
 
 | Product need | Public surface | Decision | Consumer boundary |
 | --- | --- | --- | --- |
-| Persistent operations frame, responsive navigation and one main scroll region | `github.com/araihu/goshtoso-app-shells/consoleshell`: `Layout`, `Fragment`, `Head`, `Config`, `Page`; `consoleshell/assets`: `Handler`, `StylesheetURL`, `ScriptURL` | **reuse** | Shell owns frame, drawer, first-paint mode and fragment lifecycle. Managerr owns routes, navigation labels, selection and API state. |
+| Persistent operations frame, responsive navigation and one main scroll region | `github.com/araihu/goshtoso-app-shells/consoleshell`: `Layout`, `Fragment`, `Head`, `Config`, `Page`; `consoleshell/assets`: `Handler`, `StylesheetURL`, `ScriptURL` | **reuse** | Shell owns frame, drawer, first-paint mode and fragment lifecycle. Mastarr owns routes, navigation labels, selection and API state. |
 | Head, social metadata and local runtime loading | `github.com/araihu/goshtoso/components/head`: `Metadata`, `Dependencies`, `WithLocalRuntime`; `github.com/araihu/goshtoso/assets`: `Handler`, `DefaultRuntimeManifest` | **reuse** | Route metadata and the generic public-safe preview asset remain BFF inputs. No inventory identifiers enter metadata. |
 | Discovery, media and trash lists | `pageheader.PageHeader`, `toolbar.Toolbar`, `panel.Panel`, `table.Table`, `pagination.Pagination`, `skeleton.Skeleton`, `emptystate.EmptyState`, `badge.Badge` | **compose** | API pagination/filter state, columns, status vocabulary and destructive scope remain application decisions. |
 | Media or discovery detail | `breadcrumbs.Breadcrumbs`, `pageheader.PageHeader`, `panel.Panel`, `tabs.Tabs`, `badge.Badge`, `alert.Alert` | **compose** | Provider IDs, source evidence, subtitle associations, seeding impact and unknown coverage are app-owned semantic content. |

@@ -206,7 +206,7 @@ second accepted through symlink alias
 
 Failure mode: two API/executor processes can own one SQLite database through two
 path aliases and use distinct lock files. SQLite serialization does not replace
-Managerr's single-executor guarantee.
+Mastarr's single-executor guarantee.
 
 Contract: `data-and-recovery.md:9-13` and A-43 require one active owner and
 rejection of a second executor.

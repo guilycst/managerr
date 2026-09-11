@@ -5,7 +5,7 @@
   "targetRelease": "v0.0.1",
   "applicationAuthentication": "excluded_from_v0.0.1",
   "futureAuthenticationRelease": "v0.0.2",
-  "repository": "guilycst/managerr",
+  "repository": "guilycst/mastarr",
   "requestedVisibility": "public",
   "license": "MIT",
   "publicationVerified": true,
@@ -967,7 +967,7 @@
     "evidence": "docs/verification/planning-evidence.md"
   },
   "publication": {
-    "url": "https://github.com/guilycst/managerr",
+    "url": "https://github.com/guilycst/mastarr",
     "visibility": "PUBLIC",
     "license": "MIT",
     "verifiedPlanningCommit": "2cc1f131def11174d9fe9033c61cef0af3794bf4",

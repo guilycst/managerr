@@ -55,7 +55,7 @@ not a reason to guess.
   and unavailable endpoints yield `unknown`, never confirmed absence.
 - Every upstream ID is scoped by connection ID. A hash, NZBID, Arr numeric ID or
   provider ID from one instance cannot identify an object in another.
-- qBittorrent categories/tags remain hints. Managerr never recategorizes or tags
+- qBittorrent categories/tags remain hints. Mastarr never recategorizes or tags
   an item because a review is open.
 - NZBGet JSON-RPC uses positional parameters and bounded responses. Keep NZBID,
   deprecated ID alias, Arr `drone`, FinalDir and DestDir as separate typed fields.

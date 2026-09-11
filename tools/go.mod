@@ -1,4 +1,4 @@
-module github.com/guilycst/managerr/tools
+module github.com/guilycst/mastarr/tools
 
 go 1.27.0
 

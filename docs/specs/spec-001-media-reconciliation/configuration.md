@@ -94,15 +94,15 @@ the bootstrap contract. Nested UI/tools modules are independently versioned.
 
 | Variable | Default / meaning |
 | --- | --- |
-| MANAGERR_DATA_DIR | `/data`; persistent DB, generated key, descriptors and journals. |
-| MANAGERR_CONFIG_FILE | Empty means API-managed config only; otherwise startup YAML file. |
-| MANAGERR_LISTEN_ADDR | `:8080`; API listener in container. |
-| MANAGERR_CREDENTIAL_KEY | Optional base64-encoded 32-byte credential encryption key. Secret, never logged. |
-| MANAGERR_CREDENTIAL_KEY_FILE | Optional file containing the same base64 format. Mutually exclusive with key env. |
-| MANAGERR_LOG_LEVEL | `info`; validated enum, sanitized structured logs. |
-| MANAGERR_UI_API_URL | Required in BFF, e.g. `http://managerr-api:8080`. No embedded credentials. |
-| MANAGERR_UI_LISTEN_ADDR | `:8081`; BFF listener. |
-| MANAGERR_UI_PUBLIC_ORIGIN | Required absolute origin for canonicals, origin checks and metadata. Use configured HTTPS origin outside local development. |
+| MASTARR_DATA_DIR | `/data`; persistent DB, generated key, descriptors and journals. |
+| MASTARR_CONFIG_FILE | Empty means API-managed config only; otherwise startup YAML file. |
+| MASTARR_LISTEN_ADDR | `:8080`; API listener in container. |
+| MASTARR_CREDENTIAL_KEY | Optional base64-encoded 32-byte credential encryption key. Secret, never logged. |
+| MASTARR_CREDENTIAL_KEY_FILE | Optional file containing the same base64 format. Mutually exclusive with key env. |
+| MASTARR_LOG_LEVEL | `info`; validated enum, sanitized structured logs. |
+| MASTARR_UI_API_URL | Required in BFF, e.g. `http://mastarr-api:8080`. No embedded credentials. |
+| MASTARR_UI_LISTEN_ADDR | `:8081`; BFF listener. |
+| MASTARR_UI_PUBLIC_ORIGIN | Required absolute origin for canonicals, origin checks and metadata. Use configured HTTPS origin outside local development. |
 
 No login/bearer/session-secret environment variables are introduced for v0.0.1.
 Timeouts, worker bounds and storage policies belong in typed effective configuration;

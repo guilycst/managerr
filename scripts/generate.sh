@@ -16,7 +16,7 @@ case "${1:-}" in
     ;;
 esac
 
-tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/managerr-generate.XXXXXX")
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-generate.XXXXXX")
 trap 'rm -rf -- "$tmp_dir"' EXIT INT TERM
 
 make_config() {

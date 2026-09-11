@@ -8,7 +8,7 @@ requires updating this record, contracts, acceptance cases and dependent tasks.
 
 | ID | Decision | Contract |
 | --- | --- | --- |
-| D-01 | Public guilycst/managerr, MIT license. Specification and task lanes before implementation. | [README](../../README.md), [execution](../plans/implementation.md) |
+| D-01 | Public guilycst/mastarr, MIT license. Specification and task lanes before implementation. | [README](../../README.md), [execution](../plans/implementation.md) |
 | D-02 | Go API first, oapi-codegen REST, hexagonal ports; nested HTTP-only UI/BFF; separate tools module. | [System](../specs/spec-001-media-reconciliation/spec-001-media-reconciliation.md) |
 | D-03 | Directory discovery plus download provenance, original descriptors when available, full Arr inventory, multiple instances. | [Connectors](../specs/spec-001-media-reconciliation/connectors.md) |
 | D-04 | Independent actions; Arr registration/import and direct library placement; two approvals for missing Arr titles. | [HTTP](../specs/spec-001-media-reconciliation/http-api.md) |

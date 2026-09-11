@@ -10,8 +10,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratedb "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/guilycst/managerr/internal/storage/sqlc"
-	"github.com/guilycst/managerr/migrations"
+	"github.com/guilycst/mastarr/internal/storage/sqlc"
+	"github.com/guilycst/mastarr/migrations"
 )
 
 const (

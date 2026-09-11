@@ -23,23 +23,23 @@ import (
 // the API binary and are required by ValidateUI when starting the BFF.
 type Environment struct {
 	// Persistent database, key, descriptor and journal directory.
-	DataDir string `env:"MANAGERR_DATA_DIR" envDefault:"/data"`
+	DataDir string `env:"MASTARR_DATA_DIR" envDefault:"/data"`
 	// Optional startup-only YAML configuration file. Empty selects API-managed configuration.
-	ConfigFile string `env:"MANAGERR_CONFIG_FILE" envDefault:""`
+	ConfigFile string `env:"MASTARR_CONFIG_FILE" envDefault:""`
 	// API listener address.
-	ListenAddr string `env:"MANAGERR_LISTEN_ADDR" envDefault:":8080"`
+	ListenAddr string `env:"MASTARR_LISTEN_ADDR" envDefault:":8080"`
 	// Optional base64-encoded 32-byte credential encryption key. Never log this value.
-	CredentialKey string `env:"MANAGERR_CREDENTIAL_KEY"`
+	CredentialKey string `env:"MASTARR_CREDENTIAL_KEY"`
 	// Optional file containing the same base64-encoded key. Mutually exclusive with CredentialKey.
-	CredentialKeyFile string `env:"MANAGERR_CREDENTIAL_KEY_FILE"`
+	CredentialKeyFile string `env:"MASTARR_CREDENTIAL_KEY_FILE"`
 	// Structured log level: info, debug, warn or error.
-	LogLevel string `env:"MANAGERR_LOG_LEVEL" envDefault:"info"`
+	LogLevel string `env:"MASTARR_LOG_LEVEL" envDefault:"info"`
 	// API URL used by the BFF. Required when ValidateUI is called.
-	UIAPIURL string `env:"MANAGERR_UI_API_URL"`
+	UIAPIURL string `env:"MASTARR_UI_API_URL"`
 	// BFF listener address.
-	UIListenAddr string `env:"MANAGERR_UI_LISTEN_ADDR" envDefault:":8081"`
+	UIListenAddr string `env:"MASTARR_UI_LISTEN_ADDR" envDefault:":8081"`
 	// Absolute public origin used for BFF metadata and origin checks. Required by ValidateUI.
-	UIPublicOrigin string `env:"MANAGERR_UI_PUBLIC_ORIGIN"`
+	UIPublicOrigin string `env:"MASTARR_UI_PUBLIC_ORIGIN"`
 }
 
 // Parse parses a supplied environment map. The map seam keeps tests and
@@ -83,41 +83,41 @@ func sanitizeParseError(err error) error {
 // an error string.
 func (configuration Environment) Validate() error {
 	if strings.TrimSpace(configuration.DataDir) == "" || !filepath.IsAbs(configuration.DataDir) {
-		return errors.New("MANAGERR_DATA_DIR must be a non-empty absolute path")
+		return errors.New("MASTARR_DATA_DIR must be a non-empty absolute path")
 	}
 	if configuration.ConfigFile != "" && !filepath.IsAbs(configuration.ConfigFile) {
-		return errors.New("MANAGERR_CONFIG_FILE must be an absolute path")
+		return errors.New("MASTARR_CONFIG_FILE must be an absolute path")
 	}
 	if err := validateListenAddr(configuration.ListenAddr); err != nil {
-		return fmt.Errorf("MANAGERR_LISTEN_ADDR: %w", err)
+		return fmt.Errorf("MASTARR_LISTEN_ADDR: %w", err)
 	}
 	if err := validateListenAddr(configuration.UIListenAddr); err != nil {
-		return fmt.Errorf("MANAGERR_UI_LISTEN_ADDR: %w", err)
+		return fmt.Errorf("MASTARR_UI_LISTEN_ADDR: %w", err)
 	}
 	switch configuration.LogLevel {
 	case "info", "debug", "warn", "error":
 	default:
-		return errors.New("MANAGERR_LOG_LEVEL must be one of info, debug, warn or error")
+		return errors.New("MASTARR_LOG_LEVEL must be one of info, debug, warn or error")
 	}
 	if strings.TrimSpace(configuration.CredentialKey) != "" && strings.TrimSpace(configuration.CredentialKeyFile) != "" {
-		return errors.New("MANAGERR_CREDENTIAL_KEY and MANAGERR_CREDENTIAL_KEY_FILE are mutually exclusive")
+		return errors.New("MASTARR_CREDENTIAL_KEY and MASTARR_CREDENTIAL_KEY_FILE are mutually exclusive")
 	}
 	if strings.TrimSpace(configuration.CredentialKey) != "" {
 		if _, err := DecodeCredentialKey(configuration.CredentialKey); err != nil {
-			return errors.New("MANAGERR_CREDENTIAL_KEY must be base64 for exactly 32 bytes")
+			return errors.New("MASTARR_CREDENTIAL_KEY must be base64 for exactly 32 bytes")
 		}
 	}
 	if strings.TrimSpace(configuration.CredentialKeyFile) != "" && !filepath.IsAbs(configuration.CredentialKeyFile) {
-		return errors.New("MANAGERR_CREDENTIAL_KEY_FILE must be an absolute path")
+		return errors.New("MASTARR_CREDENTIAL_KEY_FILE must be an absolute path")
 	}
 	if configuration.UIAPIURL != "" {
 		if err := validateServiceURL(configuration.UIAPIURL, false); err != nil {
-			return fmt.Errorf("MANAGERR_UI_API_URL: %w", err)
+			return fmt.Errorf("MASTARR_UI_API_URL: %w", err)
 		}
 	}
 	if configuration.UIPublicOrigin != "" {
 		if err := validateServiceURL(configuration.UIPublicOrigin, true); err != nil {
-			return fmt.Errorf("MANAGERR_UI_PUBLIC_ORIGIN: %w", err)
+			return fmt.Errorf("MASTARR_UI_PUBLIC_ORIGIN: %w", err)
 		}
 	}
 	return nil
@@ -129,10 +129,10 @@ func (configuration Environment) ValidateUI() error {
 		return err
 	}
 	if strings.TrimSpace(configuration.UIAPIURL) == "" {
-		return errors.New("MANAGERR_UI_API_URL is required for the BFF")
+		return errors.New("MASTARR_UI_API_URL is required for the BFF")
 	}
 	if strings.TrimSpace(configuration.UIPublicOrigin) == "" {
-		return errors.New("MANAGERR_UI_PUBLIC_ORIGIN is required for the BFF")
+		return errors.New("MASTARR_UI_PUBLIC_ORIGIN is required for the BFF")
 	}
 	return nil
 }

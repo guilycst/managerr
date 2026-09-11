@@ -60,7 +60,7 @@ defined `GetWidget :one`. No repository or user data entered the fixture.
 Core commands:
 
 ```sh
-fixture_dir=$(mktemp -d /tmp/managerr-c02-round2.XXXXXX)
+fixture_dir=$(mktemp -d /tmp/mastarr-c02-round2.XXXXXX)
 cp -R scripts tools api ui "$fixture_dir"/
 cd "$fixture_dir/tools"
 GOWORK=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc version

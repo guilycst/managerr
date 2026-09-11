@@ -69,7 +69,7 @@ state and unresolved-effect count are independent so the UI cannot hide uncertai
    any mutation. If exact predicate holds, record already_satisfied and no dispatch.
 4. Revalidate path identities, relevant config, approval scope and cancellation.
    Reserve overlapping source/destination paths and client items against other
-   Managerr actions. Overlap includes directory descendants and hardlinked objects.
+   Mastarr actions. Overlap includes directory descendants and hardlinked objects.
 5. Persist attempt and dispatch intent before calling an external API or changing
    files. Record each successful effect before advancing dependent steps.
 6. Read back desired state, then commit success. Submission and command completion
@@ -132,7 +132,7 @@ where supported; weaker evidence must stay unresolved. Directory plans enumerate
 all affected children. Resource bounds reject an oversized plan and allow reviewed
 batches; they do not silently truncate its deletion scope.
 
-External programs can change files concurrently. Managerr's reservations serialize
+External programs can change files concurrently. Mastarr's reservations serialize
 only its own work. Unsupported filesystem atomicity or inability to establish safe
 source access blocks the affected action. See compatibility gates for Arr/client
 operations that cannot offer atomic no-replace or external locking.

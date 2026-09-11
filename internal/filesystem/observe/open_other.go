@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/guilycst/managerr/internal/domain"
+	"github.com/guilycst/mastarr/internal/domain"
 )
 
 // Non-Unix platforms lack the descriptor-relative flags used by the Unix

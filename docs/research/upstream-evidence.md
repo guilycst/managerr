@@ -22,7 +22,7 @@ Sonarr inspected commit: `9c0d8deb01a51b35b85b8dbe296bbff87feb0ffb`.
 Inference from execution source: a saved native preview alone does not guarantee
 its rejections will still be enforced by the later command, nor prevent an external
 race. G-01 requires reproducible tests and a supported coordination strategy.
-Managerr must not promise no overwrite merely from check-then-write preflight.
+Mastarr must not promise no overwrite merely from check-then-write preflight.
 
 ## Download clients and catalogs
 
@@ -47,7 +47,7 @@ Managerr must not promise no overwrite merely from check-then-write preflight.
   [Media route](https://github.com/seerr-team/seerr/blob/68c5bc8c7d8560d295387adeeee73982ea518e8f/server/routes/media.ts)
   provides take/skip pagination and page information in the inspected schema.
 - [Seerr media server settings](https://docs.seerr.dev/using-seerr/settings/mediaserver/)
-  describes library scans updating availability. Managerr can observe eventual
+  describes library scans updating availability. Mastarr can observe eventual
   state without creating a request. [Service settings](https://docs.seerr.dev/using-seerr/settings/services/)
   describes the connected Arr service context.
 - [Jellyfin API documentation](https://api.jellyfin.org/)

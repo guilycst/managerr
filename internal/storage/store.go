@@ -1,4 +1,4 @@
-// Package storage owns Managerr's local SQLite journal. It contains only
+// Package storage owns Mastarr's local SQLite journal. It contains only
 // durable local state; adapters remain responsible for upstream authority.
 package storage
 
@@ -17,8 +17,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratedb "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/guilycst/managerr/internal/storage/sqlc"
-	"github.com/guilycst/managerr/migrations"
+	"github.com/guilycst/mastarr/internal/storage/sqlc"
+	"github.com/guilycst/mastarr/migrations"
 	_ "modernc.org/sqlite"
 )
 
@@ -316,7 +316,7 @@ func canonicalizePath(path string) (string, error) {
 
 func sqliteDSN(path string, busyTimeout time.Duration) string {
 	if path == ":memory:" {
-		return fmt.Sprintf("file:managerr-memory?mode=memory&cache=shared&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)", busyTimeout.Milliseconds())
+		return fmt.Sprintf("file:mastarr-memory?mode=memory&cache=shared&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)", busyTimeout.Milliseconds())
 	}
 	return fmt.Sprintf("file:%s?_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)", filepath.ToSlash(path), busyTimeout.Milliseconds())
 }

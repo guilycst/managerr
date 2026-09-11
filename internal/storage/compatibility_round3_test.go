@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guilycst/managerr/internal/storage/sqlc"
+	"github.com/guilycst/mastarr/internal/storage/sqlc"
 )
 
 const legacyFixtureTime = "2026-09-11T00:00:00Z"

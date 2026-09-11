@@ -17,7 +17,7 @@ a mocked method was called. Test native adapters in isolation after unit contrac
 | A-04 | R-02 | Provenance | qBittorrent hash variants, duplicate IDs in two instances, history removed. | Connection-scoped identity; retained evidence distinct from current observations. |
 | A-05 | R-02 | Provenance | NZBGet queue/unpack/history with NZBID, its deprecated ID alias, and a differing Arr `drone` parameter. | Ready only after processing; correct Arr correlation and mapped final path. The fixture must not require ID and NZBID to differ. |
 | A-06 | R-02 | Descriptors | Original available, unavailable, then client history/payload purged. | Exact original digest retained where available; unavailable remains honest; no plaintext in ordinary responses/logs. |
-| A-07 | R-03 | Inventory | Arr catalog exceeds one page and includes unmonitored/missing titles. | All records represented; no dependence on Managerr action history. |
+| A-07 | R-03 | Inventory | Arr catalog exceeds one page and includes unmonitored/missing titles. | All records represented; no dependence on Mastarr action history. |
 | A-08 | R-03 | Inventory | Arr import succeeds while Jellyfin/Seerr are stale/offline. | Separate registration/import/availability/request dimensions and timestamps; no false availability. |
 | A-09 | R-12 | Inventory | Same provider and numeric IDs across multiple Arr/Seerr/client instances. | No identity collision; explicit target selection and per-instance observations. |
 | A-10 | R-04 | Matching | Ambiguous movie, anime absolute numbering, multi-episode file and season pack. | Suggestions editable; exact selected movie/episode IDs reach preview; ambiguity blocks approval. |
@@ -26,7 +26,7 @@ a mocked method was called. Test native adapters in isolation after unit contrac
 | A-13 | R-05 | Registration | New registration defaults and existing title with unspecified settings. | New unmonitored, no search; existing unspecified fields preserved; monitoring opt-in explicit. |
 | A-14 | R-08 | Idempotency | Equivalent desired state submitted with same and different HTTP keys. | Same key returns same resource; fresh key observes already_satisfied with zero extra effects. |
 | A-15 | R-06 | Approval | Expired preview, changed source/config/episode mapping, forged digest. | Conflict/validation response; zero dispatch; changed intent needs new plan. |
-| A-16 | R-05 | Arr import | Native preview rejects or destination exists; command route bypasses native rejections. | Managerr refuses unsafe import; overwrite race guarantee tested or capability blocked. |
+| A-16 | R-05 | Arr import | Native preview rejects or destination exists; command route bypasses native rejections. | Mastarr refuses unsafe import; overwrite race guarantee tested or capability blocked. |
 | A-17 | R-05 | Arr import | Command accepted/completed but only part of pack imported. | Per-file evidence; missing mappings unresolved; no aggregate false success. |
 | A-18 | R-05 | Placement | Library-only copy/hardlink with no Arr registration. | Verified file placement and optional refresh; zero Arr registration writes. |
 | A-19 | R-08 | Filesystem | Existing same size/name but different bytes; identical bytes different inode. | Copy conflicts on unequal content; hardlink not already_satisfied for a different inode. |
