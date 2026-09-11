@@ -29,23 +29,38 @@
   "tasks": {
     "C-00": {
       "status": "in_review",
-      "owner": "/root/c00_reviewer_round2",
+      "owner": "/root",
       "baseSha": "ef4fbc3668e3f021b24c8e6c0e7ecbe0704b5bd0",
       "integratedSha": null,
-      "implementationCommit": "ed33362",
+      "implementationCommit": "ca6f51d",
       "evidence": [],
       "review": {
         "status": "changes_requested",
-        "reviewer": "/root/c00_reviewer",
-        "commit": "057b1aa",
+        "reviewer": "/root/c00_reviewer_round2",
+        "commit": "ca6f51d",
         "findings": [
-          "Matrix capability IDs collided with authoritative G-02 through G-06 meanings.",
-          "Exact product/API/schema baselines and PASS/FAIL/UNKNOWN fixture fields were missing.",
-          "NZBGet ID is an alias of NZBID; the differing-ID fixture was impossible."
+          "Capability rows used placeholder fixtures and mixed PASS with UNKNOWN in one result.",
+          "NZBGet and qBittorrent evidence needed immutable source identities."
         ],
-        "round": 1,
-        "correctionCommit": "ed33362"
+        "round": 2,
+        "correctionCommit": "ca6f51d"
       },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/c00_reviewer",
+          "commit": "057b1aa",
+          "status": "changes_requested",
+          "correctionCommit": "ed33362"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/c00_reviewer_round2",
+          "commit": "ca6f51d",
+          "status": "changes_requested",
+          "correctionCommit": "ca6f51d"
+        }
+      ],
       "dispatch": {
         "assignedAt": "2026-09-11",
         "model": "gpt-5.6-luna",
@@ -62,7 +77,8 @@
           "A-54",
           "A-55"
         ],
-        "reviewPath": "docs/execution/handoffs/C-00-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/C-00-review-round3.md",
+        "nextReviewer": "/root/c00_reviewer_round3",
         "previousAttempt": {
           "owner": "/root/c00_implementer",
           "status": "interrupted",
