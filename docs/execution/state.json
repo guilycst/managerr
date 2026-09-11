@@ -268,7 +268,7 @@
     "C-03": {
       "status": "in_progress",
       "owner": "/root/c03_implementer",
-      "baseSha": "852ccf1035689b96c62f502b074444533c5f89ce",
+      "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
       "evidence": [],
       "review": null,
@@ -291,7 +291,8 @@
           "A-60"
         ],
         "reviewPath": "docs/execution/handoffs/C-03-review.md",
-        "nextReviewer": "/root/c03_reviewer"
+        "nextReviewer": "/root/c03_reviewer",
+        "coordinatorDependencyCommit": "04368e0ad286db4506717c121bb016c3f274e301"
       }
     },
     "D-01": {
