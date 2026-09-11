@@ -15,6 +15,10 @@ type Querier interface {
 	// claim statement. The migration trigger validates the immutable plan,
 	// decision and action-run identities before it changes the shared entry.
 	ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprovedEarlyPurgeParams) (*JanitorRecord, error)
+	// Reacquires a janitor/trash lease for read-only reconciliation after startup
+	// recovery. The associated action run must remain reconciling and unleased;
+	// no external mutation is dispatched by this CAS.
+	ClaimApprovedEarlyPurgeReconciliation(ctx context.Context, arg *ClaimApprovedEarlyPurgeReconciliationParams) (*JanitorRecord, error)
 	ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecordParams) (*JanitorRecord, error)
 	CreateActionAttempt(ctx context.Context, arg *CreateActionAttemptParams) (*ActionAttempt, error)
 	CreateActionEffect(ctx context.Context, arg *CreateActionEffectParams) (*ActionEffect, error)

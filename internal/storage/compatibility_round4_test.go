@@ -67,8 +67,8 @@ func TestRound4TrackingUpgradeQuarantinesFalseAndUnscopedRows(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Fatalf("schema version = %d, want 6", version)
+	if version != 7 {
+		t.Fatalf("schema version = %d, want 7", version)
 	}
 
 	active, err := upgraded.Queries().ListTrackingObservations(context.Background(), &sqlc.ListTrackingObservationsParams{})
@@ -364,7 +364,7 @@ func TestRound4MigrationDownRestoresV4Shape(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
-	if err := runner.Steps(-2); err != nil {
+	if err := runner.Steps(-3); err != nil {
 		_, _ = runner.Close()
 		t.Fatalf("v6/v5 down migrations: %v", err)
 	}

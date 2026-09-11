@@ -71,13 +71,31 @@ UPDATE janitor_records SET
     approval_action_run_id = ?7, approved_entry_version = ?8,
     approval_action_run_version = ?9,
     version = version + 1, updated_at = ?10
-WHERE id = ?11
-  AND version = ?12
-  AND trash_entry_id = ?13
-  AND operation = 'purge'
-  AND state IN ('queued', 'reconciling')
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?10)
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?10)
+WHERE janitor_records.id = ?11
+  AND janitor_records.version = ?12
+  AND janitor_records.trash_entry_id = ?13
+  AND janitor_records.operation = 'purge'
+  AND janitor_records.state IN ('queued', 'reconciling')
+  AND (janitor_records.next_attempt_at IS NULL OR janitor_records.next_attempt_at <= ?10)
+  AND (janitor_records.claimed_by IS NULL OR janitor_records.lease_until IS NULL OR janitor_records.lease_until <= ?10)
+  AND EXISTS (
+      SELECT 1
+      FROM early_purge_plan_targets AS target
+      JOIN review_decisions AS decision
+        ON decision.id = ?6
+       AND decision.plan_id = target.plan_id
+       AND decision.plan_revision = target.revision
+       AND decision.plan_digest = target.plan_digest
+       AND decision.decision = 'approve'
+      WHERE target.plan_id = ?3
+        AND target.revision = ?4
+        AND target.plan_digest = ?5
+        AND target.trash_entry_id = ?13
+        AND target.trash_entry_version = ?8
+        AND julianday(target.created_at) IS NOT NULL
+        AND julianday(decision.created_at) IS NOT NULL
+        AND julianday(target.created_at) <= julianday(decision.created_at)
+  )
 RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
@@ -140,6 +158,132 @@ func (q *Queries) ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprove
 	return &i, err
 }
 
+const claimApprovedEarlyPurgeReconciliation = `-- name: ClaimApprovedEarlyPurgeReconciliation :one
+UPDATE janitor_records
+SET state = 'running',
+    claimed_by = ?1,
+    lease_until = ?2,
+    version = version + 1,
+    updated_at = ?3
+WHERE janitor_records.id = ?4
+  AND janitor_records.version = ?5
+  AND janitor_records.trash_entry_id = ?6
+  AND janitor_records.operation = 'purge'
+  AND janitor_records.state = 'reconciling'
+  AND janitor_records.approval_plan_id = ?7
+  AND janitor_records.approval_plan_revision = ?8
+  AND janitor_records.approval_plan_digest = ?9
+  AND janitor_records.approval_decision_id = ?10
+  AND janitor_records.approval_action_run_id = ?11
+  AND janitor_records.approved_entry_version = ?12
+  AND janitor_records.approval_action_run_version = ?13
+  AND (janitor_records.next_attempt_at IS NULL OR janitor_records.next_attempt_at <= ?3)
+  AND (janitor_records.claimed_by IS NULL OR janitor_records.lease_until IS NULL OR janitor_records.lease_until <= ?3)
+  AND EXISTS (
+      SELECT 1
+      FROM action_runs AS action
+      WHERE action.id = ?11
+        AND action.plan_id = ?7
+        AND action.plan_revision = ?8
+        AND action.plan_digest = ?9
+        AND action.state = 'reconciling'
+        AND action.version > ?13 + 1
+        AND action.claimed_by IS NULL
+        AND action.lease_until IS NULL
+        AND action.cancellation_requested_at IS NULL
+        AND (action.deadline_at IS NULL OR action.deadline_at > ?3)
+        AND (action.next_attempt_at IS NULL OR action.next_attempt_at <= ?3)
+  )
+  AND EXISTS (
+      SELECT 1
+      FROM early_purge_plan_targets AS target
+      JOIN review_decisions AS decision
+        ON decision.id = ?10
+       AND decision.plan_id = target.plan_id
+       AND decision.plan_revision = target.revision
+       AND decision.plan_digest = target.plan_digest
+       AND decision.decision = 'approve'
+      WHERE target.plan_id = ?7
+        AND target.revision = ?8
+        AND target.plan_digest = ?9
+        AND target.trash_entry_id = ?6
+        AND target.trash_entry_version = ?12
+        AND julianday(target.created_at) IS NOT NULL
+        AND julianday(decision.created_at) IS NOT NULL
+        AND julianday(target.created_at) <= julianday(decision.created_at)
+  )
+  AND EXISTS (
+      SELECT 1
+      FROM trash_entries AS entry
+      WHERE entry.id = ?6
+        AND entry.state = 'purging'
+        AND entry.active_operation = 'purge'
+        AND entry.version = ?12 + 2
+        AND entry.operation_claimed_by IS NULL
+        AND entry.operation_lease_until IS NULL
+  )
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
+`
+
+type ClaimApprovedEarlyPurgeReconciliationParams struct {
+	WorkerID                 sql.NullString `json:"worker_id"`
+	LeaseUntil               sql.NullString `json:"lease_until"`
+	Now                      string         `json:"now"`
+	ID                       string         `json:"id"`
+	Version                  int64          `json:"version"`
+	TrashEntryID             string         `json:"trash_entry_id"`
+	ApprovalPlanID           sql.NullString `json:"approval_plan_id"`
+	ApprovalPlanRevision     sql.NullInt64  `json:"approval_plan_revision"`
+	ApprovalPlanDigest       sql.NullString `json:"approval_plan_digest"`
+	ApprovalDecisionID       sql.NullString `json:"approval_decision_id"`
+	ApprovalActionRunID      sql.NullString `json:"approval_action_run_id"`
+	ApprovedEntryVersion     sql.NullInt64  `json:"approved_entry_version"`
+	ApprovalActionRunVersion sql.NullInt64  `json:"approval_action_run_version"`
+}
+
+// Reacquires a janitor/trash lease for read-only reconciliation after startup
+// recovery. The associated action run must remain reconciling and unleased;
+// no external mutation is dispatched by this CAS.
+func (q *Queries) ClaimApprovedEarlyPurgeReconciliation(ctx context.Context, arg *ClaimApprovedEarlyPurgeReconciliationParams) (*JanitorRecord, error) {
+	row := q.db.QueryRowContext(ctx, claimApprovedEarlyPurgeReconciliation,
+		arg.WorkerID,
+		arg.LeaseUntil,
+		arg.Now,
+		arg.ID,
+		arg.Version,
+		arg.TrashEntryID,
+		arg.ApprovalPlanID,
+		arg.ApprovalPlanRevision,
+		arg.ApprovalPlanDigest,
+		arg.ApprovalDecisionID,
+		arg.ApprovalActionRunID,
+		arg.ApprovedEntryVersion,
+		arg.ApprovalActionRunVersion,
+	)
+	var i JanitorRecord
+	err := row.Scan(
+		&i.ID,
+		&i.TrashEntryID,
+		&i.Operation,
+		&i.State,
+		&i.NextAttemptAt,
+		&i.ClaimedBy,
+		&i.LeaseUntil,
+		&i.OutcomeJson,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.ApprovalPlanID,
+		&i.ApprovalPlanRevision,
+		&i.ApprovalPlanDigest,
+		&i.ApprovalDecisionID,
+		&i.ApprovalActionRunID,
+		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
+	)
+	return &i, err
+}
+
 const claimJanitorRecord = `-- name: ClaimJanitorRecord :one
 UPDATE janitor_records SET
     state = 'running', claimed_by = ?1, lease_until = ?2,
@@ -147,6 +291,7 @@ UPDATE janitor_records SET
 WHERE id = ?4
   AND version = ?5
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND approval_plan_id IS NULL
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
 RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version

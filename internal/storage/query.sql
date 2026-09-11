@@ -762,6 +762,7 @@ UPDATE janitor_records SET
 WHERE id = sqlc.arg(id)
   AND version = sqlc.arg(version)
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
+  AND approval_plan_id IS NULL
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
 RETURNING *;
@@ -777,13 +778,100 @@ UPDATE janitor_records SET
     approval_action_run_id = sqlc.arg(approval_action_run_id), approved_entry_version = sqlc.arg(approved_entry_version),
     approval_action_run_version = sqlc.arg(approval_action_run_version),
     version = version + 1, updated_at = sqlc.arg(now)
-WHERE id = sqlc.arg(id)
-  AND version = sqlc.arg(version)
-  AND trash_entry_id = sqlc.arg(trash_entry_id)
-  AND operation = 'purge'
-  AND state IN ('queued', 'reconciling')
-  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= sqlc.arg(now))
+WHERE janitor_records.id = sqlc.arg(id)
+  AND janitor_records.version = sqlc.arg(version)
+  AND janitor_records.trash_entry_id = sqlc.arg(trash_entry_id)
+  AND janitor_records.operation = 'purge'
+  AND janitor_records.state IN ('queued', 'reconciling')
+  AND (janitor_records.next_attempt_at IS NULL OR janitor_records.next_attempt_at <= sqlc.arg(now))
+  AND (janitor_records.claimed_by IS NULL OR janitor_records.lease_until IS NULL OR janitor_records.lease_until <= sqlc.arg(now))
+  AND EXISTS (
+      SELECT 1
+      FROM early_purge_plan_targets AS target
+      JOIN review_decisions AS decision
+        ON decision.id = sqlc.arg(approval_decision_id)
+       AND decision.plan_id = target.plan_id
+       AND decision.plan_revision = target.revision
+       AND decision.plan_digest = target.plan_digest
+       AND decision.decision = 'approve'
+      WHERE target.plan_id = sqlc.arg(approval_plan_id)
+        AND target.revision = sqlc.arg(approval_plan_revision)
+        AND target.plan_digest = sqlc.arg(approval_plan_digest)
+        AND target.trash_entry_id = sqlc.arg(trash_entry_id)
+        AND target.trash_entry_version = sqlc.arg(approved_entry_version)
+        AND julianday(target.created_at) IS NOT NULL
+        AND julianday(decision.created_at) IS NOT NULL
+        AND julianday(target.created_at) <= julianday(decision.created_at)
+  )
+RETURNING *;
+
+-- name: ClaimApprovedEarlyPurgeReconciliation :one
+-- Reacquires a janitor/trash lease for read-only reconciliation after startup
+-- recovery. The associated action run must remain reconciling and unleased;
+-- no external mutation is dispatched by this CAS.
+UPDATE janitor_records
+SET state = 'running',
+    claimed_by = sqlc.arg(worker_id),
+    lease_until = sqlc.arg(lease_until),
+    version = version + 1,
+    updated_at = sqlc.arg(now)
+WHERE janitor_records.id = sqlc.arg(id)
+  AND janitor_records.version = sqlc.arg(version)
+  AND janitor_records.trash_entry_id = sqlc.arg(trash_entry_id)
+  AND janitor_records.operation = 'purge'
+  AND janitor_records.state = 'reconciling'
+  AND janitor_records.approval_plan_id = sqlc.arg(approval_plan_id)
+  AND janitor_records.approval_plan_revision = sqlc.arg(approval_plan_revision)
+  AND janitor_records.approval_plan_digest = sqlc.arg(approval_plan_digest)
+  AND janitor_records.approval_decision_id = sqlc.arg(approval_decision_id)
+  AND janitor_records.approval_action_run_id = sqlc.arg(approval_action_run_id)
+  AND janitor_records.approved_entry_version = sqlc.arg(approved_entry_version)
+  AND janitor_records.approval_action_run_version = sqlc.arg(approval_action_run_version)
+  AND (janitor_records.next_attempt_at IS NULL OR janitor_records.next_attempt_at <= sqlc.arg(now))
+  AND (janitor_records.claimed_by IS NULL OR janitor_records.lease_until IS NULL OR janitor_records.lease_until <= sqlc.arg(now))
+  AND EXISTS (
+      SELECT 1
+      FROM action_runs AS action
+      WHERE action.id = sqlc.arg(approval_action_run_id)
+        AND action.plan_id = sqlc.arg(approval_plan_id)
+        AND action.plan_revision = sqlc.arg(approval_plan_revision)
+        AND action.plan_digest = sqlc.arg(approval_plan_digest)
+        AND action.state = 'reconciling'
+        AND action.version > sqlc.arg(approval_action_run_version) + 1
+        AND action.claimed_by IS NULL
+        AND action.lease_until IS NULL
+        AND action.cancellation_requested_at IS NULL
+        AND (action.deadline_at IS NULL OR action.deadline_at > sqlc.arg(now))
+        AND (action.next_attempt_at IS NULL OR action.next_attempt_at <= sqlc.arg(now))
+  )
+  AND EXISTS (
+      SELECT 1
+      FROM early_purge_plan_targets AS target
+      JOIN review_decisions AS decision
+        ON decision.id = sqlc.arg(approval_decision_id)
+       AND decision.plan_id = target.plan_id
+       AND decision.plan_revision = target.revision
+       AND decision.plan_digest = target.plan_digest
+       AND decision.decision = 'approve'
+      WHERE target.plan_id = sqlc.arg(approval_plan_id)
+        AND target.revision = sqlc.arg(approval_plan_revision)
+        AND target.plan_digest = sqlc.arg(approval_plan_digest)
+        AND target.trash_entry_id = sqlc.arg(trash_entry_id)
+        AND target.trash_entry_version = sqlc.arg(approved_entry_version)
+        AND julianday(target.created_at) IS NOT NULL
+        AND julianday(decision.created_at) IS NOT NULL
+        AND julianday(target.created_at) <= julianday(decision.created_at)
+  )
+  AND EXISTS (
+      SELECT 1
+      FROM trash_entries AS entry
+      WHERE entry.id = sqlc.arg(trash_entry_id)
+        AND entry.state = 'purging'
+        AND entry.active_operation = 'purge'
+        AND entry.version = sqlc.arg(approved_entry_version) + 2
+        AND entry.operation_claimed_by IS NULL
+        AND entry.operation_lease_until IS NULL
+  )
 RETURNING *;
 
 -- name: UpdateJanitorRecord :one
