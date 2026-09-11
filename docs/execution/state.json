@@ -1579,7 +1579,7 @@
       ]
     },
     "X-11": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1588,22 +1588,18 @@
         "7b88619ba7371b1379e1d2a50c756c703d7fd02a X-11 correction head",
         "70babc71eacc5ed632432d21cd7147b55656373c X-11 handoff",
         "docs/execution/handoffs/X-11.md",
-        "0cfcaa1fe437b699595654ba750195c739dff668 X-11 review round 1"
+        "0cfcaa1fe437b699595654ba750195c739dff668 X-11 review round 1",
+        "889c3fdeb6558096e0480e1c1597a8c1aa03c152 X-11 correction round 2 product",
+        "ed93915dfcf5858f84ad8c505331da51909e7a33 X-11 correction round 2 handoff",
+        "docs/execution/handoffs/X-11-correction-round2.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "0cfcaa1fe437b699595654ba750195c739dff668",
-        "findings": [
-          "P1 sanitized upstream errors expose raw transport details through errors.Unwrap",
-          "P1 oversized non-2xx and body I/O failures collapse to nonretryable response_too_large",
-          "P1 duplicate response members bypass exact request-ID binding and empty error envelopes fabricate RPC code",
-          "P2 OpenRPC omits mandatory parameter flags, uses invalid nullable semantics, and accepts unsupported version 1.999",
-          "P2 ambiguous endpoint traversal and separator forms accepted",
-          "P2 locally refused unsupported methods report invalid_input"
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1623,24 +1619,26 @@
           "deterministic OpenRPC generation",
           "synthetic JSON-RPC httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-11-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/X-11-review-round2.md",
         "handoffPath": "docs/execution/handoffs/X-11.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
-        "implementationCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a",
-        "handoffCommit": "70babc71eacc5ed632432d21cd7147b55656373c",
-        "reviewSourceCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a",
+        "implementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
+        "handoffCommit": "ed93915dfcf5858f84ad8c505331da51909e7a33",
+        "reviewSourceCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
         "reviewCommit": "0cfcaa1fe437b699595654ba750195c739dff668",
         "correctionRound": 2,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "7b88619ba7371b1379e1d2a50c756c703d7fd02a",
         "correctionReviewPath": "docs/execution/handoffs/X-11-review-round1.md",
-        "correctionReviewer": "/root/f01_reviewer"
+        "correctionReviewer": "/root/f01_reviewer",
+        "correctionImplementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
+        "correctionHandoffCommit": "ed93915dfcf5858f84ad8c505331da51909e7a33"
       },
-      "implementationCommit": "7b88619ba7371b1379e1d2a50c756c703d7fd02a",
+      "implementationCommit": "889c3fdeb6558096e0480e1c1597a8c1aa03c152",
       "reviewHistory": [
         {
           "round": 1,
@@ -1669,7 +1667,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 2 is in independent review; X-11 correction round 2 is in progress. Record both approvals before dispatching C-05.",
+  "nextAction": "X-10 and X-11 correction round 2 are in independent review; after both approvals, dispatch C-05 generation/CI wiring.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
