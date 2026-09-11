@@ -78,6 +78,36 @@
           "git diff --check"
         ],
         "blocker": "The versioned pre-commit hook and full CI-equivalent command are still pending"
+      },
+      {
+        "sha": "e2a4af38a5dcfebe6c384190303422f1077bb8eb",
+        "message": "build(guardrails): add versioned hook runner",
+        "checks": [
+          "./scripts/check-guardrails.sh --fast",
+          "./scripts/check-guardrails.sh --ci",
+          "sh -n scripts/check-guardrails.sh scripts/install-hooks.sh .githooks/pre-commit",
+          "git diff --check"
+        ],
+        "blocker": "The final clean-checkout gate and hook installation verification are still pending"
+      },
+      {
+        "sha": "3217e9b10a0cf0f935abbc5591d33c89c9b156f3",
+        "message": "fix(guardrails): make pre-commit hook executable",
+        "checks": [
+          "git ls-files mode 100755 for .githooks/pre-commit",
+          "./scripts/check-guardrails.sh --fast"
+        ],
+        "blocker": "The final clean-checkout gate and hook installation verification are still pending"
+      },
+      {
+        "sha": "c2abc230368872b56e1eb2a96246588cd639db3b",
+        "message": "fix(guardrails): make hook installer executable",
+        "checks": [
+          "git ls-files mode 100755 for scripts/install-hooks.sh",
+          "./scripts/install-hooks.sh",
+          "git config --get core.hooksPath = .githooks"
+        ],
+        "blocker": "The final clean-checkout gate is still pending"
       }
     ],
     "requiredChecks": [
