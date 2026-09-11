@@ -1,7 +1,8 @@
 # Resume Managerr
 
-Current deliverable: detailed specification and implementation lanes for v0.0.1.
-Planning baseline is consolidated. No application implementation is authorized.
+Current deliverable: v0.0.1 implementation. The planning baseline is
+consolidated and implementation is authorized; read `state.json` for the active
+lane and review gate.
 The last interview answer selected MIT. Do not restart the questionnaire.
 Read state.json for publication verification and current execution phase.
 
@@ -15,8 +16,9 @@ Read state.json for publication verification and current execution phase.
    Compare those observations to recorded task ownership. Preserve unknown edits.
 4. Read active handoffs. If state and Git disagree, record discrepancy and reconcile
    evidence before dispatch. A missing agent or expired lease is not a finished task.
-5. If implementation is still unauthorized, work only on requested planning changes.
-   Otherwise dispatch only unblocked tasks with nonoverlapping ownership and review capacity.
+5. If implementation is authorized, dispatch only unblocked tasks with
+   nonoverlapping ownership and review capacity. Keep the planning files as
+   requirements and state.json as the live execution record.
 
 ## Established decisions
 
@@ -44,10 +46,11 @@ gates in decisions.md. Planning completeness does not mean these tests have pass
 
 ## Current validation and next step
 
-Run `python3 scripts/check_planning.py` and `git diff --check` after planning edits.
-Use tasks.json for dependencies, state.json for live ownership/status, and
-handoffs/TEMPLATE.md for bounded dispatch/checkpoints. See planning evidence for
-what was actually verified. No runtime tests or deployed behavior are claimed.
+Run `python3 scripts/check_planning.py` and `git diff --check` after planning or
+execution edits. Use tasks.json for dependencies, state.json for live
+ownership/status, and handoffs/TEMPLATE.md for bounded dispatch/checkpoints. See
+task handoffs for exact checks and evidence. No deployed behavior is claimed
+until a release gate records it.
 
 At every context boundary record the task, exact base/current commit, changed paths,
 checks and next safe action. Keep credentials, real inventories and private runtime

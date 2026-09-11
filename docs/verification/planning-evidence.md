@@ -1,6 +1,7 @@
 # Planning verification
 
-Date: 2026-09-11. Scope is planning artifacts only.
+Date: 2026-09-11. Scope covers the planning baseline and the first authorized
+contract lanes.
 
 - `python3 scripts/check_planning.py --self-test` passes. It checks 38 unique tasks,
   defined dependencies without cycles, 60 assigned acceptance cases, state task IDs,
@@ -19,10 +20,10 @@ Date: 2026-09-11. Scope is planning artifacts only.
   native behavior limits are in the research record; no supported-version integration
   matrix is claimed complete.
 
-No application modules, generated API, runnable service, runtime tests, container
-images or deployments were produced. The planning validator is the only executable
-artifact. Implementation tasks remain planned and implementationAuthorized=false.
-No independent implementation review or live-stack acceptance is claimed.
+No application runtime, generated consumers, runnable service, container images or
+deployments were produced. C-00 evidence is complete and the C-01 OpenAPI contract
+is under independent review; runtime behavior and live-stack acceptance are not
+claimed.
 
 ## Publication verified
 

@@ -1,9 +1,9 @@
 # Implementation plan and agent lanes
 
-Status: planned, not authorized for implementation. Target v0.0.1 includes all
+Status: implementation in progress, authorized. Target v0.0.1 includes all
 confirmed scope in [Spec 001](../specs/spec-001-media-reconciliation/spec-001-media-reconciliation.md).
-No task below is complete. [tasks.json](../execution/tasks.json) owns task definitions
-and dependencies. [state.json](../execution/state.json) owns runtime status/ownership.
+Task completion is recorded in [state.json](../execution/state.json), while
+[tasks.json](../execution/tasks.json) owns task definitions and dependencies.
 The tables and task descriptions here are the readable projection of definitions.
 
 ## Dispatch contract

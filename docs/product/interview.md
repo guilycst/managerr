@@ -1,6 +1,6 @@
 # Product interview
 
-Status: interview consolidated into the v0.0.1 planning baseline. User answers remain authoritative. Implementation is not authorized in this phase. Engineering details selected after the interview are recorded separately in [decisions](../architecture/decisions.md).
+Status: interview consolidated into the v0.0.1 planning baseline. User answers remain authoritative. Implementation authorization and live task status are recorded in [state.json](../execution/state.json). Engineering details selected after the interview are recorded separately in [decisions](../architecture/decisions.md).
 
 ## Confirmed requirements
 
