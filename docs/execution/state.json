@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1540,18 +1540,18 @@
         "3db67877884b1197f24dfb44299fc0321947746a X-10 correction round 6 handoff",
         "docs/execution/handoffs/X-10-correction-round6.md",
         "ef0b917061ebfdaf246d9190438dcf3febec7d1b X-10 review round 6 changes requested",
-        "docs/execution/handoffs/X-10-review-round6.md"
+        "docs/execution/handoffs/X-10-review-round6.md",
+        "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6 X-10 correction round 7 product",
+        "c6f9dfa8bc639997420d2d7a58767a26226c5bc0 X-10 correction round 7 handoff",
+        "docs/execution/handoffs/X-10-correction-round7.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "ef0b917061ebfdaf246d9190438dcf3febec7d1b",
-        "findings": [
-          "P1 net/http cookie jar can apply a delayed old-session Set-Cookie before client CAS, restoring obsolete SID and causing a third login",
-          "P1 generation snapshot can precede cookie selection, labeling a request with generation 1 while sending SID2 and misclassifying a real current-session 403 as stale"
-        ],
-        "round": 6
+        "commit": null,
+        "findings": [],
+        "round": 7
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1570,8 +1570,8 @@
           "oapi-codegen reproducibility",
           "synthetic WebUI httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-10-review-round6.md",
-        "handoffPath": "docs/execution/handoffs/X-10-correction-round6.md",
+        "reviewPath": "docs/execution/handoffs/X-10-review-round7.md",
+        "handoffPath": "docs/execution/handoffs/X-10-correction-round7.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -1579,17 +1579,17 @@
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
-        "reviewSourceCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
+        "reviewSourceCommit": "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6",
         "correctionRound": 7,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "9202d4ccab811f0daccd089e2cce642b4805dc80",
         "correctionReviewPath": "docs/execution/handoffs/X-10-review-round6.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
-        "correctionHandoffCommit": "3db67877884b1197f24dfb44299fc0321947746a",
-        "reviewCommit": "ef0b917061ebfdaf246d9190438dcf3febec7d1b"
+        "correctionImplementationCommit": "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6",
+        "correctionHandoffCommit": "c6f9dfa8bc639997420d2d7a58767a26226c5bc0",
+        "reviewCommit": "pending"
       },
-      "implementationCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
+      "implementationCommit": "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6",
       "reviewHistory": [
         {
           "round": 1,
@@ -1764,7 +1764,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 7 must bind cookie SID selection and session generation atomically and prevent stale Set-Cookie mutation; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
+  "nextAction": "X-10 correction round 7 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
