@@ -1,0 +1,69 @@
+{
+  "system": {
+    "ProductName": "Jellyfin",
+    "ServerName": "fixture-jellyfin",
+    "Version": "10.10.7"
+  },
+  "libraries": {
+    "Items": [
+      {"Id": "library-movies", "Name": "Movies", "CollectionType": "movies", "Type": "CollectionFolder"},
+      {"Id": "library-series", "Name": "Series", "CollectionType": "tvshows", "Type": "CollectionFolder"}
+    ]
+  },
+  "movieItems": {
+    "Items": [
+      {
+        "Id": "jf-film-101",
+        "Name": "Fixture Film",
+        "Type": "Movie",
+        "MediaType": "Video",
+        "LocationType": "FileSystem",
+        "ProviderIds": {"Tmdb": "550", "Imdb": "tt0137523"},
+        "MediaSources": [{"Id": "source-film-101", "Path": "/fixture/media/Movies/Fixture Film (1999)/Fixture Film.mkv", "Protocol": "File", "LocationType": "FileSystem", "MediaType": "Video"}]
+      }
+    ],
+    "TotalRecordCount": 1,
+    "StartIndex": 0
+  },
+  "seriesItems": {
+    "Items": [
+      {
+        "Id": "jf-series-102",
+        "Name": "Fixture Series",
+        "Type": "Series",
+        "MediaType": "Video",
+        "LocationType": "FileSystem",
+        "ProviderIds": {"Tmdb": "1002", "Tvdb": "2002"},
+        "MediaSources": [{"Id": "source-series-102", "Path": "/fixture/media/Series/Fixture Series/Season 01/episode.mkv", "Protocol": "File", "LocationType": "FileSystem", "MediaType": "Video"}]
+      }
+    ],
+    "TotalRecordCount": 1,
+    "StartIndex": 0
+  },
+  "singleItem": {
+    "Items": [
+      {
+        "Id": "jf-film-101",
+        "Name": "Fixture Film",
+        "Type": "Movie",
+        "MediaType": "Video",
+        "LocationType": "FileSystem",
+        "ProviderIds": {"Tmdb": "550", "Imdb": "tt0137523"},
+        "MediaSources": [{"Id": "source-film-101", "Path": "/fixture/media/Movies/Fixture Film (1999)/Fixture Film.mkv", "Protocol": "File", "LocationType": "FileSystem", "MediaType": "Video"}]
+      }
+    ]
+  },
+  "pathOnlyItem": {
+    "Items": [
+      {
+        "Id": "jf-path-only",
+        "Name": "Fixture Path Only",
+        "Type": "Movie",
+        "MediaType": "Video",
+        "LocationType": "FileSystem",
+        "Path": "/fixture/media/Movies/Fixture Path Only/movie.mkv",
+        "ProviderIds": {"Tmdb": "551"}
+      }
+    ]
+  }
+}
