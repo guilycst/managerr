@@ -377,7 +377,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "bc75aacbfda920272618d8e76118b4bc5f10df23",
       "integratedSha": null,
@@ -393,11 +393,16 @@
         "GOWORK=off go mod verify"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "ebae3157302c046b8f5497492064400c28333268",
+        "findings": [
+          "P1: an early-purge target can be inserted after approval and rebind the immutable decision to another same-manifest trash entry",
+          "P1: unsafe legacy or down/up purge records without approval binding remain generically reclaimable",
+          "P1: quarantine evidence can be silently dropped on v5 to v4 to v5 ID reuse",
+          "P1: an already-approved action is rejected after plan preview expiry despite a live action deadline"
+        ],
         "round": 4
       },
       "reviewHistory": [
@@ -427,11 +432,20 @@
         {
           "round": 4,
           "reviewer": "/root/d01_reviewer",
+          "commit": "ebae3157302c046b8f5497492064400c28333268",
+          "status": "changes_requested",
+          "correctionCommit": null,
+          "sourceCommit": "1a469f858b82b0f78b2d6d48c5e50999cdfdf00f",
+          "receipt": "docs/execution/handoffs/D-01-review-round4.md"
+        },
+        {
+          "round": 5,
+          "reviewer": "/root/d01_reviewer",
           "commit": null,
           "status": "pending",
           "correctionCommit": null,
           "sourceCommit": "1a469f858b82b0f78b2d6d48c5e50999cdfdf00f",
-          "receipt": "docs/execution/handoffs/D-01-review-round4.md"
+          "receipt": "docs/execution/handoffs/D-01-review-round5.md"
         }
       ],
       "dispatch": {
