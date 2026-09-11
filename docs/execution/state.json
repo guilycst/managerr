@@ -743,7 +743,7 @@
       "review": null
     },
     "X-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "b89ffa1b9fc829134fed84cf55fd88e614243d91",
       "integratedSha": null,
@@ -758,14 +758,12 @@
         "b89ffa1b9fc829134fed84cf55fd88e614243d91 X-01 round-one review"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "4dcdc0081011e70234f0b39f7c7ce5c3758df07d",
-        "findings": [
-          "P2: a structurally valid exported descriptor is not bound to the requested torrent v1 or v2 info hash"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "reviewHistory": [
         {
@@ -785,6 +783,15 @@
           "correctionCommit": null,
           "sourceCommit": "dd7156396c649c00190ddc7f25d2e0e12868b1c5",
           "receipt": "docs/execution/handoffs/X-01-review-round2.md"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/f01_reviewer",
+          "commit": null,
+          "status": "pending",
+          "correctionCommit": "f2f4de0dbc5018de51064f78df546746fb226a1a",
+          "sourceCommit": "f2f4de0dbc5018de51064f78df546746fb226a1a",
+          "receipt": "docs/execution/handoffs/X-01-review-round3.md"
         }
       ],
       "dispatch": {
@@ -813,7 +820,9 @@
         "correctionRound": 3,
         "correctionOwner": "/root/d01_implementer",
         "correctionBaseSha": "d6837ed31f09c26e797a6e5d2b24982c5b6cbb61",
-        "correctionReviewPath": "docs/execution/handoffs/X-01-review-round3.md"
+        "correctionReviewPath": "docs/execution/handoffs/X-01-review-round3.md",
+        "correctionImplementationCommit": "f2f4de0dbc5018de51064f78df546746fb226a1a",
+        "correctionHandoffCommit": "ccf1010810aaaf8bdf42426fcd8bf993520c1a4b"
       }
     },
     "X-02": {
