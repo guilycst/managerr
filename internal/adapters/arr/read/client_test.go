@@ -26,6 +26,7 @@ type arrFixtureHandler struct {
 	kind         domain.ConnectionKind
 	calls        []string
 	manualPosts  []map[string]any
+	episodeQuery []url.Values
 	commandCalls int
 }
 
@@ -80,6 +81,16 @@ func (handler *arrFixtureHandler) ServeHTTP(response http.ResponseWriter, reques
 	case apiSeries:
 		writeFixture(response, "sonarr-series-full.json")
 	case apiEpisodes:
+		if handler.kind == domain.ConnectionSonarr {
+			query := request.URL.Query()
+			handler.mu.Lock()
+			handler.episodeQuery = append(handler.episodeQuery, query)
+			handler.mu.Unlock()
+			if query.Get("includeEpisodeFile") != "true" {
+				response.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
 		if request.URL.Query().Get("seriesId") == "201" {
 			writeFixture(response, "sonarr-episodes-201.json")
 		} else {
@@ -404,6 +415,93 @@ func TestArrHistoryCapsRemainPartial(t *testing.T) {
 	}
 }
 
+func TestArrHistoryOverlapRemainsPartialAndCountsUniqueRecords(t *testing.T) {
+	historyHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != apiHistory {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		page, _ := strconv.Atoi(request.URL.Query().Get("page"))
+		if page <= 1 {
+			writeJSON(response, map[string]any{
+				"page": 1, "pageSize": 1, "totalRecords": 2, "hasMore": true,
+				"records": []map[string]any{{"id": 1, "eventType": "imported", "date": "2026-09-11T12:00:00Z"}},
+			})
+			return
+		}
+		writeJSON(response, map[string]any{
+			"page": 2, "pageSize": 1, "totalRecords": 2, "hasMore": false,
+			"records": []map[string]any{{"id": 1, "eventType": "imported", "date": "2026-09-11T12:00:01Z"}},
+		})
+	})
+	client, server := newSyntheticClient(t, domain.ConnectionRadarr, "radarr-history-overlap", historyHandler, 1, 10, 10, 50)
+	defer server.Close()
+	first, err := client.History(context.Background(), "radarr-history-overlap", "", 1)
+	if err != nil || len(first.Items) != 1 || first.NextCursor == "" {
+		t.Fatalf("history overlap first page = %#v, %v", first, err)
+	}
+	second, err := client.History(context.Background(), "radarr-history-overlap", first.NextCursor, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 0 || second.NextCursor != "" || second.Coverage.ObservedCount != 1 || second.Coverage.Completeness != domain.CompletenessPartial || !hasReason(second.Coverage, "history_overlap") {
+		t.Fatalf("history overlap terminal page = %#v", second)
+	}
+}
+
+func TestArrCatalogDuplicateBeyondIdentityPrefixRemainsPartial(t *testing.T) {
+	const uniqueCount = 2_050
+	catalog := make([]map[string]any, 0, uniqueCount+1)
+	for id := 1; id <= uniqueCount; id++ {
+		catalog = append(catalog, map[string]any{
+			"id": id, "title": "Synthetic Film " + strconv.Itoa(id), "tmdbId": id + 10_000,
+			"movieFile": map[string]any{"id": id + 20_000, "path": "/downloads/catalog/" + strconv.Itoa(id) + ".mkv"},
+		})
+	}
+	// This duplicate lands after the old 2,048-ID cursor prefix. The bounded
+	// cursor filter must still reject it and leave the terminal coverage partial.
+	catalog = append(catalog, catalog[uniqueCount-2])
+	body, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != apiMovies {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write(body)
+	})
+	client, server := newSyntheticClient(t, domain.ConnectionRadarr, "radarr-catalog-late-duplicate", handler, 100, 30, 3_000, 50)
+	defer server.Close()
+	var cursor string
+	var observed int
+	var final ports.Page[ports.MediaRecord]
+	seen := make(map[string]struct{}, uniqueCount)
+	for {
+		page, listErr := client.List(context.Background(), "radarr-catalog-late-duplicate", cursor, 100)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		observed += len(page.Items)
+		for _, item := range page.Items {
+			if _, exists := seen[item.ExternalID]; exists {
+				t.Fatalf("duplicate catalog ID escaped mapping: %s", item.ExternalID)
+			}
+			seen[item.ExternalID] = struct{}{}
+		}
+		final = page
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if observed != uniqueCount || len(seen) != uniqueCount || final.Coverage.Completeness != domain.CompletenessPartial || !hasReason(final.Coverage, "catalog_overlap") {
+		t.Fatalf("late duplicate catalog coverage observed=%d unique=%d coverage=%#v", observed, len(seen), final.Coverage)
+	}
+}
+
 func TestArrObserveImportSurfacesIncompleteEvidence(t *testing.T) {
 	missingFileHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -652,6 +750,130 @@ func TestArrPreviewRevisionBindsSemanticScope(t *testing.T) {
 	}
 }
 
+func TestArrReprocessRejectsDuplicatePhysicalSourcesBeforePOST(t *testing.T) {
+	handler := &arrFixtureHandler{kind: domain.ConnectionSonarr}
+	client, server := newFixtureClient(t, domain.ConnectionSonarr, handler, "sonarr-duplicate-source")
+	defer server.Close()
+	source := domain.FileTarget{RootID: "library", RelativePath: "series/season-pack.mkv"}
+	_, err := client.ReprocessPreview(context.Background(), "sonarr-duplicate-source", ReprocessPreviewRequest{
+		RegisteredExternalID: "201", Transfer: "copy", Files: []ReprocessFile{
+			{Source: source, MovieOrEpisodeID: "301", EpisodeIDs: []string{"301"}, DownloadID: "download-a"},
+			{Source: source, MovieOrEpisodeID: "302", EpisodeIDs: []string{"302"}, DownloadID: "download-b"},
+		},
+	})
+	assertUpstreamCode(t, err, domain.OutcomeInvalidInput)
+	handler.mu.Lock()
+	posts := len(handler.manualPosts)
+	handler.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("duplicate physical source escaped to Arr POST: %d payloads", posts)
+	}
+}
+
+func TestArrNativeCandidateReprocessMappingPreservesFields(t *testing.T) {
+	client, server := newFixtureClient(t, domain.ConnectionRadarr, &arrFixtureHandler{kind: domain.ConnectionRadarr}, "radarr-native-mapping")
+	defer server.Close()
+	request := ports.ImportPreviewRequest{
+		RegisteredExternalID: "101", Transfer: "copy", Files: []ports.ImportFile{{
+			Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/Synthetic Film (2024).mkv"}, MovieOrEpisodeID: "101",
+		}},
+	}
+	nativeBody := []byte(`[{"id":771,"path":"/downloads/incoming/Synthetic Film (2024).mkv","relativePath":"Synthetic Film (2024).mkv","movie":{"id":101,"title":"Synthetic Film"},"releaseGroup":"NativeGroup","quality":{"quality":{"name":"WEB-1080p"}},"languages":[{"id":1,"name":"English"}],"downloadId":"synthetic-download-1","customFormats":[{"id":9,"name":"HDR"}],"customFormatScore":42,"indexerFlags":7,"rejections":[]}]`)
+	reprocess, preview, err := client.ReprocessRequestFromNativePreview(request, nativeBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Files) != 1 || len(preview.Rejections) != 0 || len(reprocess.Files) != 1 {
+		t.Fatalf("native mapping preview=%#v request=%#v", preview, reprocess)
+	}
+	file := reprocess.Files[0]
+	if file.Source != request.Files[0].Source || file.MovieOrEpisodeID != "101" || file.NativeID != "771" || file.NativePath != "/downloads/incoming/Synthetic Film (2024).mkv" || file.NativeRelativePath != "Synthetic Film (2024).mkv" || file.DownloadID != "synthetic-download-1" {
+		t.Fatalf("native source mapping lost identity: %#v", file)
+	}
+	if file.ReleaseGroup != "NativeGroup" || len(file.Languages) != 1 || file.Languages[0].ID != 1 || file.Languages[0].Name != "English" || len(file.CustomFormats) != 1 || file.CustomFormatScore != 42 || file.IndexerFlags != 7 {
+		t.Fatalf("native reprocess fields = %#v", file)
+	}
+	if string(file.Quality) != `{"quality":{"name":"WEB-1080p"}}` || len(file.NativeLanguages) != 1 {
+		t.Fatalf("native nested fields = quality %s languages %#v", file.Quality, file.NativeLanguages)
+	}
+	networkHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != apiManualImport || request.Header.Get("X-Api-Key") != "fixture-api-key" {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write(nativeBody)
+	})
+	networkClient, networkServer := newSyntheticClient(t, domain.ConnectionRadarr, "radarr-native-network", networkHandler, 2, 10, 50, 50)
+	defer networkServer.Close()
+	networkPreview, err := networkClient.PreviewImportForReprocess(context.Background(), "radarr-native-network", NativePreviewRequest{Request: request})
+	if err != nil || len(networkPreview.Preview.Files) != 1 || len(networkPreview.Preview.Rejections) != 0 || len(networkPreview.Request.Files) != 1 || networkPreview.Request.Files[0].DownloadID != "synthetic-download-1" {
+		t.Fatalf("network native mapping = %#v, err=%v", networkPreview, err)
+	}
+
+	subtitleBody := []byte(`[
+{"id":781,"path":"/downloads/incoming/pair.idx","relativePath":"pair.idx","movie":{"id":101},"languages":[],"rejections":[]},
+{"id":782,"path":"/downloads/incoming/pair.sub","relativePath":"pair.sub","movie":{"id":101},"languages":[],"rejections":[]}
+]`)
+	subtitleRequest := ports.ImportPreviewRequest{RegisteredExternalID: "101", Transfer: "copy", Files: []ports.ImportFile{
+		{Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/pair.idx"}, MovieOrEpisodeID: "101", Subtitle: true},
+		{Source: domain.FileTarget{RootID: "library", RelativePath: "incoming/pair.sub"}, MovieOrEpisodeID: "101", Subtitle: true},
+	}}
+	idxSource := subtitleRequest.Files[0].Source
+	subSource := subtitleRequest.Files[1].Source
+	paired, subtitlePreview, err := client.ReprocessRequestFromNativePreviewWithPairs(NativePreviewRequest{
+		Request: subtitleRequest,
+		SubtitlePairIDs: map[string]string{
+			NativeSourceKey(idxSource): "pair-idx-sub-1",
+			NativeSourceKey(subSource): "pair-idx-sub-1",
+		},
+	}, subtitleBody)
+	if err != nil || len(subtitlePreview.Rejections) != 0 || len(paired.Files) != 2 {
+		t.Fatalf("IDX/SUB native mapping preview=%#v request=%#v err=%v", subtitlePreview, paired, err)
+	}
+	if !paired.Files[0].NativeSubtitle || !paired.Files[1].NativeSubtitle || paired.Files[0].NativePath == paired.Files[1].NativePath || paired.Files[0].Source.RelativePath == paired.Files[1].Source.RelativePath || paired.Files[0].SubtitlePairID != "pair-idx-sub-1" || paired.Files[1].SubtitlePairID != "pair-idx-sub-1" {
+		t.Fatalf("IDX/SUB pair sources were not retained independently: %#v", paired.Files)
+	}
+	single, singlePreview, err := client.ReprocessRequestFromNativePreview(ports.ImportPreviewRequest{
+		RegisteredExternalID: "101", Transfer: "copy", Files: []ports.ImportFile{{
+			Source: idxSource, MovieOrEpisodeID: "101", Subtitle: true,
+		}},
+	}, subtitleBody)
+	if err != nil || len(singlePreview.Files) != 1 || len(single.Files) != 1 || single.Files[0].SubtitlePairID != "" {
+		t.Fatalf("unpaired IDX was inferred as a companion: request=%#v preview=%#v err=%v", single, singlePreview, err)
+	}
+	_, _, err = client.ReprocessRequestFromNativePreviewWithPairs(NativePreviewRequest{
+		Request: subtitleRequest, SubtitlePairIDs: map[string]string{NativeSourceKey(idxSource): "only-one"},
+	}, subtitleBody)
+	assertUpstreamCode(t, err, domain.OutcomeInvalidInput)
+}
+
+func TestSonarrNativeCandidateReprocessMappingPreservesEpisodeNumbers(t *testing.T) {
+	client, server := newFixtureClient(t, domain.ConnectionSonarr, &arrFixtureHandler{kind: domain.ConnectionSonarr}, "sonarr-native-mapping")
+	defer server.Close()
+	request := ports.ImportPreviewRequest{
+		RegisteredExternalID: "201", Transfer: "hardlink", Files: []ports.ImportFile{
+			{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "301"},
+			{Source: domain.FileTarget{RootID: "library", RelativePath: "series/Synthetic Series - S01E01.mkv"}, MovieOrEpisodeID: "302"},
+		},
+	}
+	nativeBody := []byte(`[{"id":991,"path":"/downloads/series/Synthetic Series - S01E01.mkv","relativePath":"Synthetic Series - S01E01.mkv","series":{"id":201,"title":"Synthetic Series"},"seasonNumber":1,"episodes":[{"id":301,"seriesId":201,"seasonNumber":1,"episodeNumber":1,"absoluteEpisodeNumber":101,"sceneAbsoluteEpisodeNumber":1001},{"id":302,"seriesId":201,"seasonNumber":1,"episodeNumber":2,"absoluteEpisodeNumber":102,"sceneAbsoluteEpisodeNumber":1002}],"releaseGroup":"AnimeNative","quality":{"quality":{"name":"WEBDL-1080p"}},"languages":[{"id":8,"name":"Japanese"}],"downloadId":"sonarr-download-9","releaseType":"seasonPack","customFormats":[{"id":12,"name":"Anime"}],"customFormatScore":99,"indexerFlags":5,"rejections":[]}]`)
+	reprocess, preview, err := client.ReprocessRequestFromNativePreview(request, nativeBody)
+	if err != nil || len(preview.Files) != 2 || len(preview.Rejections) != 0 || len(reprocess.Files) != 1 {
+		t.Fatalf("Sonarr native mapping preview=%#v request=%#v err=%v", preview, reprocess, err)
+	}
+	file := reprocess.Files[0]
+	if file.MovieOrEpisodeID != "301" || len(file.EpisodeIDs) != 2 || file.EpisodeIDs[0] != "301" || file.EpisodeIDs[1] != "302" || file.DownloadID != "sonarr-download-9" || file.ReleaseType != "seasonPack" || file.SeasonNumber == nil || *file.SeasonNumber != 1 {
+		t.Fatalf("Sonarr native association = %#v", file)
+	}
+	if len(file.Episodes) != 2 || scalarString(file.Episodes[0].SeriesID) != "201" || file.Episodes[0].AbsoluteEpisodeNumber != 101 || file.Episodes[1].SceneAbsoluteEpisodeNumber != 1002 {
+		t.Fatalf("Sonarr native episode numbering = %#v", file.Episodes)
+	}
+	if file.ReleaseGroup != "AnimeNative" || len(file.Languages) != 1 || file.Languages[0].ID != 8 || len(file.CustomFormats) != 1 || file.CustomFormatScore != 99 || file.IndexerFlags != 5 {
+		t.Fatalf("Sonarr native reprocess fields = %#v", file)
+	}
+}
+
 func TestArrManualImportRedirectsNeverReachCommand(t *testing.T) {
 	var commandCalls int
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -801,6 +1023,17 @@ func TestSonarrMultiEpisodeMappingAndAnimeLookup(t *testing.T) {
 	_, err = client.ObserveImport(context.Background(), "sonarr-main", "201")
 	if err == nil {
 		t.Fatal("sonarr observe accepted incomplete unmapped episode evidence")
+	}
+	handler.mu.Lock()
+	episodeQueries := append([]url.Values(nil), handler.episodeQuery...)
+	handler.mu.Unlock()
+	if len(episodeQueries) < 2 {
+		t.Fatalf("expected Sonarr inventory and observation episode reads, got %d", len(episodeQueries))
+	}
+	for _, query := range episodeQueries {
+		if query.Get("includeEpisodeFile") != "true" {
+			t.Fatalf("Sonarr episode read omitted includeEpisodeFile=true: %#v", query)
+		}
 	}
 }
 
