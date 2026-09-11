@@ -3040,6 +3040,7 @@ components:
           $ref: '#/components/schemas/WorkflowState'
         deadlineAt:
           $ref: '#/components/schemas/Timestamp'
+          nullable: true
         aggregateEffectCount:
           type: integer
           minimum: 0
