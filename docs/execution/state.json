@@ -503,7 +503,7 @@
       }
     },
     "D-01": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d01_implementer",
       "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
@@ -596,7 +596,11 @@
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
-        }
+        },
+        "correctionRound": 6,
+        "correctionOwner": "/root/d01_implementer",
+        "correctionBaseSha": "6eda9b03f1fe6c6128e0e650226a31d08dcbb658",
+        "correctionReviewPath": "docs/execution/handoffs/D-01-review-round6.md"
       }
     },
     "D-02": {
