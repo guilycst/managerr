@@ -12,15 +12,16 @@ import (
 
 func TestRound9TerminalApprovedPurgeStaysFencedUntilExactFinalization(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		janitorState string
-		actionState  string
-		entryState   string
+		name           string
+		janitorState   string
+		janitorOutcome string
+		actionState    string
+		entryState     string
 	}{
-		{name: "succeeded", janitorState: "succeeded", actionState: "succeeded", entryState: "purged"},
-		{name: "failed", janitorState: "failed", actionState: "failed", entryState: "failed"},
-		{name: "held", janitorState: "held", actionState: "needs_review", entryState: "held"},
-		{name: "cancelled", janitorState: "cancelled", actionState: "cancelled", entryState: "failed"},
+		{name: "succeeded", janitorState: "succeeded", janitorOutcome: `{"outcome":"already_satisfied"}`, actionState: "succeeded", entryState: "purged"},
+		{name: "failed", janitorState: "failed", janitorOutcome: `{"reason":"terminal"}`, actionState: "failed", entryState: "failed"},
+		{name: "held", janitorState: "held", janitorOutcome: `{"reason":"terminal"}`, actionState: "needs_review", entryState: "held"},
+		{name: "cancelled", janitorState: "cancelled", janitorOutcome: `{"reason":"terminal"}`, actionState: "cancelled", entryState: "failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "terminal-approved-purge.sqlite")
@@ -40,7 +41,7 @@ func TestRound9TerminalApprovedPurgeStaysFencedUntilExactFinalization(t *testing
 			}
 
 			if _, err := store.Queries().UpdateJanitorRecord(ctx, &sqlc.UpdateJanitorRecordParams{
-				State: tc.janitorState, NextAttemptAt: sql.NullString{}, ClaimedBy: sql.NullString{}, LeaseUntil: sql.NullString{}, OutcomeJson: `{"outcome":"terminal"}`,
+				State: tc.janitorState, NextAttemptAt: sql.NullString{}, ClaimedBy: sql.NullString{}, LeaseUntil: sql.NullString{}, OutcomeJson: tc.janitorOutcome,
 				UpdatedAt: "2026-09-11T00:01:12Z", ID: claimed.ID, Version: claimed.Version,
 			}); err != nil {
 				t.Fatalf("terminal janitor update: %v", err)

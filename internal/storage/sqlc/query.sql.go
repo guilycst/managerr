@@ -2089,26 +2089,61 @@ func (q *Queries) CreateWorkflowStep(ctx context.Context, arg *CreateWorkflowSte
 
 const finalizeApprovedPurgeAction = `-- name: FinalizeApprovedPurgeAction :one
 UPDATE action_runs
-SET state = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = ?1)
-        WHEN 'succeeded' THEN 'succeeded'
-        WHEN 'failed' THEN 'failed'
-        WHEN 'cancelled' THEN 'cancelled'
+SET state = CASE
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = ?1) = 'applied'
+            THEN 'succeeded'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = ?1) = 'already_satisfied'
+         AND (SELECT CASE
+                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
+                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
+                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
+                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
+                     THEN 1
+                 ELSE 0
+               END
+              FROM janitor_records WHERE janitor_records.id = ?1) = 1
+            THEN 'succeeded'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded' THEN 'needs_review'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'failed' THEN 'failed'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'cancelled' THEN 'cancelled'
         ELSE 'needs_review'
     END,
     next_attempt_at = NULL,
     claimed_by = NULL,
     lease_until = NULL,
-    outcome_json = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = ?1)
-        WHEN 'succeeded' THEN json_object('outcome', 'already_satisfied', 'source', 'approved_purge_janitor')
-        WHEN 'failed' THEN json_object('reason', 'approved_purge_janitor_failed')
-        WHEN 'cancelled' THEN json_object('reason', 'approved_purge_janitor_cancelled')
+    outcome_json = CASE
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = ?1) = 'applied'
+            THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = ?1)
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = ?1) = 'already_satisfied'
+         AND (SELECT CASE
+                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
+                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
+                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
+                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
+                     THEN 1
+                 ELSE 0
+               END
+              FROM janitor_records WHERE janitor_records.id = ?1) = 1
+            THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = ?1)
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'succeeded'
+            THEN json_object('outcome', 'unknown', 'source', 'approved_purge_janitor', 'reason', 'terminal_outcome_unproven')
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'failed' THEN json_object('reason', 'approved_purge_janitor_failed')
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = ?1) = 'cancelled' THEN json_object('reason', 'approved_purge_janitor_cancelled')
         ELSE json_object('reason', 'approved_purge_janitor_held')
     END,
     version = version + 1,
     updated_at = ?2
 WHERE action_runs.id = ?3
   AND action_runs.version = ?4
-  AND action_runs.state = 'reconciling'
+  AND action_runs.state IN ('running', 'reconciling')
   AND EXISTS (
       SELECT 1
       FROM janitor_records AS janitor

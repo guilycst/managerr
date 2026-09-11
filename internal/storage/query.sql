@@ -617,26 +617,61 @@ RETURNING *;
 -- reached a terminal state. This path never dispatches an external mutation;
 -- generic action recovery and claiming remain fenced until this CAS commits.
 UPDATE action_runs
-SET state = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
-        WHEN 'succeeded' THEN 'succeeded'
-        WHEN 'failed' THEN 'failed'
-        WHEN 'cancelled' THEN 'cancelled'
+SET state = CASE
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'applied'
+            THEN 'succeeded'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'already_satisfied'
+         AND (SELECT CASE
+                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
+                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
+                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
+                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
+                     THEN 1
+                 ELSE 0
+               END
+              FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 1
+            THEN 'succeeded'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded' THEN 'needs_review'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'failed' THEN 'failed'
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'cancelled' THEN 'cancelled'
         ELSE 'needs_review'
     END,
     next_attempt_at = NULL,
     claimed_by = NULL,
     lease_until = NULL,
-    outcome_json = CASE (SELECT janitor_records.state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
-        WHEN 'succeeded' THEN json_object('outcome', 'already_satisfied', 'source', 'approved_purge_janitor')
-        WHEN 'failed' THEN json_object('reason', 'approved_purge_janitor_failed')
-        WHEN 'cancelled' THEN json_object('reason', 'approved_purge_janitor_cancelled')
+    outcome_json = CASE
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'applied'
+            THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
+         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'already_satisfied'
+         AND (SELECT CASE
+                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
+                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
+                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
+                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
+                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
+                     THEN 1
+                 ELSE 0
+               END
+              FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 1
+            THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
+            THEN json_object('outcome', 'unknown', 'source', 'approved_purge_janitor', 'reason', 'terminal_outcome_unproven')
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'failed' THEN json_object('reason', 'approved_purge_janitor_failed')
+        WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'cancelled' THEN json_object('reason', 'approved_purge_janitor_cancelled')
         ELSE json_object('reason', 'approved_purge_janitor_held')
     END,
     version = version + 1,
     updated_at = sqlc.arg(now)
 WHERE action_runs.id = sqlc.arg(action_run_id)
   AND action_runs.version = sqlc.arg(action_run_version)
-  AND action_runs.state = 'reconciling'
+  AND action_runs.state IN ('running', 'reconciling')
   AND EXISTS (
       SELECT 1
       FROM janitor_records AS janitor
