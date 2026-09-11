@@ -604,7 +604,7 @@
       "owner": "/root/u00_implementer",
       "baseSha": "5108e8b86000a8f916852f4614a9e4e10c868016",
       "integratedSha": null,
-      "implementationCommit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
+      "implementationCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
       "evidence": [
         "docs/execution/handoffs/U-00.md",
         "docs/research/ui-components.md",
@@ -612,15 +612,17 @@
         "GOWORK=off go test ./... (ui, no packages expected before U-01)",
         "GOWORK=off go vet ./... (ui, no packages expected before U-01)",
         "synthetic public Goshtoso/App Shell consumer build and render probe",
-        "git diff --check"
+        "git diff --check",
+        "382bcab86b01e3fdf10e3d1de94d788d1f6e4cb2 U-00 round-one review",
+        "54d2feba360616f8f96c43ae73caadf802b28722 corrected local-runtime and annotated-tag provenance statements"
       ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/u00_reviewer",
-        "commit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
+        "commit": "54d2feba360616f8f96c43ae73caadf802b28722",
         "findings": [],
-        "round": 1
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -637,12 +639,23 @@
           "A-50",
           "A-51"
         ],
-        "reviewPath": "docs/execution/handoffs/U-00-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/U-00-review-round2.md",
         "nextReviewer": "/root/u00_reviewer",
         "dependencyCommits": {
           "C-02": "d317df98fae68e99325829351b5fd79c52ba2733"
         }
-      }
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/u00_reviewer",
+          "commit": "382bcab86b01e3fdf10e3d1de94d788d1f6e4cb2",
+          "status": "changes_requested",
+          "sourceCommit": "ebcc76ceb337dee9619c653aee7e97cb55002922",
+          "correctionCommit": "54d2feba360616f8f96c43ae73caadf802b28722",
+          "receipt": "docs/execution/handoffs/U-00-review-round1.md"
+        }
+      ]
     },
     "U-01": {
       "status": "planned",
