@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1538,14 +1538,19 @@
         "docs/execution/handoffs/X-10-review-round5.md",
         "9202d4ccab811f0daccd089e2cce642b4805dc80 X-10 correction round 6 product",
         "3db67877884b1197f24dfb44299fc0321947746a X-10 correction round 6 handoff",
-        "docs/execution/handoffs/X-10-correction-round6.md"
+        "docs/execution/handoffs/X-10-correction-round6.md",
+        "ef0b917061ebfdaf246d9190438dcf3febec7d1b X-10 review round 6 changes requested",
+        "docs/execution/handoffs/X-10-review-round6.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "ef0b917061ebfdaf246d9190438dcf3febec7d1b",
+        "findings": [
+          "P1 net/http cookie jar can apply a delayed old-session Set-Cookie before client CAS, restoring obsolete SID and causing a third login",
+          "P1 generation snapshot can precede cookie selection, labeling a request with generation 1 while sending SID2 and misclassifying a real current-session 403 as stale"
+        ],
         "round": 6
       },
       "dispatch": {
@@ -1575,14 +1580,14 @@
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewSourceCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
-        "correctionRound": 6,
+        "correctionRound": 7,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "797822ff86bbe9882354e9f1e395e5408c527d03",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round5.md",
+        "correctionBaseSha": "9202d4ccab811f0daccd089e2cce642b4805dc80",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round6.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
         "correctionHandoffCommit": "3db67877884b1197f24dfb44299fc0321947746a",
-        "reviewCommit": "pending"
+        "reviewCommit": "ef0b917061ebfdaf246d9190438dcf3febec7d1b"
       },
       "implementationCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
       "reviewHistory": [
@@ -1625,6 +1630,14 @@
           "status": "changes_requested",
           "sourceCommit": "797822ff86bbe9882354e9f1e395e5408c527d03",
           "receipt": "docs/execution/handoffs/X-10-review-round5.md"
+        },
+        {
+          "round": 6,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "ef0b917061ebfdaf246d9190438dcf3febec7d1b",
+          "status": "changes_requested",
+          "sourceCommit": "9202d4ccab811f0daccd089e2cce642b4805dc80",
+          "receipt": "docs/execution/handoffs/X-10-review-round6.md"
         }
       ]
     },
@@ -1751,7 +1764,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 6 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "X-10 correction round 7 must bind cookie SID selection and session generation atomically and prevent stale Set-Cookie mutation; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
