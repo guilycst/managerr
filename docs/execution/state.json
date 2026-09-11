@@ -916,14 +916,26 @@
       "evidence": [
         "docs/execution/handoffs/X-03.md",
         "f12fe75568b263c285fe673598e8b97f7333634c X-03 product",
-        "93197292c5c186faa180edc64ecf3c522ffdeb7b X-03 handoff"
+        "93197292c5c186faa180edc64ecf3c522ffdeb7b X-03 handoff",
+        "cf1d984a29be7b677aef2611b636e97a23aaee67 X-03 review receipt",
+        "docs/execution/handoffs/X-03-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "cf1d984a29be7b677aef2611b636e97a23aaee67",
+        "findings": [
+          "P1: full-array Arr catalogs lose tail records under the paging assumption",
+          "P1: history caps can be reported as complete coverage",
+          "P1: ObserveImport turns missing-file evidence into an empty success",
+          "P1: basename matching can substitute a candidate from a different directory",
+          "P1: Sonarr accepts a wrong-series or incomplete-episode association",
+          "P1: pinned Sonarr POST DTO loses required episode and language fields",
+          "P1: preview revision omits subtitle and source scope",
+          "P2: same-origin 307 can redirect a POST manualimport to a command route",
+          "P2: subtitle, anime and season-pack evidence is incomplete"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -950,8 +962,23 @@
         },
         "implementationCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
         "handoffCommit": "93197292c5c186faa180edc64ecf3c522ffdeb7b",
-        "reviewSourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c"
-      }
+        "reviewSourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
+        "reviewCommit": "cf1d984a29be7b677aef2611b636e97a23aaee67",
+        "correctionRound": 2,
+        "correctionOwner": "/root/c01_implementer",
+        "correctionBaseSha": "f12fe75568b263c285fe673598e8b97f7333634c",
+        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round2.md"
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "cf1d984a29be7b677aef2611b636e97a23aaee67",
+          "status": "changes_requested",
+          "sourceCommit": "f12fe75568b263c285fe673598e8b97f7333634c",
+          "receipt": "docs/execution/handoffs/X-03-review-round1.md"
+        }
+      ]
     },
     "X-04": {
       "status": "planned",
@@ -1189,7 +1216,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete the independent D-01 and X-03 reviews while X-02 correction runs",
+  "nextAction": "Complete D-01 review and run X-02/X-03 corrections against their recorded findings",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
