@@ -391,11 +391,17 @@
         "GOWORK=off go mod verify"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "2656a9bb9de4389b5170e17c6a420d0884eeffd3",
+        "findings": [
+          "P1: populated legacy tracking rows must upgrade conservatively",
+          "P1: populated legacy cross-scope rows must be rejected or quarantined",
+          "P1: in-flight legacy janitor work must be backfilled as reclaimable",
+          "P1: custom lock paths must not allow two owners for one database",
+          "P2: storage needs an explicit approved early-purge claim"
+        ],
         "round": 2
       },
       "reviewHistory": [
@@ -408,6 +414,13 @@
         },
         {
           "round": 2,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "2656a9bb9de4389b5170e17c6a420d0884eeffd3",
+          "status": "changes_requested",
+          "correctionCommit": null
+        },
+        {
+          "round": 3,
           "reviewer": "/root/d01_reviewer",
           "commit": null,
           "status": "pending",
@@ -430,7 +443,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round3.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
