@@ -16,7 +16,7 @@
   "contractsStatus": "planning_baseline_openapi_pending_C-01",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "C-00"
+    "C-01"
   ],
   "openGates": [
     "G-01",
@@ -96,12 +96,34 @@
       }
     },
     "C-01": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "assigned",
+      "owner": "/root/c01_implementer",
+      "baseSha": "6a8b9e94558cd991d03f95160b4bcf2d71a597de",
       "integratedSha": null,
       "evidence": [],
-      "review": null
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "api/openapi.yaml",
+          "api/oapi-codegen.yaml",
+          "ui/oapi-codegen.yaml",
+          "docs/specs/spec-001-media-reconciliation/http-api.md",
+          "docs/execution/handoffs/C-01.md"
+        ],
+        "expectedChecks": [
+          "A-12",
+          "A-15",
+          "A-45",
+          "A-46",
+          "A-56",
+          "A-60"
+        ],
+        "reviewPath": "docs/execution/handoffs/C-01-review.md"
+      }
     },
     "C-02": {
       "status": "planned",
@@ -392,7 +414,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent C-00 review before opening C-01",
+  "nextAction": "C-01 Luna implementer creates and validates OpenAPI contract before independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
