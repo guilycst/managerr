@@ -16,8 +16,7 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-01",
-    "F-01"
+    "D-01"
   ],
   "openGates": [
     "G-01",
@@ -488,10 +487,10 @@
       "review": null
     },
     "F-01": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
-      "integratedSha": null,
+      "integratedSha": "c39d906bd1544aa41de6821c46ce760571c9e374",
       "implementationCommit": "475292825d63e2092663b7ff4fe4c645fd7c68ef",
       "evidence": [
         "docs/execution/handoffs/F-01.md",
@@ -505,10 +504,10 @@
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
+        "commit": "c39d906bd1544aa41de6821c46ce760571c9e374",
         "findings": [],
         "round": 5
       },
@@ -547,9 +546,9 @@
         {
           "round": 5,
           "reviewer": "/root/f01_reviewer",
-          "commit": null,
-          "status": "pending",
-          "correctionCommit": null,
+          "commit": "c39d906bd1544aa41de6821c46ce760571c9e374",
+          "status": "approved",
+          "correctionCommit": "475292825d63e2092663b7ff4fe4c645fd7c68ef",
           "sourceCommit": "475292825d63e2092663b7ff4fe4c645fd7c68ef",
           "receipt": "docs/execution/handoffs/F-01-review-round5.md"
         }
@@ -567,8 +566,8 @@
           "A-21",
           "A-23"
         ],
-        "reviewPath": "docs/execution/handoffs/F-01-review-round4.md",
-        "nextReviewer": "/root/f01_reviewer",
+        "reviewPath": "docs/execution/handoffs/F-01-review-round5.md",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         }
