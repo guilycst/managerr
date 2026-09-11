@@ -34,6 +34,15 @@
           "git diff --check"
         ],
         "blocker": "Vacuum, lint, architecture import checks and the versioned hook are still pending"
+      },
+      {
+        "sha": "36aae620dfa5c89d5bcc8d22a118f1b7e7f6bf2c",
+        "message": "fix(api): align generated nullable schemas",
+        "checks": [
+          "./scripts/generate.sh --check",
+          "git diff --check"
+        ],
+        "blocker": "Vacuum, lint, architecture import checks and the versioned hook are still pending"
       }
     ],
     "requiredChecks": [
