@@ -270,7 +270,7 @@
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "implementationCommit": "b1be8ae850f21cbbd2b7f7724753d608ac99ed79",
+      "implementationCommit": "b1be8aee8b95be19e584c576d376ebfe74b00468",
       "evidence": [
         "docs/execution/handoffs/C-03.md",
         "GOWORK=off go test ./...",
@@ -280,13 +280,13 @@
         "GOWORK=off go generate ./internal/bootstrap",
         "./scripts/generate.sh --check",
         "git diff --check",
-        "b1be8ae850f21cbbd2b7f7724753d608ac99ed79 domain validation tightening"
+        "b1be8aee8b95be19e584c576d376ebfe74b00468 domain validation tightening"
       ],
       "review": {
         "status": "pending",
         "decision": null,
         "reviewer": "/root/c03_reviewer",
-        "commit": "b1be8ae850f21cbbd2b7f7724753d608ac99ed79",
+        "commit": "b1be8aee8b95be19e584c576d376ebfe74b00468",
         "findings": [],
         "round": 1
       },
@@ -603,7 +603,7 @@
       "review": null
     }
   },
-  "nextAction": "Independent review of C-03 implementation commit b1be8ae850f21cbbd2b7f7724753d608ac99ed79",
+  "nextAction": "Independent review of C-03 implementation commit b1be8aee8b95be19e584c576d376ebfe74b00468",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
