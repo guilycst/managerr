@@ -66,6 +66,18 @@
           "git diff --check"
         ],
         "blocker": "Lint, architecture import checks and the versioned hook are still pending"
+      },
+      {
+        "sha": "005d358065234fee1fb5dbdf371625995403cd0c",
+        "message": "ci(go): enforce lint and import boundaries",
+        "checks": [
+          "./scripts/check-lint.sh",
+          "GOWORK=off golangci-lint v2.12.2 (root)",
+          "GOWORK=off golangci-lint v2.12.2 (ui)",
+          "python3 scripts/check-architecture.py",
+          "git diff --check"
+        ],
+        "blocker": "The versioned pre-commit hook and full CI-equivalent command are still pending"
       }
     ],
     "requiredChecks": [
