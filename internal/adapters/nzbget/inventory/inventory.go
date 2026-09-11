@@ -44,7 +44,7 @@ const (
 	maxReasonCodes           = 256
 	maxVersionLength         = 128
 	maxRPCMethodLength       = 64
-	maxPostInfoLength        = 4096
+	maxDroneLength           = 256
 )
 
 const rpcPath = "/jsonrpc"
@@ -89,8 +89,10 @@ type VersionObservation struct {
 }
 
 // ParameterObservation preserves one upstream post-processing parameter.
-// Values are strings in NZBGet's public API; malformed values stay absent and
-// cause partial coverage rather than being guessed.
+// Values are strings in NZBGet's public API. Names are retained as typed
+// evidence, while values are redacted unless they are a validated exact-name
+// drone correlation identifier. Malformed values stay absent and cause
+// partial coverage rather than being guessed.
 type ParameterObservation struct {
 	Name  string
 	Value string
@@ -664,6 +666,9 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 		// provide a trustworthy lifecycle state.
 		state, done, known = "unknown", false, false
 	}
+	if invalidIdentityValue(record.NZBID, record.DeprecatedID) {
+		state, done, known = "unknown", false, false
+	}
 	progress, progressKnown := queueProgress(record)
 	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
 	observation := DownloadObservation{
@@ -687,6 +692,9 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 	}
 	if record.NZBID > 0 && record.DeprecatedID > 0 && record.DeprecatedID != record.NZBID {
 		reasons = append(reasons, "history_id_alias_mismatch")
+	}
+	if invalidIdentityValue(record.NZBID, record.DeprecatedID) {
+		reasons = append(reasons, "identity_invalid")
 	}
 	if record.Status == "" || !known {
 		reasons = append(reasons, "state_unknown")
@@ -721,6 +729,9 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 		// provide a trustworthy lifecycle state.
 		state, done, known, statusReason = "unknown", false, false, "history_id_alias_mismatch"
 	}
+	if invalidIdentityValue(record.NZBID, record.DeprecatedID) {
+		state, done, known, statusReason = "unknown", false, false, "identity_invalid"
+	}
 	progress := historyProgress(record, done)
 	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
 	observation := DownloadObservation{
@@ -748,6 +759,9 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 	}
 	if record.NZBID > 0 && record.DeprecatedID > 0 && record.DeprecatedID != record.NZBID {
 		reasons = append(reasons, "history_id_alias_mismatch")
+	}
+	if invalidIdentityValue(record.NZBID, record.DeprecatedID) {
+		reasons = append(reasons, "identity_invalid")
 	}
 	if record.Kind == "" {
 		reasons = append(reasons, "kind_unknown")
@@ -842,16 +856,19 @@ func parameterValueStatus(parameters []rpcParameter, name string) (string, bool)
 	var value string
 	found := false
 	for _, parameter := range parameters {
-		if !strings.EqualFold(strings.TrimSpace(parameter.Name), name) {
+		if parameter.Name != name {
 			continue
 		}
 		candidate, ok := rawString(parameter.Value)
 		if !ok {
 			return "", false
 		}
-		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
 			continue
+		}
+		candidate, ok = safeCorrelationValue(candidate)
+		if !ok {
+			return "", false
 		}
 		if found && value != candidate {
 			return "", false
@@ -874,32 +891,12 @@ func parametersMalformed(parameters []rpcParameter) bool {
 }
 
 func sanitizeParameterValue(name, value string) string {
-	if sensitiveParameterName(name) || strings.Contains(strings.ToLower(name), "url") {
-		if strings.Contains(strings.ToLower(name), "url") && !sensitiveParameterName(name) {
-			return sanitizeURL(value)
-		}
-		return "[redacted]"
-	}
-	if containsSecretMarker(value) {
-		return "[redacted]"
-	}
-	return value
-}
-
-func sensitiveParameterName(name string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	if normalized == "" {
-		return false
-	}
-	for _, marker := range []string{
-		"password", "passwd", "passphrase", "secret", "token", "apikey", "api_key",
-		"authorization", "cookie", "credential", "private_key", "privatekey", "username",
-	} {
-		if strings.Contains(normalized, marker) {
-			return true
+	if name == "drone" {
+		if safe, ok := safeCorrelationValue(value); ok {
+			return safe
 		}
 	}
-	return normalized == "key" || strings.HasSuffix(normalized, "_key") || strings.HasSuffix(normalized, "-key")
+	return "[redacted]"
 }
 
 func containsSecretMarker(value string) bool {
@@ -915,22 +912,54 @@ func containsSecretMarker(value string) bool {
 	return false
 }
 
-func redactSecretText(value string) string {
-	value = strings.TrimSpace(value)
+func safeCorrelationValue(value string) (string, bool) {
 	if value == "" {
+		return "", true
+	}
+	if len(value) > maxDroneLength || strings.TrimSpace(value) != value || containsSecretMarker(value) {
+		return "", false
+	}
+	// Pinned Arr clients generate a compact, hyphenless GUID for drone. Keep a
+	// bounded arr-* compatibility namespace for established integrations, but
+	// reject arbitrary opaque/free-form values.
+	if len(value) == 32 && isHexIdentifier(value) {
+		return value, true
+	}
+	if strings.HasPrefix(value, "arr-") && safeIdentifier(value[4:]) {
+		return value, true
+	}
+	return "", false
+}
+
+func isHexIdentifier(value string) bool {
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func safeIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.IsSpace(character) {
+			return false
+		}
+		if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || strings.ContainsRune("-_.", character)) {
+			return false
+		}
+	}
+	return true
+}
+
+func redactSecretText(value string) string {
+	if strings.TrimSpace(value) == "" {
 		return ""
 	}
-	if containsSecretMarker(value) {
-		return "[redacted]"
-	}
-	if len(value) <= maxPostInfoLength {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) > maxPostInfoLength {
-		runes = runes[:maxPostInfoLength]
-	}
-	return string(runes)
+	return "[redacted]"
 }
 
 func sanitizeURL(value string) string {
@@ -943,8 +972,16 @@ func sanitizeURL(value string) string {
 		return "[redacted]"
 	}
 	parsed.User = nil
+	parsed.Path = ""
+	parsed.RawPath = ""
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
+	parsed.RawFragment = ""
+	parsed.Opaque = ""
+	parsed.ForceQuery = false
+	if containsSecretMarker(parsed.Host) {
+		return "[redacted]"
+	}
 	return parsed.String()
 }
 
@@ -1615,6 +1652,10 @@ func effectiveNZBID(nzbID, deprecatedID int64) int64 {
 		return nzbID
 	}
 	return deprecatedID
+}
+
+func invalidIdentityValue(nzbID, deprecatedID int64) bool {
+	return nzbID < 0 || deprecatedID < 0
 }
 
 func firstNonEmpty(values ...string) string {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -485,18 +486,22 @@ func TestDetailedSecretEvidenceIsRedacted(t *testing.T) {
 	const (
 		password = "synthetic-secret-password"
 		token    = "synthetic-secret-token"
+		drone    = "password=opaque-drone-secret"
+		opaque   = "opaque-pwd-value"
 	)
 	queue := []map[string]any{{
 		"NZBID": 903, "NZBName": "Redacted Queue", "Status": "QUEUED", "DestDir": "/downloads",
-		"PostInfoText": "password=" + password,
+		"PostInfoText": opaque,
 		"Parameters": []map[string]any{
 			{"Name": "*Unpack:Password", "Value": password},
+			{"Name": "drone", "Value": drone},
+			{"Name": "pwd", "Value": opaque},
 			{"Name": "public", "Value": "token=" + token},
 		},
 	}}
 	history := []map[string]any{{
 		"NZBID": 903, "ID": 903, "Kind": "NZB", "NZBName": "Redacted History", "Name": "Redacted History",
-		"Status": "SUCCESS/ALL", "URL": "https://fixture-user:" + password + "@example.test/nzb?apikey=" + token,
+		"Status": "SUCCESS/ALL", "URL": "https://" + opaque + ":" + opaque + "@example.test/" + opaque + "?apikey=" + opaque + "#" + opaque,
 		"Parameters": []map[string]any{{"Name": "ApiKey", "Value": token}, {"Name": "source", "Value": "manual"}},
 	}}
 	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
@@ -507,16 +512,141 @@ func TestDetailedSecretEvidenceIsRedacted(t *testing.T) {
 		t.Fatalf("redaction page = %#v, %v", page, err)
 	}
 	item := page.Items[0]
-	if item.Queue == nil || item.History == nil || item.Queue.PostInfoText != "[redacted]" || item.History.URL != "https://example.test/nzb" {
+	if item.Queue == nil || item.History == nil || item.Queue.PostInfoText != "[redacted]" || item.History.URL != "https://example.test" {
 		t.Fatalf("redacted detail fields = %#v", item)
 	}
+	if item.Drone != "" || item.ArrDownloadID != "903" {
+		t.Fatalf("secret-bearing drone was used as correlation: %#v", item)
+	}
 	for _, parameter := range append(item.Queue.Parameters, item.History.Parameters...) {
-		if parameter.Value == password || parameter.Value == token || strings.Contains(parameter.Value, password) || strings.Contains(parameter.Value, token) {
+		if parameter.Value == password || parameter.Value == token || parameter.Value == drone || parameter.Value == opaque || strings.Contains(parameter.Value, password) || strings.Contains(parameter.Value, token) || strings.Contains(parameter.Value, opaque) {
 			t.Fatalf("secret parameter leaked: %#v", parameter)
 		}
 	}
-	if strings.Contains(fmt.Sprintf("%#v", page), password) || strings.Contains(fmt.Sprintf("%#v", page), token) {
+	formatted := fmt.Sprintf("%#v", page)
+	if strings.Contains(formatted, password) || strings.Contains(formatted, token) || strings.Contains(formatted, drone) || strings.Contains(formatted, opaque) {
 		t.Fatalf("secret detailed evidence leaked: %#v", page)
+	}
+}
+
+func TestDroneParameterNameSemanticsAreExact(t *testing.T) {
+	queue := []map[string]any{
+		{"NZBID": 910, "NZBName": "Uppercase Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "DRONE", "Value": "wrong-case"}}},
+		{"NZBID": 911, "NZBName": "Spaced Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": " drone", "Value": "wrong-space"}}},
+		{"NZBID": 912, "NZBName": "Mixed Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "DrOnE", "Value": "wrong-mixed"}}},
+		{"NZBID": 913, "NZBName": "Duplicate Equal Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-equal"}, {"Name": "drone", "Value": "arr-equal"}}},
+		{"NZBID": 914, "NZBName": "Duplicate Conflict Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-first"}, {"Name": "drone", "Value": "arr-second"}}},
+		{"NZBID": 919, "NZBName": "Pinned Arr Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "0123456789abcdef0123456789abcdef"}}},
+	}
+	history := []map[string]any{
+		{"NZBID": 915, "ID": 915, "Kind": "NZB", "NZBName": "History Uppercase Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "DRONE", "Value": "history-wrong-case"}}},
+		{"NZBID": 916, "ID": 916, "Kind": "NZB", "NZBName": "History Exact Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-history"}}},
+	}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-drone-name", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-drone-name", "", 10)
+	if err != nil {
+		t.Fatalf("exact drone page: %v", err)
+	}
+	for _, want := range []struct {
+		id      int64
+		arrID   string
+		drone   string
+		partial bool
+	}{
+		{id: 910, arrID: "910"},
+		{id: 911, arrID: "911"},
+		{id: 912, arrID: "912"},
+		{id: 913, arrID: "arr-equal", drone: "arr-equal"},
+		{id: 914, arrID: "914", partial: true},
+		{id: 915, arrID: "915"},
+		{id: 916, arrID: "arr-history", drone: "arr-history"},
+		{id: 919, arrID: "0123456789abcdef0123456789abcdef", drone: "0123456789abcdef0123456789abcdef"},
+	} {
+		var found *DownloadObservation
+		for index := range page.Items {
+			if page.Items[index].NZBID == want.id {
+				found = &page.Items[index]
+				break
+			}
+		}
+		if found == nil || found.ArrDownloadID != want.arrID || found.Drone != want.drone {
+			t.Errorf("drone semantics for %d = %#v, want arr=%q drone=%q", want.id, found, want.arrID, want.drone)
+		}
+		if want.partial && !hasReason(page.Coverage, fmt.Sprintf("item_%d_parameters_malformed", pageItemIndex(page.Items, want.id))) {
+			t.Errorf("conflicting drone %d was not partial: %#v", want.id, page.Coverage)
+		}
+	}
+}
+
+func TestOpaqueDroneDoesNotBypassCorrelationRedaction(t *testing.T) {
+	const sentinel = "opaque-7f3a91c5e2"
+	queue := []map[string]any{{
+		"NZBID": 917, "NZBName": "Opaque Drone Queue", "Status": "QUEUED", "DestDir": "/downloads",
+		"Parameters": []map[string]any{{"Name": "drone", "Value": sentinel}},
+	}}
+	history := []map[string]any{{
+		"NZBID": 918, "ID": 918, "Kind": "NZB", "NZBName": "Opaque Drone History", "Status": "SUCCESS/ALL", "DestDir": "/downloads",
+		"Parameters": []map[string]any{{"Name": "drone", "Value": sentinel}},
+	}}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-opaque-drone", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-opaque-drone", "", 10)
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("opaque drone page = %#v, %v", page, err)
+	}
+	for _, item := range page.Items {
+		if item.Drone != "" || item.ArrDownloadID != strconv.FormatInt(item.NZBID, 10) {
+			t.Errorf("opaque drone became correlation for %#v", item)
+		}
+	}
+	if !hasReason(page.Coverage, "item_0_parameters_malformed") || !hasReason(page.Coverage, "item_1_parameters_malformed") {
+		t.Fatalf("opaque drone was not marked partial: %#v", page.Coverage)
+	}
+	if strings.Contains(fmt.Sprintf("%#v", page), sentinel) {
+		t.Fatalf("opaque drone leaked into detailed evidence: %#v", page)
+	}
+}
+
+func pageItemIndex(items []DownloadObservation, id int64) int {
+	for index := range items {
+		if items[index].NZBID == id {
+			return index
+		}
+	}
+	return -1
+}
+
+func TestNegativeIdentityEvidenceIsPartial(t *testing.T) {
+	queue := []map[string]any{
+		{"NZBID": 920, "ID": -1, "NZBName": "Positive NZBID Negative Alias", "Kind": "NZB", "Status": "QUEUED", "DestDir": "/downloads"},
+		{"NZBID": -1, "ID": 921, "NZBName": "Negative NZBID Positive Alias", "Kind": "NZB", "Status": "QUEUED", "DestDir": "/downloads"},
+		{"NZBID": -2, "ID": -3, "NZBName": "Both Negative Queue", "Kind": "NZB", "Status": "QUEUED", "DestDir": "/downloads"},
+	}
+	history := []map[string]any{
+		{"NZBID": 930, "ID": -1, "Kind": "NZB", "NZBName": "Positive History Negative Alias", "Status": "SUCCESS/ALL", "DestDir": "/downloads"},
+		{"NZBID": -1, "ID": 931, "Kind": "NZB", "NZBName": "Negative History Positive Alias", "Status": "SUCCESS/ALL", "DestDir": "/downloads"},
+		{"NZBID": -4, "ID": -5, "Kind": "NZB", "NZBName": "Both Negative History", "Status": "SUCCESS/ALL", "DestDir": "/downloads"},
+	}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-negative-id", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-negative-id", "", 10)
+	if err != nil || len(page.Items) != 6 || page.Coverage.Completeness != domain.CompletenessPartial {
+		t.Fatalf("negative identity page = %#v, %v", page, err)
+	}
+	for _, item := range page.Items {
+		if !hasReason(page.Coverage, fmt.Sprintf("item_%d_identity_invalid", pageItemIndex(page.Items, item.NZBID))) {
+			t.Errorf("negative identity missing reason for %#v: %#v", item, page.Coverage.ReasonCodes)
+		}
+		if item.Item.ProcessingDone || item.Item.State == "completed" {
+			t.Errorf("negative identity became ready: %#v", item)
+		}
+	}
+	if page.Items[0].NZBID != 920 || page.Items[0].Item.ExternalID != "920" || page.Items[1].NZBID != 921 || page.Items[1].Item.ExternalID != "921" {
+		t.Fatalf("positive counterpart identity fallback = %#v", page.Items[:2])
 	}
 }
 
