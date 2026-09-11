@@ -184,7 +184,7 @@
       "owner": "/root",
       "baseSha": "36156ee0dcb61d7859753b62c5f5cf655e77b9e3",
       "integratedSha": null,
-      "implementationCommit": "814312663471627053a2b44a6ded2ecb96c743af",
+      "implementationCommit": "e2db57d9a8a875ef0c7f16f66e850601a572d33b",
       "evidence": [
         "docs/execution/handoffs/C-02.md",
         "GOWORK=off go mod verify (root, UI, tools)",
@@ -193,17 +193,20 @@
         "GOOS=linux GOARCH=amd64 go test -c ./... (tools)",
         "GOOS=linux GOARCH=arm64 go test -c ./... (tools)",
         "./scripts/generate.sh --check",
+        "disposable sqlc.yaml generation branch",
         "actionlint .github/workflows/checks.yml",
         "git diff --check"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/c02_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "7b712c172fac1a3a3ad2f726a7789cd6452f559f",
+        "findings": [
+          "Run the pinned sqlc tool from tools/go.mod while passing the root sqlc.yaml path."
+        ],
         "round": 1,
-        "correctionCommit": null
+        "correctionCommit": "e2db57d9a8a875ef0c7f16f66e850601a572d33b"
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -223,8 +226,9 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/C-02-review.md",
-        "nextReviewer": "/root/c02_reviewer",
+        "reviewPath": "docs/execution/handoffs/C-02-review-round2.md",
+        "reviewer": "/root/c02_reviewer",
+        "nextReviewer": "/root/c02_reviewer_round2",
         "previousAttempt": {
           "owner": "/root/c02_implementer",
           "status": "interrupted",
@@ -242,7 +246,16 @@
           "assignedAt": "2026-09-11",
           "reason": "two bounded Luna attempts produced no files; preserve module baseline gate by implementing owned slice directly"
         }
-      }
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/c02_reviewer",
+          "commit": "7b712c172fac1a3a3ad2f726a7789cd6452f559f",
+          "status": "changes_requested",
+          "correctionCommit": "e2db57d9a8a875ef0c7f16f66e850601a572d33b"
+        }
+      ]
     },
     "C-03": {
       "status": "planned",
