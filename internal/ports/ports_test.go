@@ -52,6 +52,12 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 	if err := directoryRequest.Validate(); err != nil {
 		t.Fatalf("exact directory manifest rejected: %v", err)
 	}
+	if err := (FilesystemCopyRequest{Files: []FileMap{{
+		Source:      directory,
+		Destination: domain.FileTarget{RootID: root, RelativePath: "Example Film/copy"},
+	}}}).Validate(); err == nil {
+		t.Fatal("copy accepted a directory destination inside its source")
+	}
 	directoryHardlink := FilesystemHardlinkRequest{Files: directoryRequest.Files}
 	if err := directoryHardlink.Validate(); err == nil {
 		t.Fatal("directory hardlink was accepted")
@@ -71,6 +77,19 @@ func TestFilesystemRequestsBindExactManifests(t *testing.T) {
 		Destination: domain.FileTarget{RootID: destinationRoot, RelativePath: "Example Film/no-digest.mkv"},
 	}}}).Validate(); err == nil {
 		t.Fatal("copy accepted a source without a strong digest")
+	}
+	hardlinkWithoutDigest := FilesystemHardlinkRequest{Files: []FileMap{{
+		Source:      withoutDigest,
+		Destination: domain.FileTarget{RootID: destinationRoot, RelativePath: "Example Film/hardlink.mkv"},
+	}}}
+	if err := hardlinkWithoutDigest.Validate(); err != nil {
+		t.Fatalf("hardlink incorrectly required a content digest: %v", err)
+	}
+	if err := (FilesystemMoveRequest{Files: hardlinkWithoutDigest.Files}).Validate(); err != nil {
+		t.Fatalf("move incorrectly required a content digest: %v", err)
+	}
+	if err := (FilesystemRenameRequest{Files: hardlinkWithoutDigest.Files}).Validate(); err != nil {
+		t.Fatalf("rename incorrectly required a content digest: %v", err)
 	}
 	if err := (FilesystemCopyRequest{}).Validate(); err == nil {
 		t.Fatal("empty filesystem map was accepted")

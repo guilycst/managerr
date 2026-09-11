@@ -295,13 +295,33 @@ func (request FilesystemCopyRequest) Validate() error {
 }
 
 // FilesystemHardlinkRequest has its own type so a directory cannot be passed
-// to Hardlink while still sharing the exact manifest contract with copy/move.
+// to Hardlink while still sharing the exact manifest contract with copy.
 type FilesystemHardlinkRequest struct {
 	Files []FileMap
 }
 
 func (request FilesystemHardlinkRequest) Validate() error {
-	return validateFileMaps(request.Files, false, true)
+	return validateFileMaps(request.Files, false, false)
+}
+
+// FilesystemMoveRequest carries exact source manifests for same-filesystem
+// moves. It requires identity evidence but not a content hash.
+type FilesystemMoveRequest struct {
+	Files []FileMap
+}
+
+func (request FilesystemMoveRequest) Validate() error {
+	return validateFileMaps(request.Files, true, false)
+}
+
+// FilesystemRenameRequest carries exact source manifests for native or
+// application-side renames. It requires identity evidence but not a hash.
+type FilesystemRenameRequest struct {
+	Files []FileMap
+}
+
+func (request FilesystemRenameRequest) Validate() error {
+	return validateFileMaps(request.Files, true, false)
 }
 
 type FilesystemTrashRequest struct {
@@ -344,8 +364,8 @@ type FilesystemEffect struct {
 type FilesystemActionPort interface {
 	Copy(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
 	Hardlink(ctx context.Context, request FilesystemHardlinkRequest) (FilesystemEffect, error)
-	Move(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
-	Rename(ctx context.Context, request FilesystemCopyRequest) (FilesystemEffect, error)
+	Move(ctx context.Context, request FilesystemMoveRequest) (FilesystemEffect, error)
+	Rename(ctx context.Context, request FilesystemRenameRequest) (FilesystemEffect, error)
 	Trash(ctx context.Context, request FilesystemTrashRequest) (FilesystemEffect, error)
 	Restore(ctx context.Context, request FilesystemRestoreRequest) (FilesystemEffect, error)
 	Delete(ctx context.Context, request FilesystemDeleteRequest) (FilesystemEffect, error)
@@ -383,6 +403,9 @@ func validateFileMaps(mappings []FileMap, allowDirectories, requireDigest bool) 
 		}
 		if !allowDirectories && mapping.Source.Type == domain.ManifestDirectory {
 			return fmt.Errorf("file map %d: hardlink does not support directories", index)
+		}
+		if mapping.Source.RootID == mapping.Destination.RootID && (mapping.Source.RelativePath == mapping.Destination.RelativePath || mapping.Source.Type == domain.ManifestDirectory && strings.HasPrefix(mapping.Destination.RelativePath, mapping.Source.RelativePath+"/")) {
+			return fmt.Errorf("file map %d: source and destination overlap", index)
 		}
 	}
 	for left := 0; left < len(mappings); left++ {
