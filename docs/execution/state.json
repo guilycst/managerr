@@ -96,11 +96,16 @@
       }
     },
     "C-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root",
       "baseSha": "f39f864915800f8b28284c394a53d602e7220b33",
       "integratedSha": null,
-      "evidence": [],
+      "implementationCommit": "934485c619f44ec2f0d858e83eb724821987d39c",
+      "evidence": [
+        "docs/execution/handoffs/C-01.md",
+        "python3 scripts/check_planning.py",
+        "go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0"
+      ],
       "review": null,
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -123,6 +128,7 @@
           "A-60"
         ],
         "reviewPath": "docs/execution/handoffs/C-01-review.md",
+        "reviewer": "/root/c01_reviewer",
         "previousAttempt": {
           "owner": "/root/c01_implementer",
           "status": "interrupted",
@@ -431,7 +437,7 @@
       "review": null
     }
   },
-  "nextAction": "C-01 Luna implementer creates and validates OpenAPI contract before independent review",
+  "nextAction": "Complete independent C-01 review before opening C-02",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
