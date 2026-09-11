@@ -28,13 +28,23 @@
   ],
   "tasks": {
     "C-00": {
-      "status": "in_review",
-      "owner": "/root/c00_reviewer",
+      "status": "assigned",
+      "owner": "/root/c00_implementer_retry",
       "baseSha": "ef4fbc3668e3f021b24c8e6c0e7ecbe0704b5bd0",
       "integratedSha": null,
       "implementationCommit": "7ed5f6c",
       "evidence": [],
-      "review": null,
+      "review": {
+        "status": "changes_requested",
+        "reviewer": "/root/c00_reviewer",
+        "commit": "057b1aa",
+        "findings": [
+          "Matrix capability IDs collided with authoritative G-02 through G-06 meanings.",
+          "Exact product/API/schema baselines and PASS/FAIL/UNKNOWN fixture fields were missing.",
+          "NZBGet ID is an alias of NZBID; the differing-ID fixture was impossible."
+        ],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-11",
         "model": "gpt-5.6-luna",
