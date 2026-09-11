@@ -180,6 +180,17 @@ type Download struct {
 	LastSeenAt   string         `json:"last_seen_at"`
 }
 
+type EarlyPurgePlanTarget struct {
+	PlanID            string `json:"plan_id"`
+	Revision          int64  `json:"revision"`
+	PlanDigest        string `json:"plan_digest"`
+	IntentKind        string `json:"intent_kind"`
+	TrashEntryID      string `json:"trash_entry_id"`
+	TrashEntryVersion int64  `json:"trash_entry_version"`
+	ManifestJson      string `json:"manifest_json"`
+	CreatedAt         string `json:"created_at"`
+}
+
 type EncryptedCredential struct {
 	ConnectionID    string `json:"connection_id"`
 	Name            string `json:"name"`
@@ -235,23 +246,24 @@ type IdempotencyRecord struct {
 }
 
 type JanitorRecord struct {
-	ID                   string         `json:"id"`
-	TrashEntryID         string         `json:"trash_entry_id"`
-	Operation            string         `json:"operation"`
-	State                string         `json:"state"`
-	NextAttemptAt        sql.NullString `json:"next_attempt_at"`
-	ClaimedBy            sql.NullString `json:"claimed_by"`
-	LeaseUntil           sql.NullString `json:"lease_until"`
-	OutcomeJson          string         `json:"outcome_json"`
-	CreatedAt            string         `json:"created_at"`
-	UpdatedAt            string         `json:"updated_at"`
-	Version              int64          `json:"version"`
-	ApprovalPlanID       sql.NullString `json:"approval_plan_id"`
-	ApprovalPlanRevision sql.NullInt64  `json:"approval_plan_revision"`
-	ApprovalPlanDigest   sql.NullString `json:"approval_plan_digest"`
-	ApprovalDecisionID   sql.NullString `json:"approval_decision_id"`
-	ApprovalActionRunID  sql.NullString `json:"approval_action_run_id"`
-	ApprovedEntryVersion sql.NullInt64  `json:"approved_entry_version"`
+	ID                       string         `json:"id"`
+	TrashEntryID             string         `json:"trash_entry_id"`
+	Operation                string         `json:"operation"`
+	State                    string         `json:"state"`
+	NextAttemptAt            sql.NullString `json:"next_attempt_at"`
+	ClaimedBy                sql.NullString `json:"claimed_by"`
+	LeaseUntil               sql.NullString `json:"lease_until"`
+	OutcomeJson              string         `json:"outcome_json"`
+	CreatedAt                string         `json:"created_at"`
+	UpdatedAt                string         `json:"updated_at"`
+	Version                  int64          `json:"version"`
+	ApprovalPlanID           sql.NullString `json:"approval_plan_id"`
+	ApprovalPlanRevision     sql.NullInt64  `json:"approval_plan_revision"`
+	ApprovalPlanDigest       sql.NullString `json:"approval_plan_digest"`
+	ApprovalDecisionID       sql.NullString `json:"approval_decision_id"`
+	ApprovalActionRunID      sql.NullString `json:"approval_action_run_id"`
+	ApprovedEntryVersion     sql.NullInt64  `json:"approved_entry_version"`
+	ApprovalActionRunVersion sql.NullInt64  `json:"approval_action_run_version"`
 }
 
 type MediaIdentity struct {
@@ -356,7 +368,7 @@ type TrackingObservation struct {
 	ID                    string         `json:"id"`
 	ExternalRecordID      sql.NullString `json:"external_record_id"`
 	MediaIdentityID       sql.NullString `json:"media_identity_id"`
-	ConnectionID          sql.NullString `json:"connection_id"`
+	ConnectionID          string         `json:"connection_id"`
 	RootID                sql.NullString `json:"root_id"`
 	Dimension             string         `json:"dimension"`
 	Status                string         `json:"status"`
@@ -366,6 +378,27 @@ type TrackingObservation struct {
 	ObservedAt            string         `json:"observed_at"`
 	RegisteredAt          sql.NullString `json:"registered_at"`
 	ImportedAt            sql.NullString `json:"imported_at"`
+}
+
+type TrackingObservationQuarantine struct {
+	ID                       string         `json:"id"`
+	OriginalObservationID    string         `json:"original_observation_id"`
+	Reason                   string         `json:"reason"`
+	OriginalExternalRecordID sql.NullString `json:"original_external_record_id"`
+	OriginalMediaIdentityID  sql.NullString `json:"original_media_identity_id"`
+	OriginalConnectionID     sql.NullString `json:"original_connection_id"`
+	OriginalRootID           sql.NullString `json:"original_root_id"`
+	Dimension                string         `json:"dimension"`
+	OriginalStatus           string         `json:"original_status"`
+	NormalizedStatus         string         `json:"normalized_status"`
+	OriginalEvidenceJson     string         `json:"original_evidence_json"`
+	CoverageID               sql.NullString `json:"coverage_id"`
+	CoverageMaxAgeSeconds    sql.NullInt64  `json:"coverage_max_age_seconds"`
+	ObservedAt               string         `json:"observed_at"`
+	RegisteredAt             sql.NullString `json:"registered_at"`
+	ImportedAt               sql.NullString `json:"imported_at"`
+	QuarantinedAt            string         `json:"quarantined_at"`
+	SourceSchemaVersion      int64          `json:"source_schema_version"`
 }
 
 type TrashEntry struct {

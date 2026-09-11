@@ -327,6 +327,13 @@ WHERE (sqlc.arg(external_record_id) IS NULL OR external_record_id = sqlc.arg(ext
   AND (sqlc.arg(connection_id) IS NULL OR connection_id = sqlc.arg(connection_id))
 ORDER BY observed_at DESC, id DESC;
 
+-- name: ListTrackingObservationQuarantine :many
+-- Quarantined compatibility rows are durable operator evidence, but are kept
+-- separate from active tracking observations and must never satisfy a tracking
+-- lookup or absence predicate.
+SELECT * FROM tracking_observation_quarantine
+ORDER BY observed_at DESC, id DESC;
+
 -- Immutable plans, exact manifests, approvals and durable execution records.
 
 -- name: CreateActionPlan :one
@@ -379,6 +386,25 @@ INSERT INTO plan_manifests (
     sqlc.arg(digest), sqlc.arg(file_identity), sqlc.arg(role), sqlc.arg(manifest_json)
 )
 RETURNING *;
+
+-- name: CreateEarlyPurgePlanTarget :one
+INSERT INTO early_purge_plan_targets (
+    plan_id, revision, plan_digest, intent_kind, trash_entry_id,
+    trash_entry_version, manifest_json, created_at
+) VALUES (
+    sqlc.arg(plan_id), sqlc.arg(revision), sqlc.arg(plan_digest),
+    sqlc.arg(intent_kind), sqlc.arg(trash_entry_id), sqlc.arg(trash_entry_version),
+    sqlc.arg(manifest_json), sqlc.arg(created_at)
+)
+RETURNING *;
+
+-- name: GetEarlyPurgePlanTarget :one
+SELECT * FROM early_purge_plan_targets
+WHERE plan_id = sqlc.arg(plan_id) AND revision = sqlc.arg(revision);
+
+-- name: ListEarlyPurgePlanTargets :many
+SELECT * FROM early_purge_plan_targets
+ORDER BY plan_id, revision;
 
 -- name: ListPlanManifests :many
 SELECT * FROM plan_manifests
@@ -749,6 +775,7 @@ UPDATE janitor_records SET
     approval_plan_id = sqlc.arg(approval_plan_id), approval_plan_revision = sqlc.arg(approval_plan_revision),
     approval_plan_digest = sqlc.arg(approval_plan_digest), approval_decision_id = sqlc.arg(approval_decision_id),
     approval_action_run_id = sqlc.arg(approval_action_run_id), approved_entry_version = sqlc.arg(approved_entry_version),
+    approval_action_run_version = sqlc.arg(approval_action_run_version),
     version = version + 1, updated_at = sqlc.arg(now)
 WHERE id = sqlc.arg(id)
   AND version = sqlc.arg(version)

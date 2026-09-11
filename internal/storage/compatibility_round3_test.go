@@ -107,8 +107,8 @@ func TestPopulatedLegacyTrackingAndJanitorUpgrade(t *testing.T) {
 			if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&schemaVersion); err != nil {
 				t.Fatal(err)
 			}
-			if schemaVersion != 4 {
-				t.Fatalf("schema version = %d, want 4", schemaVersion)
+			if schemaVersion != 5 {
+				t.Fatalf("schema version = %d, want 5", schemaVersion)
 			}
 			assertNoForeignKeyViolations(t, upgraded.DB())
 
@@ -132,9 +132,26 @@ func TestPopulatedLegacyTrackingAndJanitorUpgrade(t *testing.T) {
 					t.Fatalf("tracking %q legacy marker=%t, want %t (%s)", id, hasLegacyMarker, wantLegacyMarker, evidence)
 				}
 			}
-			assertTracking("legacy-present-null", "unknown", false, "", true)
+			for _, id := range []string{"legacy-present-null", "legacy-unknown-null"} {
+				var count int
+				if err := upgraded.DB().QueryRow("SELECT count(*) FROM tracking_observation_quarantine WHERE original_observation_id = ? AND normalized_status = 'unknown'", id).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				if count != 1 {
+					t.Fatalf("tracking %q quarantine count = %d, want 1", id, count)
+				}
+				if _, err := upgraded.Queries().ListTrackingObservations(context.Background(), &sqlc.ListTrackingObservationsParams{}); err != nil {
+					t.Fatal(err)
+				}
+				var activeCount int
+				if err := upgraded.DB().QueryRow("SELECT count(*) FROM tracking_observations WHERE id = ?", id).Scan(&activeCount); err != nil {
+					t.Fatal(err)
+				}
+				if activeCount != 0 {
+					t.Fatalf("tracking %q remained active", id)
+				}
+			}
 			assertTracking("legacy-present-derived", "present", true, "legacy-radarr", false)
-			assertTracking("legacy-unknown-null", "unknown", false, "", false)
 			assertTracking("legacy-absent", "unknown", true, "legacy-radarr", true)
 
 			assertEntry := func(id, wantState, wantOperation string) int64 {
@@ -407,12 +424,12 @@ func TestApprovedEarlyPurgeRequiresExactApprovalAndEntryVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := queries.CreateActionPlan(ctx, &sqlc.CreateActionPlanParams{
-		ID: "early-plan", Kind: "trash.purge", State: "ready", CurrentRevision: 1, CurrentDigest: "early-digest", CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
+		ID: "early-plan", Kind: "fs.delete", State: "ready", CurrentRevision: 1, CurrentDigest: "early-digest", CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := queries.CreateActionPlanRevision(ctx, &sqlc.CreateActionPlanRevisionParams{
-		PlanID: "early-plan", Revision: 1, Digest: "early-digest", State: "ready", InputJson: `{}`, PreconditionsJson: `{}`, CapabilitiesJson: `[]`, ManifestJson: `[]`, CreatedAt: legacyFixtureTime, ExpiresAt: "2026-09-20T00:00:00Z", ReadyAt: sql.NullString{String: legacyFixtureTime, Valid: true},
+		PlanID: "early-plan", Revision: 1, Digest: "early-digest", State: "ready", InputJson: `{}`, PreconditionsJson: `{}`, CapabilitiesJson: `[]`, ManifestJson: `[{"path":"movie.mkv"}]`, CreatedAt: legacyFixtureTime, ExpiresAt: "2026-09-20T00:00:00Z", ReadyAt: sql.NullString{String: legacyFixtureTime, Valid: true},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +444,12 @@ func TestApprovedEarlyPurgeRequiresExactApprovalAndEntryVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := queries.CreateTrashEntry(ctx, &sqlc.CreateTrashEntryParams{
-		ID: "early-entry", RootID: "early-trash-root", State: "trashed", OriginalPrefix: "original/early", TrashPrefix: "trash/early", ManifestJson: `[]`, RetentionSeconds: 3600, TrashedAt: sql.NullString{String: legacyFixtureTime, Valid: true}, ExpiresAt: "2026-09-20T00:00:00Z", ClientStateJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
+		ID: "early-entry", RootID: "early-trash-root", State: "trashed", OriginalPrefix: "original/early", TrashPrefix: "trash/early", ManifestJson: `[{"path":"movie.mkv"}]`, RetentionSeconds: 3600, TrashedAt: sql.NullString{String: legacyFixtureTime, Valid: true}, ExpiresAt: "2026-09-20T00:00:00Z", ClientStateJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queries.CreateEarlyPurgePlanTarget(ctx, &sqlc.CreateEarlyPurgePlanTargetParams{
+		PlanID: "early-plan", Revision: 1, PlanDigest: "early-digest", IntentKind: "fs.delete", TrashEntryID: "early-entry", TrashEntryVersion: 1, ManifestJson: `[{"path":"movie.mkv"}]`, CreatedAt: legacyFixtureTime,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +469,7 @@ func TestApprovedEarlyPurgeRequiresExactApprovalAndEntryVersion(t *testing.T) {
 	base := sqlc.ClaimApprovedEarlyPurgeParams{
 		WorkerID: sql.NullString{String: "janitor", Valid: true}, LeaseUntil: sql.NullString{String: "2026-09-11T00:02:00Z", Valid: true},
 		ApprovalPlanID: sql.NullString{String: "early-plan", Valid: true}, ApprovalPlanRevision: sql.NullInt64{Int64: 1, Valid: true}, ApprovalPlanDigest: sql.NullString{String: "early-digest", Valid: true},
-		ApprovalDecisionID: sql.NullString{String: "early-decision", Valid: true}, ApprovalActionRunID: sql.NullString{String: "early-action-run", Valid: true}, ApprovedEntryVersion: sql.NullInt64{Int64: 1, Valid: true},
+		ApprovalDecisionID: sql.NullString{String: "early-decision", Valid: true}, ApprovalActionRunID: sql.NullString{String: "early-action-run", Valid: true}, ApprovedEntryVersion: sql.NullInt64{Int64: 1, Valid: true}, ApprovalActionRunVersion: sql.NullInt64{Int64: 1, Valid: true},
 		Now: "2026-09-11T00:01:00Z", ID: "early-janitor", Version: 1, TrashEntryID: "early-entry",
 	}
 	wrongDigest := base

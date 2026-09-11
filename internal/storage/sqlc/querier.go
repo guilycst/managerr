@@ -31,6 +31,7 @@ type Querier interface {
 	CreateDiscovery(ctx context.Context, arg *CreateDiscoveryParams) (*Discovery, error)
 	// Download provenance and descriptors.
 	CreateDownload(ctx context.Context, arg *CreateDownloadParams) (*Download, error)
+	CreateEarlyPurgePlanTarget(ctx context.Context, arg *CreateEarlyPurgePlanTargetParams) (*EarlyPurgePlanTarget, error)
 	CreateExternalRecord(ctx context.Context, arg *CreateExternalRecordParams) (*ExternalRecord, error)
 	CreateFileObservation(ctx context.Context, arg *CreateFileObservationParams) (*FileObservation, error)
 	// Idempotency and audit are intentionally append-only.
@@ -68,6 +69,7 @@ type Querier interface {
 	GetDiscovery(ctx context.Context, id string) (*Discovery, error)
 	GetDownload(ctx context.Context, id string) (*Download, error)
 	GetDownloadByExternalID(ctx context.Context, arg *GetDownloadByExternalIDParams) (*Download, error)
+	GetEarlyPurgePlanTarget(ctx context.Context, arg *GetEarlyPurgePlanTargetParams) (*EarlyPurgePlanTarget, error)
 	GetEncryptedCredential(ctx context.Context, arg *GetEncryptedCredentialParams) (*EncryptedCredential, error)
 	GetIdempotencyRecord(ctx context.Context, arg *GetIdempotencyRecordParams) (*IdempotencyRecord, error)
 	GetJanitorRecord(ctx context.Context, arg *GetJanitorRecordParams) (*JanitorRecord, error)
@@ -90,6 +92,7 @@ type Querier interface {
 	ListDueActionRuns(ctx context.Context, arg *ListDueActionRunsParams) ([]*ActionRun, error)
 	ListDueJanitorRecords(ctx context.Context, arg *ListDueJanitorRecordsParams) ([]*JanitorRecord, error)
 	ListDueTrashEntries(ctx context.Context, arg *ListDueTrashEntriesParams) ([]*TrashEntry, error)
+	ListEarlyPurgePlanTargets(ctx context.Context) ([]*EarlyPurgePlanTarget, error)
 	ListEncryptedCredentials(ctx context.Context, connectionID string) ([]*ListEncryptedCredentialsRow, error)
 	ListExternalRecords(ctx context.Context, arg *ListExternalRecordsParams) ([]*ExternalRecord, error)
 	ListFileObservations(ctx context.Context, discoveryID string) ([]*FileObservation, error)
@@ -97,6 +100,10 @@ type Querier interface {
 	ListPlanManifests(ctx context.Context, arg *ListPlanManifestsParams) ([]*PlanManifest, error)
 	ListProvenanceForDiscovery(ctx context.Context, discoveryID string) ([]*ListProvenanceForDiscoveryRow, error)
 	ListStorageRoots(ctx context.Context, arg *ListStorageRootsParams) ([]*StorageRoot, error)
+	// Quarantined compatibility rows are durable operator evidence, but are kept
+	// separate from active tracking observations and must never satisfy a tracking
+	// lookup or absence predicate.
+	ListTrackingObservationQuarantine(ctx context.Context) ([]*TrackingObservationQuarantine, error)
 	ListTrackingObservations(ctx context.Context, arg *ListTrackingObservationsParams) ([]*TrackingObservation, error)
 	ListTrashItems(ctx context.Context, entryID string) ([]*TrashItem, error)
 	ListWorkflowSteps(ctx context.Context, workflowID string) ([]*WorkflowStep, error)

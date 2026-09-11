@@ -7,6 +7,7 @@ sql:
       - migrations/000002_indexes.up.sql
       - migrations/000003_storage_contract.up.sql
       - migrations/000004_storage_compatibility.up.sql
+      - migrations/000005_storage_safety.up.sql
     queries: internal/storage/query.sql
     gen:
       go:

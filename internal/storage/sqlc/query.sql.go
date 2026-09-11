@@ -69,30 +69,32 @@ UPDATE janitor_records SET
     approval_plan_id = ?3, approval_plan_revision = ?4,
     approval_plan_digest = ?5, approval_decision_id = ?6,
     approval_action_run_id = ?7, approved_entry_version = ?8,
-    version = version + 1, updated_at = ?9
-WHERE id = ?10
-  AND version = ?11
-  AND trash_entry_id = ?12
+    approval_action_run_version = ?9,
+    version = version + 1, updated_at = ?10
+WHERE id = ?11
+  AND version = ?12
+  AND trash_entry_id = ?13
   AND operation = 'purge'
   AND state IN ('queued', 'reconciling')
-  AND (next_attempt_at IS NULL OR next_attempt_at <= ?9)
-  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?9)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+  AND (next_attempt_at IS NULL OR next_attempt_at <= ?10)
+  AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?10)
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 type ClaimApprovedEarlyPurgeParams struct {
-	WorkerID             sql.NullString `json:"worker_id"`
-	LeaseUntil           sql.NullString `json:"lease_until"`
-	ApprovalPlanID       sql.NullString `json:"approval_plan_id"`
-	ApprovalPlanRevision sql.NullInt64  `json:"approval_plan_revision"`
-	ApprovalPlanDigest   sql.NullString `json:"approval_plan_digest"`
-	ApprovalDecisionID   sql.NullString `json:"approval_decision_id"`
-	ApprovalActionRunID  sql.NullString `json:"approval_action_run_id"`
-	ApprovedEntryVersion sql.NullInt64  `json:"approved_entry_version"`
-	Now                  string         `json:"now"`
-	ID                   string         `json:"id"`
-	Version              int64          `json:"version"`
-	TrashEntryID         string         `json:"trash_entry_id"`
+	WorkerID                 sql.NullString `json:"worker_id"`
+	LeaseUntil               sql.NullString `json:"lease_until"`
+	ApprovalPlanID           sql.NullString `json:"approval_plan_id"`
+	ApprovalPlanRevision     sql.NullInt64  `json:"approval_plan_revision"`
+	ApprovalPlanDigest       sql.NullString `json:"approval_plan_digest"`
+	ApprovalDecisionID       sql.NullString `json:"approval_decision_id"`
+	ApprovalActionRunID      sql.NullString `json:"approval_action_run_id"`
+	ApprovedEntryVersion     sql.NullInt64  `json:"approved_entry_version"`
+	ApprovalActionRunVersion sql.NullInt64  `json:"approval_action_run_version"`
+	Now                      string         `json:"now"`
+	ID                       string         `json:"id"`
+	Version                  int64          `json:"version"`
+	TrashEntryID             string         `json:"trash_entry_id"`
 }
 
 // Binds an explicit approval and the exact trash-entry version in the same
@@ -108,6 +110,7 @@ func (q *Queries) ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprove
 		arg.ApprovalDecisionID,
 		arg.ApprovalActionRunID,
 		arg.ApprovedEntryVersion,
+		arg.ApprovalActionRunVersion,
 		arg.Now,
 		arg.ID,
 		arg.Version,
@@ -132,6 +135,7 @@ func (q *Queries) ClaimApprovedEarlyPurge(ctx context.Context, arg *ClaimApprove
 		&i.ApprovalDecisionID,
 		&i.ApprovalActionRunID,
 		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
 	)
 	return &i, err
 }
@@ -145,7 +149,7 @@ WHERE id = ?4
   AND state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?3)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?3)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 type ClaimJanitorRecordParams struct {
@@ -183,6 +187,7 @@ func (q *Queries) ClaimJanitorRecord(ctx context.Context, arg *ClaimJanitorRecor
 		&i.ApprovalDecisionID,
 		&i.ApprovalActionRunID,
 		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
 	)
 	return &i, err
 }
@@ -893,6 +898,54 @@ func (q *Queries) CreateDownload(ctx context.Context, arg *CreateDownloadParams)
 	return &i, err
 }
 
+const createEarlyPurgePlanTarget = `-- name: CreateEarlyPurgePlanTarget :one
+INSERT INTO early_purge_plan_targets (
+    plan_id, revision, plan_digest, intent_kind, trash_entry_id,
+    trash_entry_version, manifest_json, created_at
+) VALUES (
+    ?1, ?2, ?3,
+    ?4, ?5, ?6,
+    ?7, ?8
+)
+RETURNING plan_id, revision, plan_digest, intent_kind, trash_entry_id, trash_entry_version, manifest_json, created_at
+`
+
+type CreateEarlyPurgePlanTargetParams struct {
+	PlanID            string `json:"plan_id"`
+	Revision          int64  `json:"revision"`
+	PlanDigest        string `json:"plan_digest"`
+	IntentKind        string `json:"intent_kind"`
+	TrashEntryID      string `json:"trash_entry_id"`
+	TrashEntryVersion int64  `json:"trash_entry_version"`
+	ManifestJson      string `json:"manifest_json"`
+	CreatedAt         string `json:"created_at"`
+}
+
+func (q *Queries) CreateEarlyPurgePlanTarget(ctx context.Context, arg *CreateEarlyPurgePlanTargetParams) (*EarlyPurgePlanTarget, error) {
+	row := q.db.QueryRowContext(ctx, createEarlyPurgePlanTarget,
+		arg.PlanID,
+		arg.Revision,
+		arg.PlanDigest,
+		arg.IntentKind,
+		arg.TrashEntryID,
+		arg.TrashEntryVersion,
+		arg.ManifestJson,
+		arg.CreatedAt,
+	)
+	var i EarlyPurgePlanTarget
+	err := row.Scan(
+		&i.PlanID,
+		&i.Revision,
+		&i.PlanDigest,
+		&i.IntentKind,
+		&i.TrashEntryID,
+		&i.TrashEntryVersion,
+		&i.ManifestJson,
+		&i.CreatedAt,
+	)
+	return &i, err
+}
+
 const createExternalRecord = `-- name: CreateExternalRecord :one
 INSERT INTO external_records (
     id, connection_id, media_identity_id, record_kind, external_id, title,
@@ -1088,7 +1141,7 @@ INSERT INTO janitor_records (
     ?5, ?6, ?7,
     ?8, ?9, ?10
 )
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 type CreateJanitorRecordParams struct {
@@ -1136,6 +1189,7 @@ func (q *Queries) CreateJanitorRecord(ctx context.Context, arg *CreateJanitorRec
 		&i.ApprovalDecisionID,
 		&i.ApprovalActionRunID,
 		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
 	)
 	return &i, err
 }
@@ -1567,7 +1621,7 @@ type CreateTrackingObservationParams struct {
 	ID                    string         `json:"id"`
 	ExternalRecordID      sql.NullString `json:"external_record_id"`
 	MediaIdentityID       sql.NullString `json:"media_identity_id"`
-	ConnectionID          sql.NullString `json:"connection_id"`
+	ConnectionID          string         `json:"connection_id"`
 	RootID                sql.NullString `json:"root_id"`
 	Dimension             string         `json:"dimension"`
 	Status                string         `json:"status"`
@@ -2348,6 +2402,32 @@ func (q *Queries) GetDownloadByExternalID(ctx context.Context, arg *GetDownloadB
 	return &i, err
 }
 
+const getEarlyPurgePlanTarget = `-- name: GetEarlyPurgePlanTarget :one
+SELECT plan_id, revision, plan_digest, intent_kind, trash_entry_id, trash_entry_version, manifest_json, created_at FROM early_purge_plan_targets
+WHERE plan_id = ?1 AND revision = ?2
+`
+
+type GetEarlyPurgePlanTargetParams struct {
+	PlanID   string `json:"plan_id"`
+	Revision int64  `json:"revision"`
+}
+
+func (q *Queries) GetEarlyPurgePlanTarget(ctx context.Context, arg *GetEarlyPurgePlanTargetParams) (*EarlyPurgePlanTarget, error) {
+	row := q.db.QueryRowContext(ctx, getEarlyPurgePlanTarget, arg.PlanID, arg.Revision)
+	var i EarlyPurgePlanTarget
+	err := row.Scan(
+		&i.PlanID,
+		&i.Revision,
+		&i.PlanDigest,
+		&i.IntentKind,
+		&i.TrashEntryID,
+		&i.TrashEntryVersion,
+		&i.ManifestJson,
+		&i.CreatedAt,
+	)
+	return &i, err
+}
+
 const getEncryptedCredential = `-- name: GetEncryptedCredential :one
 SELECT connection_id, name, envelope_version, nonce, ciphertext, key_fingerprint, created_at, updated_at FROM encrypted_credentials
 WHERE connection_id = ?1 AND name = ?2
@@ -2402,7 +2482,7 @@ func (q *Queries) GetIdempotencyRecord(ctx context.Context, arg *GetIdempotencyR
 }
 
 const getJanitorRecord = `-- name: GetJanitorRecord :one
-SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version FROM janitor_records
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version FROM janitor_records
 WHERE trash_entry_id = ?1 AND operation = ?2
 `
 
@@ -2432,6 +2512,7 @@ func (q *Queries) GetJanitorRecord(ctx context.Context, arg *GetJanitorRecordPar
 		&i.ApprovalDecisionID,
 		&i.ApprovalActionRunID,
 		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
 	)
 	return &i, err
 }
@@ -3074,7 +3155,7 @@ func (q *Queries) ListDueActionRuns(ctx context.Context, arg *ListDueActionRunsP
 }
 
 const listDueJanitorRecords = `-- name: ListDueJanitorRecords :many
-SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version FROM janitor_records
+SELECT id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version FROM janitor_records
 WHERE state IN ('queued', 'waiting_dependency', 'reconciling')
   AND (next_attempt_at IS NULL OR next_attempt_at <= ?1)
   AND (claimed_by IS NULL OR lease_until IS NULL OR lease_until <= ?1)
@@ -3114,6 +3195,7 @@ func (q *Queries) ListDueJanitorRecords(ctx context.Context, arg *ListDueJanitor
 			&i.ApprovalDecisionID,
 			&i.ApprovalActionRunID,
 			&i.ApprovedEntryVersion,
+			&i.ApprovalActionRunVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3168,6 +3250,43 @@ func (q *Queries) ListDueTrashEntries(ctx context.Context, arg *ListDueTrashEntr
 			&i.OperationClaimedBy,
 			&i.OperationLeaseUntil,
 			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEarlyPurgePlanTargets = `-- name: ListEarlyPurgePlanTargets :many
+SELECT plan_id, revision, plan_digest, intent_kind, trash_entry_id, trash_entry_version, manifest_json, created_at FROM early_purge_plan_targets
+ORDER BY plan_id, revision
+`
+
+func (q *Queries) ListEarlyPurgePlanTargets(ctx context.Context) ([]*EarlyPurgePlanTarget, error) {
+	rows, err := q.db.QueryContext(ctx, listEarlyPurgePlanTargets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*EarlyPurgePlanTarget{}
+	for rows.Next() {
+		var i EarlyPurgePlanTarget
+		if err := rows.Scan(
+			&i.PlanID,
+			&i.Revision,
+			&i.PlanDigest,
+			&i.IntentKind,
+			&i.TrashEntryID,
+			&i.TrashEntryVersion,
+			&i.ManifestJson,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -3517,6 +3636,56 @@ func (q *Queries) ListStorageRoots(ctx context.Context, arg *ListStorageRootsPar
 	return items, nil
 }
 
+const listTrackingObservationQuarantine = `-- name: ListTrackingObservationQuarantine :many
+SELECT id, original_observation_id, reason, original_external_record_id, original_media_identity_id, original_connection_id, original_root_id, dimension, original_status, normalized_status, original_evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at, quarantined_at, source_schema_version FROM tracking_observation_quarantine
+ORDER BY observed_at DESC, id DESC
+`
+
+// Quarantined compatibility rows are durable operator evidence, but are kept
+// separate from active tracking observations and must never satisfy a tracking
+// lookup or absence predicate.
+func (q *Queries) ListTrackingObservationQuarantine(ctx context.Context) ([]*TrackingObservationQuarantine, error) {
+	rows, err := q.db.QueryContext(ctx, listTrackingObservationQuarantine)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*TrackingObservationQuarantine{}
+	for rows.Next() {
+		var i TrackingObservationQuarantine
+		if err := rows.Scan(
+			&i.ID,
+			&i.OriginalObservationID,
+			&i.Reason,
+			&i.OriginalExternalRecordID,
+			&i.OriginalMediaIdentityID,
+			&i.OriginalConnectionID,
+			&i.OriginalRootID,
+			&i.Dimension,
+			&i.OriginalStatus,
+			&i.NormalizedStatus,
+			&i.OriginalEvidenceJson,
+			&i.CoverageID,
+			&i.CoverageMaxAgeSeconds,
+			&i.ObservedAt,
+			&i.RegisteredAt,
+			&i.ImportedAt,
+			&i.QuarantinedAt,
+			&i.SourceSchemaVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTrackingObservations = `-- name: ListTrackingObservations :many
 SELECT id, external_record_id, media_identity_id, connection_id, root_id, dimension, status, evidence_json, coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at FROM tracking_observations
 WHERE (?1 IS NULL OR external_record_id = ?1)
@@ -3763,7 +3932,7 @@ UPDATE janitor_records SET
     version = version + 1, updated_at = ?1
 WHERE state = 'running'
   AND (lease_until IS NULL OR lease_until <= ?1)
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 func (q *Queries) RecoverExpiredJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error) {
@@ -3793,6 +3962,7 @@ func (q *Queries) RecoverExpiredJanitorRecords(ctx context.Context, now string) 
 			&i.ApprovalDecisionID,
 			&i.ApprovalActionRunID,
 			&i.ApprovedEntryVersion,
+			&i.ApprovalActionRunVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3910,7 +4080,7 @@ UPDATE janitor_records SET
     state = 'reconciling', claimed_by = NULL, lease_until = NULL,
     version = version + 1, updated_at = ?1
 WHERE state = 'running'
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 // The trigger on janitor_records releases the worker lease on the shared
@@ -3942,6 +4112,7 @@ func (q *Queries) RecoverRunningJanitorRecords(ctx context.Context, now string) 
 			&i.ApprovalDecisionID,
 			&i.ApprovalActionRunID,
 			&i.ApprovedEntryVersion,
+			&i.ApprovalActionRunVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -4270,7 +4441,7 @@ UPDATE janitor_records SET
     outcome_json = ?5, version = version + 1,
     updated_at = ?6
 WHERE id = ?7 AND version = ?8
-RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version
+RETURNING id, trash_entry_id, operation, state, next_attempt_at, claimed_by, lease_until, outcome_json, created_at, updated_at, version, approval_plan_id, approval_plan_revision, approval_plan_digest, approval_decision_id, approval_action_run_id, approved_entry_version, approval_action_run_version
 `
 
 type UpdateJanitorRecordParams struct {
@@ -4314,6 +4485,7 @@ func (q *Queries) UpdateJanitorRecord(ctx context.Context, arg *UpdateJanitorRec
 		&i.ApprovalDecisionID,
 		&i.ApprovalActionRunID,
 		&i.ApprovedEntryVersion,
+		&i.ApprovalActionRunVersion,
 	)
 	return &i, err
 }
