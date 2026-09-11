@@ -615,12 +615,16 @@
       "review": null
     },
     "X-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "857cea4",
       "integratedSha": null,
-      "implementationCommit": null,
-      "evidence": [],
+      "implementationCommit": "d74a735b18a2cc5768dcb9f3ff0656f8540d3cff",
+      "evidence": [
+        "docs/execution/handoffs/X-01.md",
+        "internal/adapters/qbittorrent/inventory/inventory_test.go",
+        "tests/fixtures/qbittorrent/"
+      ],
       "review": {
         "status": "pending",
         "decision": null,
