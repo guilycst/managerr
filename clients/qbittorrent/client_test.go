@@ -1521,6 +1521,118 @@ func TestAuthenticationWaitersHonorCancellation(t *testing.T) {
 	}
 }
 
+type observedDoneContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *observedDoneContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
+}
+
+func TestCanceledAuthenticationLeaderDoesNotPoisonLiveWaiter(t *testing.T) {
+	loginStarted := make(chan struct{})
+	secondLoginStarted := make(chan struct{})
+	releaseFirstLogin := make(chan struct{})
+	var releaseFirstOnce sync.Once
+	var loginCount atomic.Int32
+	var readCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case apiLogin:
+			attempt := loginCount.Add(1)
+			switch attempt {
+			case 1:
+				close(loginStarted)
+				select {
+				case <-r.Context().Done():
+				case <-releaseFirstLogin:
+				}
+				return
+			case 2:
+				close(secondLoginStarted)
+				http.SetCookie(w, &http.Cookie{Name: "SID", Value: "session-2", Path: "/"})
+				_, _ = io.WriteString(w, "Ok.")
+			default:
+				w.WriteHeader(http.StatusForbidden)
+			}
+		case apiAppVersion:
+			readCount.Add(1)
+			cookie, err := r.Cookie("SID")
+			if err != nil || cookie.Value != "session-2" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, _ = io.WriteString(w, "v5.0.0")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	defer releaseFirstOnce.Do(func() { close(releaseFirstLogin) })
+
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	leaderContext, cancelLeader := context.WithCancel(context.Background())
+	defer cancelLeader()
+	leaderDone := make(chan error, 1)
+	go func() { leaderDone <- client.Login(leaderContext) }()
+	select {
+	case <-loginStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader login did not reach server")
+	}
+
+	waiterContext := &observedDoneContext{
+		Context:  context.Background(),
+		observed: make(chan struct{}),
+	}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, waiterErr := client.ApplicationVersion(waiterContext)
+		waiterDone <- waiterErr
+	}()
+	select {
+	case <-waiterContext.observed:
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not join the active authentication flight")
+	}
+	cancelLeader()
+
+	select {
+	case leaderErr := <-leaderDone:
+		if !errors.Is(leaderErr, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", leaderErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled leader did not return")
+	}
+	releaseFirstOnce.Do(func() { close(releaseFirstLogin) })
+	select {
+	case <-secondLoginStarted:
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not elect a second authentication attempt")
+	}
+	select {
+	case waiterErr := <-waiterDone:
+		if waiterErr != nil {
+			t.Fatalf("live waiter error = %v, want successful read", waiterErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not finish")
+	}
+	if got, want := loginCount.Load(), int32(2); got != want {
+		t.Fatalf("login attempts = %d, want canceled leader plus one retry", got)
+	}
+	if got, want := readCount.Load(), int32(1); got != want {
+		t.Fatalf("successful waiter reads = %d, want %d", got, want)
+	}
+}
+
 func TestConcurrentAuthenticationFailureIsShared(t *testing.T) {
 	const callers = 8
 	loginStarted := make(chan struct{})

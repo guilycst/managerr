@@ -138,11 +138,13 @@ type Client struct {
 
 // authFlight publishes one immutable result to every caller that joined the
 // same authentication attempt. The result is written while authMu is held
-// and read only after done is closed, so a failed flight cannot turn every
-// waiter into a new login leader.
+// and read only after done is closed, so an ordinary failed flight cannot
+// turn every waiter into a new login leader. A leader cancellation is marked
+// separately so active waiters can elect one replacement attempt.
 type authFlight struct {
-	done chan struct{}
-	err  error
+	done           chan struct{}
+	err            error
+	leaderCanceled bool
 }
 
 // sessionCredential binds the SID selected for a request to the generation
@@ -560,16 +562,19 @@ func (c *Client) ensureSession(ctx context.Context) error {
 			c.authInFlight = flight
 			c.authMu.Unlock()
 
-			sid, err := c.authenticate(ctx)
+			sid, authErr := c.authenticate(ctx)
 			c.authMu.Lock()
-			if err == nil {
-				if ctxErr := contextError(ctx); ctxErr != nil {
-					err = ctxErr
-				} else {
-					c.authenticated = true
-					c.authGeneration++
-					c.sessionSID = sid
-				}
+			err := authErr
+			if ctxErr := contextError(ctx); ctxErr != nil {
+				// Cancellation belongs to the leader's call. Publish it so
+				// that leader returns its own context error, but let active
+				// waiters elect a new leader instead of inheriting it.
+				err = ctxErr
+				flight.leaderCanceled = true
+			} else if err == nil {
+				c.authenticated = true
+				c.authGeneration++
+				c.sessionSID = sid
 			}
 			flight.err = err
 			c.authInFlight = nil
@@ -589,6 +594,9 @@ func (c *Client) ensureSession(ctx context.Context) error {
 		case <-flight.done:
 			if err := contextError(ctx); err != nil {
 				return err
+			}
+			if flight.leaderCanceled {
+				continue
 			}
 			return flight.err
 		case <-contextDone(ctx):

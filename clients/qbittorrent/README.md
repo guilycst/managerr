@@ -52,7 +52,10 @@ v2 hexadecimal hash; one malformed or duplicate logical identity rejects the
 complete observation. Concurrent authentication is single-flight: callers
 joining one attempt observe that attempt's result, while a later call can
 deliberately retry after it drains. Callers waiting for it retain context
-cancellation semantics.
+cancellation semantics. If the leader's context is canceled or reaches its
+deadline, the leader receives that error while uncanceled waiters elect one
+later shared authentication attempt instead of inheriting the leader's
+cancellation.
 
 Each read binds its selected `SID` and authentication generation as one
 credential snapshot. A 401 or 403 can invalidate only that generation; a
