@@ -475,29 +475,26 @@
       "review": null
     },
     "F-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "74d4ebe0727686bbfe0c156721bb40cd940b5195",
       "integratedSha": null,
-      "implementationCommit": "31572c442e81d3f3fa17e2835fb6d1232106b503",
+      "implementationCommit": "f8773d27d77a67670b8584c26442cb2a4af16fe5",
       "evidence": [
         "docs/execution/handoffs/F-01.md",
         "docs/execution/handoffs/F-01-review-round1.md",
         "docs/execution/handoffs/F-01-review-round2.md",
+        "docs/execution/handoffs/C-03.md",
         "internal/filesystem/observe/observe_test.go",
         "internal/filesystem/observe/observe_unix_test.go"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/f01_reviewer",
-        "commit": "43c2aacca1a4c418be383c78d554ed5118cfd6e2",
-        "findings": [
-          "P1: expose continuation through the frozen FilesystemReadPort",
-          "P1: bound inspected directory work and unsupported evidence per page",
-          "P1: retain one snapshot identity and prior partial coverage across pages"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "reviewHistory": [
         {
@@ -512,7 +509,7 @@
           "reviewer": "/root/f01_reviewer",
           "commit": "43c2aacca1a4c418be383c78d554ed5118cfd6e2",
           "status": "changes_requested",
-          "correctionCommit": null
+          "correctionCommit": "f8773d27d77a67670b8584c26442cb2a4af16fe5"
         },
         {
           "round": 3,
