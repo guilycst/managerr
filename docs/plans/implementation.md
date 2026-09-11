@@ -285,11 +285,11 @@ Lane X. Dependencies: C-03.
 Create the independent `clients/nzbget` Go module with a Mastarr-owned OpenRPC
 compatibility document using positional parameters for `version`, `listgroups`,
 `listfiles` and `history`. Generate typed wrappers and DTOs with a deterministic
-tools-module generator. Keep the JSON-RPC envelope, request IDs, Basic
+generator in `tools/internal/nzbgetgen`. Keep the JSON-RPC envelope, request IDs, Basic
 authentication, deadlines, wire aliases and typed upstream errors inside the
 module. Do not assume `rpc.discover` exists.
 
-- Owned paths: `clients/nzbget/`.
+- Owned paths: `clients/nzbget/`, `tools/internal/nzbgetgen/`.
 - Acceptance contributions: A-05, A-06, A-09, A-45.
 - Handoff: `docs/execution/handoffs/X-11.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
@@ -447,12 +447,12 @@ Wire strict generated server to services for every documented resource, validati
 
 Lane C. Dependencies: X-10, X-11.
 
-Add the deterministic NZBGet OpenRPC generator to the tools module. Make
-generation, formatting, tests, vet, lint, module verification and architecture
-checks discover every nested client module with `GOWORK=off`. Generated output
-stays committed and reproducible without `go.work` or local replace directives.
+Wire the deterministic NZBGet OpenRPC generator owned by X-11 into generation.
+Make formatting, tests, vet, lint, module verification and architecture checks
+discover every nested client module with `GOWORK=off`. Generated output stays
+committed and reproducible without `go.work` or local replace directives.
 
-- Owned paths: `tools/internal/nzbgetgen/`, `scripts/generate.sh`, `scripts/check-guardrails.sh`, `scripts/check-lint.sh`, `.github/workflows/checks.yml`.
+- Owned paths: `scripts/generate.sh`, `scripts/check-guardrails.sh`, `scripts/check-lint.sh`, `.github/workflows/checks.yml`.
 - Acceptance contributions: A-43, A-45.
 - Handoff: `docs/execution/handoffs/C-05.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.

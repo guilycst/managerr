@@ -387,7 +387,8 @@
         "C-03"
       ],
       "ownedPaths": [
-        "clients/nzbget/"
+        "clients/nzbget/",
+        "tools/internal/nzbgetgen/"
       ],
       "acceptance": [
         "A-05",
@@ -713,7 +714,6 @@
         "X-11"
       ],
       "ownedPaths": [
-        "tools/internal/nzbgetgen/",
         "scripts/generate.sh",
         "scripts/check-guardrails.sh",
         "scripts/check-lint.sh",
@@ -723,7 +723,7 @@
         "A-43",
         "A-45"
       ],
-      "deliverable": "Add the deterministic NZBGet OpenRPC generator to the tools module and make generation, formatting, tests, vet, lint, module verification and architecture checks discover every nested client module with GOWORK=off. Keep generated outputs committed and reproducible without go.work or local replace directives.",
+      "deliverable": "Wire the deterministic NZBGet OpenRPC generator owned by X-11 into generation and make formatting, tests, vet, lint, module verification and architecture checks discover every nested client module with GOWORK=off. Keep generated outputs committed and reproducible without go.work or local replace directives.",
       "handoff": "docs/execution/handoffs/C-05.md",
       "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
     },
