@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "phase": "specification_complete",
-  "implementationAuthorized": false,
+  "phase": "implementation",
+  "implementationAuthorized": true,
   "targetRelease": "v0.0.1",
   "applicationAuthentication": "excluded_from_v0.0.1",
   "futureAuthenticationRelease": "v0.0.2",
@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "planning_baseline_openapi_pending_C-01",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "C-00"
+  ],
   "openGates": [
     "G-01",
     "G-02",
@@ -26,12 +28,30 @@
   ],
   "tasks": {
     "C-00": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/c00_implementer",
+      "baseSha": "ef4fbc3668e3f021b24c8e6c0e7ecbe0704b5bd0",
       "integratedSha": null,
       "evidence": [],
-      "review": null
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "docs/research/compatibility-matrix.md",
+          "tests/compatibility/research/",
+          "docs/execution/handoffs/C-00.md"
+        ],
+        "expectedChecks": [
+          "A-16",
+          "A-31",
+          "A-54",
+          "A-55"
+        ],
+        "reviewPath": "independent reviewer after implementation handoff"
+      }
     },
     "C-01": {
       "status": "planned",
@@ -330,7 +350,7 @@
       "review": null
     }
   },
-  "nextAction": "Await explicit implementation authorization; resume from C-00 with current Git/agent ownership checks",
+  "nextAction": "Complete C-00 evidence, then assign independent review before opening C-01",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
