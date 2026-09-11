@@ -1,0 +1,35 @@
+---
+paths:
+  "/api/v1/action-runs/{actionRunId}/retry-requests":
+    parameters:
+    - "$ref": "#/components/parameters/ActionRunId"
+    post:
+      operationId: requestActionRetry
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RetryRequest"
+      responses:
+        '202':
+          description: Explicit retry request queued after validation.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AsyncAccepted"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"

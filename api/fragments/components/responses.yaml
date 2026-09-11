@@ -1,0 +1,67 @@
+---
+components:
+  responses:
+    Problem400:
+      description: Invalid request.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem404:
+      description: Resource not found.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem409:
+      description: State, plan or idempotency conflict.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem428:
+      description: Required If-Match precondition was not supplied.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    ProblemSnapshotExpired:
+      description: Cursor snapshot has expired and must be restarted.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem412:
+      description: Required revision precondition failed.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem413:
+      description: Request or manifest is too large.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem422:
+      description: Requested capability or mapping is unsafe or unsupported.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem429:
+      description: Local capacity limit reached.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"
+    Problem503:
+      description: Dependency or readiness unavailable.
+      content:
+        application/problem+json:
+          schema:
+            "$ref": "#/components/schemas/Problem"

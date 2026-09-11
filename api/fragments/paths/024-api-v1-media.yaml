@@ -1,0 +1,23 @@
+---
+paths:
+  "/api/v1/media":
+    get:
+      operationId: listMedia
+      tags:
+      - observations
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/MediaKindFilter"
+      responses:
+        '200':
+          description: Aggregated media identities and tracking observations.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MediaList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

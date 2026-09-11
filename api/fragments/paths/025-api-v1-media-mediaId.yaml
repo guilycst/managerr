@@ -1,0 +1,21 @@
+---
+paths:
+  "/api/v1/media/{mediaId}":
+    parameters:
+    - "$ref": "#/components/parameters/MediaId"
+    get:
+      operationId: getMedia
+      tags:
+      - observations
+      responses:
+        '200':
+          description: Media identity and all instance observations.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Media"
+        '404':
+          "$ref": "#/components/responses/Problem404"

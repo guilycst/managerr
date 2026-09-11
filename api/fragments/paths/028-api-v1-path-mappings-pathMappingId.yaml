@@ -1,0 +1,76 @@
+---
+paths:
+  "/api/v1/path-mappings/{pathMappingId}":
+    parameters:
+    - "$ref": "#/components/parameters/PathMappingId"
+    get:
+      operationId: getPathMapping
+      tags:
+      - configuration
+      responses:
+        '200':
+          description: Path mapping.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PathMapping"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+    patch:
+      operationId: patchPathMapping
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IfMatch"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PathMappingPatch"
+      responses:
+        '200':
+          description: Updated path mapping.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PathMapping"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '412':
+          "$ref": "#/components/responses/Problem412"
+        '428':
+          "$ref": "#/components/responses/Problem428"
+    delete:
+      operationId: retirePathMapping
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IfMatch"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      responses:
+        '204':
+          description: Path mapping retired.
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '412':
+          "$ref": "#/components/responses/Problem412"
+        '428':
+          "$ref": "#/components/responses/Problem428"

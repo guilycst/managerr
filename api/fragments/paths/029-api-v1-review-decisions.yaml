@@ -1,0 +1,35 @@
+---
+paths:
+  "/api/v1/review-decisions":
+    post:
+      operationId: createReviewDecision
+      tags:
+      - plans
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ReviewDecisionCreate"
+      responses:
+        '202':
+          description: Decision recorded and action run queued when approved.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ReviewDecision"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '422':
+          "$ref": "#/components/responses/Problem422"
+        '429':
+          "$ref": "#/components/responses/Problem429"

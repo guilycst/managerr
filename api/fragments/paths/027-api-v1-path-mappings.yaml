@@ -1,0 +1,56 @@
+---
+paths:
+  "/api/v1/path-mappings":
+    get:
+      operationId: listPathMappings
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Explicit upstream path mappings.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PathMappingList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+    post:
+      operationId: createPathMapping
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PathMappingCreate"
+      responses:
+        '201':
+          description: Path mapping created.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PathMapping"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"
+        '422':
+          "$ref": "#/components/responses/Problem422"

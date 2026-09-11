@@ -1,0 +1,22 @@
+---
+paths:
+  "/api/v1/trash":
+    get:
+      operationId: listTrash
+      tags:
+      - trash
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Trash manifests and retention state.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TrashList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

@@ -1,0 +1,16 @@
+---
+paths:
+  "/health/ready":
+    get:
+      operationId: getReadyHealth
+      tags:
+      - health
+      responses:
+        '200':
+          description: Database, migrations and key are ready.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Health"
+        '503':
+          "$ref": "#/components/responses/Problem503"

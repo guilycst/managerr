@@ -1,0 +1,44 @@
+---
+paths:
+  "/api/v1/metadata-candidates":
+    get:
+      operationId: listMetadataCandidates
+      tags:
+      - observations
+      parameters:
+      - name: connectionId
+        in: query
+        required: true
+        schema:
+          "$ref": "#/components/schemas/ConfigId"
+      - name: kind
+        in: query
+        required: true
+        schema:
+          "$ref": "#/components/schemas/MediaKind"
+      - name: query
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/Cursor"
+      responses:
+        '200':
+          description: Suggestions from a selected Arr instance.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MetadataCandidateList"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+        '503':
+          "$ref": "#/components/responses/Problem503"

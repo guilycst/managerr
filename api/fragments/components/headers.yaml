@@ -1,0 +1,20 @@
+---
+components:
+  headers:
+    Location:
+      description: URL of the created resource.
+      schema:
+        type: string
+        format: uri-reference
+    ETag:
+      description: Opaque application revision tag.
+      schema:
+        type: string
+        minLength: 1
+    Cache-Control:
+      description: Responses containing inventory, credentials metadata, actions or
+        descriptor bytes are never cached.
+      schema:
+        type: string
+        enum:
+        - no-store

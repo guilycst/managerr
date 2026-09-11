@@ -1,0 +1,35 @@
+---
+paths:
+  "/api/v1/action-runs/{actionRunId}/cancellations":
+    parameters:
+    - "$ref": "#/components/parameters/ActionRunId"
+    post:
+      operationId: cancelActionRun
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CancellationCreate"
+      responses:
+        '202':
+          description: Durable cancellation request.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Cancellation"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"

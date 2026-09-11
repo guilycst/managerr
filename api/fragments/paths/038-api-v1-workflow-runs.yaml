@@ -1,0 +1,54 @@
+---
+paths:
+  "/api/v1/workflow-runs":
+    get:
+      operationId: listWorkflowRuns
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Ordered workflow runs.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkflowRunList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+    post:
+      operationId: createWorkflowRun
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/WorkflowRunCreate"
+      responses:
+        '202':
+          description: Workflow created and waiting for its approval gates.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkflowRun"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '422':
+          "$ref": "#/components/responses/Problem422"
+        '429':
+          "$ref": "#/components/responses/Problem429"

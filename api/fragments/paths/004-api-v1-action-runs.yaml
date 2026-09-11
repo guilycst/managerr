@@ -1,0 +1,22 @@
+---
+paths:
+  "/api/v1/action-runs":
+    get:
+      operationId: listActionRuns
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Durable action runs.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ActionRunList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

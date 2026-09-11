@@ -1,0 +1,56 @@
+---
+paths:
+  "/api/v1/connections":
+    get:
+      operationId: listConnections
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Configured integration connections.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ConnectionList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+    post:
+      operationId: createConnection
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ConnectionCreate"
+      responses:
+        '201':
+          description: Managed connection created.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Connection"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"
+        '422':
+          "$ref": "#/components/responses/Problem422"

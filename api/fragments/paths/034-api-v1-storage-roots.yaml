@@ -1,0 +1,56 @@
+---
+paths:
+  "/api/v1/storage-roots":
+    get:
+      operationId: listStorageRoots
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Configured storage roots.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StorageRootList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+    post:
+      operationId: createStorageRoot
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/StorageRootCreate"
+      responses:
+        '201':
+          description: Storage root created.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StorageRoot"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"
+        '422':
+          "$ref": "#/components/responses/Problem422"

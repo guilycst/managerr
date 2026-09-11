@@ -1,0 +1,21 @@
+---
+paths:
+  "/api/v1/trash/{trashId}":
+    parameters:
+    - "$ref": "#/components/parameters/TrashId"
+    get:
+      operationId: getTrash
+      tags:
+      - trash
+      responses:
+        '200':
+          description: Trash entry.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TrashEntry"
+        '404':
+          "$ref": "#/components/responses/Problem404"

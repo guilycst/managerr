@@ -1,0 +1,22 @@
+---
+paths:
+  "/api/v1/descriptors":
+    get:
+      operationId: listDescriptors
+      tags:
+      - observations
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Descriptor metadata.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DescriptorList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

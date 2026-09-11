@@ -1,0 +1,76 @@
+---
+paths:
+  "/api/v1/connections/{connectionId}":
+    parameters:
+    - "$ref": "#/components/parameters/ConnectionId"
+    get:
+      operationId: getConnection
+      tags:
+      - configuration
+      responses:
+        '200':
+          description: Managed connection.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Connection"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+    patch:
+      operationId: patchConnection
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IfMatch"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ConnectionPatch"
+      responses:
+        '200':
+          description: Updated managed connection.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            ETag:
+              "$ref": "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Connection"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '412':
+          "$ref": "#/components/responses/Problem412"
+        '428':
+          "$ref": "#/components/responses/Problem428"
+    delete:
+      operationId: retireConnection
+      tags:
+      - configuration
+      parameters:
+      - "$ref": "#/components/parameters/IfMatch"
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      responses:
+        '204':
+          description: Connection retired.
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '412':
+          "$ref": "#/components/responses/Problem412"
+        '428':
+          "$ref": "#/components/responses/Problem428"

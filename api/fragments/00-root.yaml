@@ -1,0 +1,20 @@
+---
+openapi: 3.1.1
+info:
+  title: Mastarr API
+  version: 0.0.1
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+  description: Contract-first API for reviewing downloaded media and reconciling it
+    with configured Arr, download-client, Jellyfin, Seerr and filesystem state.
+servers:
+- url: "/"
+tags:
+- name: health
+- name: configuration
+- name: observations
+- name: plans
+- name: execution
+- name: trash
+- name: audit

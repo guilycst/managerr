@@ -1,0 +1,23 @@
+---
+paths:
+  "/api/v1/discoveries":
+    get:
+      operationId: listDiscoveries
+      tags:
+      - observations
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/RootFilter"
+      responses:
+        '200':
+          description: Observed file groups.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DiscoveryList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

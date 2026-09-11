@@ -1,0 +1,2140 @@
+---
+components:
+  schemas:
+    Id:
+      "$ref": "#/components/schemas/RuntimeId"
+    RuntimeId:
+      type: string
+      format: uuid
+    ConfigId:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
+    Timestamp:
+      type: string
+      format: date-time
+    NullableTimestamp:
+      type: string
+      format: date-time
+      nullable: true
+    MediaKind:
+      type: string
+      enum:
+      - movie
+      - episode
+      - season
+      - anime
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - observedAt
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - degraded
+          - not_ready
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        reason:
+          type: string
+    SourceMetadata:
+      type: object
+      additionalProperties: false
+      required:
+      - source
+      - editable
+      - documentId
+      - revision
+      - startupAt
+      - reloadPolicy
+      properties:
+        source:
+          type: string
+          enum:
+          - yaml
+          - api
+        editable:
+          type: boolean
+        documentId:
+          type: string
+          minLength: 1
+        revision:
+          type: string
+          minLength: 1
+        startupAt:
+          "$ref": "#/components/schemas/Timestamp"
+        reloadPolicy:
+          type: string
+          enum:
+          - restart_required
+    Coverage:
+      type: object
+      additionalProperties: false
+      required:
+      - completeness
+      - observedAt
+      properties:
+        sourceId:
+          "$ref": "#/components/schemas/Id"
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        rootId:
+          "$ref": "#/components/schemas/ConfigId"
+        completeness:
+          type: string
+          enum:
+          - complete
+          - partial
+          - unknown
+        reasonCodes:
+          type: array
+          items:
+            type: string
+        observedCount:
+          type: integer
+          minimum: 0
+        snapshotRevision:
+          type: string
+        startedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+    Page:
+      type: object
+      additionalProperties: false
+      required:
+      - nextCursor
+      - coverage
+      - observedAt
+      properties:
+        nextCursor:
+          type: string
+          nullable: true
+        coverage:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Coverage"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+    Problem:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - title
+      - status
+      - code
+      - requestId
+      - retryable
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        code:
+          type: string
+        requestId:
+          type: string
+        resourceId:
+          "$ref": "#/components/schemas/Id"
+        fieldErrors:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FieldError"
+        retryable:
+          type: boolean
+        nextAction:
+          type: string
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+      - field
+      - code
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    CredentialInput:
+      oneOf:
+      - "$ref": "#/components/schemas/ApiKeyCredential"
+      - "$ref": "#/components/schemas/UsernamePasswordCredential"
+      - "$ref": "#/components/schemas/TokenCredential"
+      discriminator:
+        propertyName: kind
+        mapping:
+          api_key: "#/components/schemas/ApiKeyCredential"
+          username_password: "#/components/schemas/UsernamePasswordCredential"
+          token: "#/components/schemas/TokenCredential"
+    ApiKeyCredential:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - apiKey
+      properties:
+        kind:
+          type: string
+          enum:
+          - api_key
+        apiKey:
+          type: string
+          minLength: 1
+          writeOnly: true
+    UsernamePasswordCredential:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - username
+      - password
+      properties:
+        kind:
+          type: string
+          enum:
+          - username_password
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+          writeOnly: true
+    TokenCredential:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - token
+      properties:
+        kind:
+          type: string
+          enum:
+          - token
+        token:
+          type: string
+          minLength: 1
+          writeOnly: true
+    Connection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - label
+      - endpoint
+      - source
+      - revision
+      - health
+      - credentialState
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        kind:
+          type: string
+          enum:
+          - qbittorrent
+          - nzbget
+          - radarr
+          - sonarr
+          - jellyfin
+          - seerr
+        label:
+          type: string
+        endpoint:
+          type: string
+          format: uri-reference
+        source:
+          "$ref": "#/components/schemas/SourceMetadata"
+        revision:
+          type: string
+        health:
+          type: string
+          enum:
+          - healthy
+          - degraded
+          - unavailable
+          - unknown
+        observedVersion:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        credentialState:
+          type: string
+          enum:
+          - managed
+          - missing
+          - invalid
+          - static_reference
+        retiredAt:
+          "$ref": "#/components/schemas/Timestamp"
+    ConnectionCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - label
+      - endpoint
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        kind:
+          type: string
+          enum:
+          - qbittorrent
+          - nzbget
+          - radarr
+          - sonarr
+          - jellyfin
+          - seerr
+        label:
+          type: string
+          minLength: 1
+        endpoint:
+          type: string
+          format: uri-reference
+        credentials:
+          "$ref": "#/components/schemas/CredentialInput"
+    ConnectionPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+        endpoint:
+          type: string
+          format: uri-reference
+        credentials:
+          "$ref": "#/components/schemas/CredentialInput"
+    ConnectionList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Connection"
+        page:
+          "$ref": "#/components/schemas/Page"
+    ConnectionCheckCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - connectionId
+      properties:
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+    ConnectionCheck:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - connectionId
+      - state
+      - createdAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        state:
+          "$ref": "#/components/schemas/CheckState"
+        createdAt:
+          "$ref": "#/components/schemas/Timestamp"
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        capabilities:
+          type: array
+          items:
+            type: string
+        sanitizedError:
+          type: string
+    ConnectionCheckList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ConnectionCheck"
+        page:
+          "$ref": "#/components/schemas/Page"
+    StoragePurpose:
+      type: string
+      enum:
+      - download
+      - library
+      - descriptor
+      - trash
+    WatchSettings:
+      type: object
+      additionalProperties: false
+      required:
+      - enabled
+      - intervalSeconds
+      properties:
+        enabled:
+          type: boolean
+        intervalSeconds:
+          type: integer
+          minimum: 1
+    StorageRoot:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - label
+      - purpose
+      - path
+      - source
+      - revision
+      - capabilities
+      - watch
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        label:
+          type: string
+        purpose:
+          "$ref": "#/components/schemas/StoragePurpose"
+        path:
+          type: string
+          minLength: 1
+          description: Effective host path for this root. The server never accepts
+            this value in an action target.
+        source:
+          "$ref": "#/components/schemas/SourceMetadata"
+        revision:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        permission:
+          type: string
+          enum:
+          - read_only
+          - read_write
+          - unavailable
+          - unknown
+        watch:
+          "$ref": "#/components/schemas/WatchSettings"
+        retiredAt:
+          "$ref": "#/components/schemas/Timestamp"
+    StorageRootCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - label
+      - purpose
+      - path
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        label:
+          type: string
+          minLength: 1
+        purpose:
+          "$ref": "#/components/schemas/StoragePurpose"
+        path:
+          type: string
+          minLength: 1
+          description: Host path accepted only at the configuration boundary.
+    StorageRootPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label:
+          type: string
+          minLength: 1
+        path:
+          type: string
+          minLength: 1
+        watchEnabled:
+          type: boolean
+        watchIntervalSeconds:
+          type: integer
+          minimum: 1
+    StorageRootList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StorageRoot"
+        page:
+          "$ref": "#/components/schemas/Page"
+    PathMapping:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - connectionId
+      - sourcePrefix
+      - rootId
+      - destinationPrefix
+      - source
+      - revision
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        sourcePrefix:
+          type: string
+        rootId:
+          "$ref": "#/components/schemas/ConfigId"
+        destinationPrefix:
+          type: string
+        source:
+          "$ref": "#/components/schemas/SourceMetadata"
+        revision:
+          type: string
+    PathMappingCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - connectionId
+      - sourcePrefix
+      - rootId
+      - destinationPrefix
+      properties:
+        id:
+          "$ref": "#/components/schemas/ConfigId"
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        sourcePrefix:
+          type: string
+        rootId:
+          "$ref": "#/components/schemas/ConfigId"
+        destinationPrefix:
+          type: string
+    PathMappingPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        sourcePrefix:
+          type: string
+        destinationPrefix:
+          type: string
+    PathMappingList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/PathMapping"
+        page:
+          "$ref": "#/components/schemas/Page"
+    Configuration:
+      type: object
+      additionalProperties: false
+      required:
+      - source
+      - connections
+      - storageRoots
+      - pathMappings
+      - keySource
+      properties:
+        source:
+          "$ref": "#/components/schemas/SourceMetadata"
+        connections:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Connection"
+        storageRoots:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StorageRoot"
+        pathMappings:
+          type: array
+          items:
+            "$ref": "#/components/schemas/PathMapping"
+        keySource:
+          type: string
+          enum:
+          - environment
+          - secret_file
+          - generated_persistent
+        keyPath:
+          type: string
+        restartRequired:
+          type: boolean
+    ScanCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - scope
+      properties:
+        scope:
+          type: string
+          enum:
+          - roots
+          - download_clients
+          - catalogs
+          - all
+        rootIds:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ConfigId"
+        connectionIds:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ConfigId"
+    Scan:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - scope
+      - state
+      - coverage
+      - createdAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        scope:
+          type: string
+        state:
+          "$ref": "#/components/schemas/ScanState"
+        coverage:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Coverage"
+        createdAt:
+          "$ref": "#/components/schemas/Timestamp"
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        cancellation:
+          "$ref": "#/components/schemas/Cancellation"
+    ScanList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Scan"
+        page:
+          "$ref": "#/components/schemas/Page"
+    FileTarget:
+      type: object
+      additionalProperties: false
+      required:
+      - rootId
+      - relativePath
+      properties:
+        rootId:
+          "$ref": "#/components/schemas/ConfigId"
+        relativePath:
+          type: string
+          minLength: 1
+          pattern: "^[^/\\x00].*$"
+          description: Root-relative path. The server rejects dot-dot components,
+            root targets and symlink escapes.
+    FileManifestEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - rootId
+      - relativePath
+      - type
+      - size
+      properties:
+        rootId:
+          "$ref": "#/components/schemas/ConfigId"
+        relativePath:
+          type: string
+          minLength: 1
+          pattern: "^[^/\\x00].*$"
+          description: Root-relative path. The server rejects dot-dot components,
+            root targets and symlink escapes.
+        type:
+          type: string
+          enum:
+          - file
+          - directory
+          - subtitle
+          - companion
+        size:
+          type: integer
+          minimum: 0
+        digest:
+          type: string
+        fileIdentity:
+          type: string
+        role:
+          type: string
+          enum:
+          - video
+          - subtitle
+          - companion
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+    TrackingObservation:
+      type: object
+      additionalProperties: false
+      required:
+      - connectionId
+      - dimension
+      - value
+      - observedAt
+      properties:
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        dimension:
+          type: string
+          enum:
+          - registration
+          - import
+          - availability
+          - request
+        value:
+          type: string
+          enum:
+          - present
+          - absent
+          - unknown
+        externalId:
+          type: string
+        providerId:
+          type: string
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        coverageId:
+          "$ref": "#/components/schemas/Id"
+        evidence:
+          type: array
+          items:
+            type: string
+    Provenance:
+      type: object
+      additionalProperties: false
+      properties:
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        clientItemId:
+          type: string
+        hash:
+          type: string
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        descriptorId:
+          "$ref": "#/components/schemas/Id"
+        sourcePath:
+          "$ref": "#/components/schemas/FileTarget"
+    Discovery:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - files
+      - readiness
+      - observedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FileManifestEntry"
+        readiness:
+          type: string
+          enum:
+          - ready
+          - downloading
+          - processing
+          - changing
+          - unsupported
+          - unknown
+        provenance:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Provenance"
+        candidates:
+          type: array
+          items:
+            "$ref": "#/components/schemas/MetadataCandidate"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        coverage:
+          "$ref": "#/components/schemas/Coverage"
+    DiscoveryList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Discovery"
+        page:
+          "$ref": "#/components/schemas/Page"
+    Media:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - providerId
+      - tracking
+      - observedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        kind:
+          "$ref": "#/components/schemas/MediaKind"
+        providerId:
+          type: string
+        title:
+          type: string
+        tracking:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TrackingObservation"
+        discoveryIds:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Id"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+    MediaList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Media"
+        page:
+          "$ref": "#/components/schemas/Page"
+    Download:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - connectionId
+      - state
+      - observedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        state:
+          type: string
+          enum:
+          - queued
+          - downloading
+          - seeding
+          - complete
+          - processing
+          - failed
+          - unknown
+        clientItemId:
+          type: string
+        hash:
+          type: string
+        nzbId:
+          type: string
+        deprecatedId:
+          type: string
+        descriptorId:
+          "$ref": "#/components/schemas/Id"
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        sourcePath:
+          "$ref": "#/components/schemas/FileTarget"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        coverage:
+          "$ref": "#/components/schemas/Coverage"
+    DownloadList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Download"
+        page:
+          "$ref": "#/components/schemas/Page"
+    MetadataCandidate:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - title
+      properties:
+        kind:
+          "$ref": "#/components/schemas/MediaKind"
+        title:
+          type: string
+        providerId:
+          type: string
+        externalId:
+          type: string
+        year:
+          type: integer
+        season:
+          type: integer
+        episodes:
+          type: array
+          items:
+            type: integer
+        score:
+          type: number
+          format: float
+    MetadataCandidateList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/MetadataCandidate"
+        page:
+          "$ref": "#/components/schemas/Page"
+    ConnectionOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - connectionId
+      - observedAt
+      - options
+      properties:
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        observedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        options:
+          oneOf:
+          - "$ref": "#/components/schemas/ArrOptions"
+          - "$ref": "#/components/schemas/DownloadClientOptions"
+          - "$ref": "#/components/schemas/JellyfinOptions"
+          - "$ref": "#/components/schemas/SeerrOptions"
+          discriminator:
+            propertyName: kind
+            mapping:
+              arr: "#/components/schemas/ArrOptions"
+              download_client: "#/components/schemas/DownloadClientOptions"
+              jellyfin: "#/components/schemas/JellyfinOptions"
+              seerr: "#/components/schemas/SeerrOptions"
+    OptionItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+    ArrOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - rootFolders
+      - qualityProfiles
+      - seriesTypes
+      - seasons
+      - episodes
+      properties:
+        kind:
+          type: string
+          enum:
+          - arr
+        rootFolders:
+          type: array
+          items:
+            type: string
+        qualityProfiles:
+          type: array
+          items:
+            "$ref": "#/components/schemas/OptionItem"
+        seriesTypes:
+          type: array
+          items:
+            type: string
+        seasons:
+          type: array
+          items:
+            type: integer
+        episodes:
+          type: array
+          items:
+            type: integer
+    DownloadClientOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - categories
+      - tags
+      properties:
+        kind:
+          type: string
+          enum:
+          - download_client
+        categories:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+    JellyfinOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - libraries
+      properties:
+        kind:
+          type: string
+          enum:
+          - jellyfin
+        libraries:
+          type: array
+          items:
+            "$ref": "#/components/schemas/OptionItem"
+    SeerrOptions:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - statuses
+      properties:
+        kind:
+          type: string
+          enum:
+          - seerr
+        statuses:
+          type: array
+          items:
+            type: string
+    ActionPlan:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - digest
+      - status
+      - action
+      - desiredState
+      - manifest
+      - preconditions
+      - capabilities
+      - requiredApproval
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        revision:
+          type: integer
+          minimum: 1
+        digest:
+          type: string
+        status:
+          type: string
+          enum:
+          - preparing
+          - ready
+          - invalid
+          - expired
+        action:
+          "$ref": "#/components/schemas/ActionInput"
+        desiredState:
+          type: object
+          additionalProperties: true
+        manifest:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FileManifestEntry"
+        preconditions:
+          type: array
+          items:
+            type: string
+        connectionRevisions:
+          type: object
+          additionalProperties:
+            type: string
+        mappingRevisions:
+          type: object
+          additionalProperties:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        impacts:
+          type: array
+          items:
+            type: string
+        conflicts:
+          type: array
+          items:
+            type: string
+        blockingIssues:
+          type: array
+          items:
+            type: string
+        estimatedBytes:
+          type: integer
+          minimum: 0
+        requiredApproval:
+          type: string
+          enum:
+          - review
+          - irreversible
+        expiresAt:
+          "$ref": "#/components/schemas/Timestamp"
+        createdAt:
+          "$ref": "#/components/schemas/Timestamp"
+    ActionPlanCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - action
+      properties:
+        action:
+          "$ref": "#/components/schemas/ActionInput"
+        expiresInSeconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+    ActionPlanList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ActionPlan"
+        page:
+          "$ref": "#/components/schemas/Page"
+    ReviewDecisionCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - planId
+      - revision
+      - digest
+      - decision
+      properties:
+        planId:
+          "$ref": "#/components/schemas/Id"
+        revision:
+          type: integer
+          minimum: 1
+        digest:
+          type: string
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+        irreversibleAcknowledgement:
+          type: boolean
+          default: false
+        unverifiedLabel:
+          type: string
+          description: Optional caller label, never trusted as actor identity.
+    ReviewDecision:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - planId
+      - revision
+      - digest
+      - decision
+      - actor
+      - createdAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        planId:
+          "$ref": "#/components/schemas/Id"
+        revision:
+          type: integer
+        digest:
+          type: string
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+        actor:
+          type: string
+          enum:
+          - unauthenticated
+        unverifiedLabel:
+          type: string
+        resultingActionRunId:
+          "$ref": "#/components/schemas/Id"
+        createdAt:
+          "$ref": "#/components/schemas/Timestamp"
+    AsyncState:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - cancelled
+      - deadline_exceeded
+    CheckState:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - cancelled
+    ScanState:
+      type: string
+      enum:
+      - queued
+      - running
+      - waiting
+      - succeeded
+      - failed
+      - cancelled
+      - deadline_exceeded
+    ActionState:
+      type: string
+      enum:
+      - queued
+      - running
+      - waiting_dependency
+      - reconciling
+      - needs_review
+      - succeeded
+      - failed
+      - cancelled
+      - deadline_exceeded
+    WorkflowState:
+      type: string
+      enum:
+      - awaiting_approval
+      - running
+      - waiting_dependency
+      - needs_review
+      - succeeded
+      - failed
+      - cancelled
+      - deadline_exceeded
+    StepState:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - blocked
+      - skipped
+      - cancelled
+    AttemptState:
+      type: string
+      enum:
+      - running
+      - reconciling
+      - succeeded
+      - failed
+      - cancelled
+    ActionInput:
+      oneOf:
+      - "$ref": "#/components/schemas/ArrRegistrationInput"
+      - "$ref": "#/components/schemas/ArrImportInput"
+      - "$ref": "#/components/schemas/FsCopyInput"
+      - "$ref": "#/components/schemas/FsHardlinkInput"
+      - "$ref": "#/components/schemas/FsMoveInput"
+      - "$ref": "#/components/schemas/FsRenameInput"
+      - "$ref": "#/components/schemas/ClientStopInput"
+      - "$ref": "#/components/schemas/ClientRemoveInput"
+      - "$ref": "#/components/schemas/FsTrashInput"
+      - "$ref": "#/components/schemas/FsRestoreInput"
+      - "$ref": "#/components/schemas/FsDeleteInput"
+      - "$ref": "#/components/schemas/DescriptorDeleteInput"
+      - "$ref": "#/components/schemas/JellyfinRefreshInput"
+      discriminator:
+        propertyName: kind
+        mapping:
+          arr.registration: "#/components/schemas/ArrRegistrationInput"
+          arr.import: "#/components/schemas/ArrImportInput"
+          fs.copy: "#/components/schemas/FsCopyInput"
+          fs.hardlink: "#/components/schemas/FsHardlinkInput"
+          fs.move: "#/components/schemas/FsMoveInput"
+          fs.rename: "#/components/schemas/FsRenameInput"
+          client.stop: "#/components/schemas/ClientStopInput"
+          client.remove: "#/components/schemas/ClientRemoveInput"
+          fs.trash: "#/components/schemas/FsTrashInput"
+          fs.restore: "#/components/schemas/FsRestoreInput"
+          fs.delete: "#/components/schemas/FsDeleteInput"
+          descriptor.delete: "#/components/schemas/DescriptorDeleteInput"
+          jellyfin.refresh: "#/components/schemas/JellyfinRefreshInput"
+    ArrRegistrationInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - mediaKind
+      - providerId
+      - fields
+      properties:
+        kind:
+          type: string
+          enum:
+          - arr.registration
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        mediaKind:
+          "$ref": "#/components/schemas/MediaKind"
+        providerId:
+          type: string
+        fields:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            rootFolder:
+              type: string
+            qualityProfileId:
+              type: integer
+            monitored:
+              type: boolean
+            seriesType:
+              type: string
+            seasonFolder:
+              type: boolean
+            seasons:
+              type: array
+              items:
+                type: integer
+    ArrImportInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - registeredExternalId
+      - files
+      - previewRevision
+      - transfer
+      properties:
+        kind:
+          type: string
+          enum:
+          - arr.import
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        registeredExternalId:
+          type: string
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/ImportFile"
+        previewRevision:
+          type: string
+        transfer:
+          type: string
+          enum:
+          - copy
+          - hardlink
+          - move
+    ImportFile:
+      type: object
+      additionalProperties: false
+      required:
+      - source
+      - movieOrEpisodeId
+      properties:
+        source:
+          "$ref": "#/components/schemas/FileTarget"
+        movieOrEpisodeId:
+          type: integer
+        subtitle:
+          type: boolean
+        language:
+          type: string
+        forced:
+          type: boolean
+        hearingImpaired:
+          type: boolean
+    FileMap:
+      type: object
+      additionalProperties: false
+      required:
+      - source
+      - destination
+      properties:
+        source:
+          "$ref": "#/components/schemas/FileTarget"
+        destination:
+          "$ref": "#/components/schemas/FileTarget"
+    FsCopyInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.copy
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileMap"
+    FsHardlinkInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.hardlink
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileMap"
+    FsMoveInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      - executor
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.move
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileMap"
+        executor:
+          type: string
+          enum:
+          - mastarr
+          - native_client
+    FsRenameInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      - executor
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.rename
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileMap"
+        executor:
+          type: string
+          enum:
+          - mastarr
+          - native_client
+    ClientStopInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - clientItemIds
+      properties:
+        kind:
+          type: string
+          enum:
+          - client.stop
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        clientItemIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    ClientRemoveInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - clientItemIds
+      - retainPayload
+      properties:
+        kind:
+          type: string
+          enum:
+          - client.remove
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        clientItemIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        retainPayload:
+          type: boolean
+          enum:
+          - true
+    FsTrashInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      - retentionDays
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.trash
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileTarget"
+        retentionDays:
+          type: integer
+          minimum: 1
+        stoppedClientIds:
+          type: array
+          items:
+            type: string
+    FsRestoreInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - trashId
+      - files
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.restore
+        trashId:
+          "$ref": "#/components/schemas/Id"
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileMap"
+    FsDeleteInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - files
+      - permanent
+      - irreversibleAcknowledgement
+      properties:
+        kind:
+          type: string
+          enum:
+          - fs.delete
+        files:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/FileTarget"
+        permanent:
+          type: boolean
+          enum:
+          - true
+        irreversibleAcknowledgement:
+          type: boolean
+          enum:
+          - true
+    DescriptorDeleteInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - descriptorIds
+      - irreversibleAcknowledgement
+      properties:
+        kind:
+          type: string
+          enum:
+          - descriptor.delete
+        descriptorIds:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/Id"
+        irreversibleAcknowledgement:
+          type: boolean
+          enum:
+          - true
+    JellyfinRefreshInput:
+      oneOf:
+      - "$ref": "#/components/schemas/JellyfinLibraryRefreshInput"
+      - "$ref": "#/components/schemas/JellyfinItemRefreshInput"
+    JellyfinLibraryRefreshInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - scope
+      properties:
+        kind:
+          type: string
+          enum:
+          - jellyfin.refresh
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        scope:
+          type: string
+          enum:
+          - library
+    JellyfinItemRefreshInput:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - connectionId
+      - scope
+      - itemId
+      properties:
+        kind:
+          type: string
+          enum:
+          - jellyfin.refresh
+        connectionId:
+          "$ref": "#/components/schemas/ConfigId"
+        scope:
+          type: string
+          enum:
+          - item
+        itemId:
+          type: string
+          minLength: 1
+    RetryPolicy:
+      type: object
+      additionalProperties: false
+      required:
+      - maxAttempts
+      - backoffSeconds
+      - inactivityTimeoutSeconds
+      properties:
+        maxAttempts:
+          type: integer
+          minimum: 0
+        backoffSeconds:
+          type: integer
+          minimum: 0
+        inactivityTimeoutSeconds:
+          type: integer
+          minimum: 1
+    ActionRun:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - planId
+      - revision
+      - state
+      - outcome
+      - attempts
+      - effects
+      - unresolvedEffects
+      - retryPolicy
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        planId:
+          "$ref": "#/components/schemas/Id"
+        revision:
+          type: integer
+        workflowRunId:
+          "$ref": "#/components/schemas/Id"
+        stepId:
+          type: string
+        state:
+          "$ref": "#/components/schemas/ActionState"
+        outcome:
+          type: string
+          enum:
+          - pending
+          - applied
+          - already_satisfied
+          - failed
+          - cancelled
+          - unknown
+        attempts:
+          type: integer
+          minimum: 0
+        effects:
+          type: array
+          items:
+            type: string
+        unresolvedEffects:
+          type: array
+          items:
+            type: string
+        nextAttemptAt:
+          "$ref": "#/components/schemas/Timestamp"
+        deadlineAt:
+          "$ref": "#/components/schemas/Timestamp"
+        retryPolicy:
+          "$ref": "#/components/schemas/RetryPolicy"
+        retryReason:
+          type: string
+        cancellation:
+          "$ref": "#/components/schemas/Cancellation"
+        lastObservation:
+          type: string
+    ActionRunList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ActionRun"
+        page:
+          "$ref": "#/components/schemas/Page"
+    Attempt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - actionRunId
+      - attempt
+      - state
+      - startedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        actionRunId:
+          "$ref": "#/components/schemas/Id"
+        attempt:
+          type: integer
+          minimum: 1
+        state:
+          "$ref": "#/components/schemas/AttemptState"
+        startedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        completedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        retryable:
+          type: boolean
+        sanitizedResult:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+    AttemptList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Attempt"
+        page:
+          "$ref": "#/components/schemas/Page"
+    CancellationCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+    Cancellation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - parentId
+      - state
+      - requestedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        parentId:
+          "$ref": "#/components/schemas/Id"
+        state:
+          type: string
+          enum:
+          - requested
+          - acknowledged
+          - effective
+          - already_terminal
+        reason:
+          type: string
+        requestedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        effectiveAt:
+          "$ref": "#/components/schemas/Timestamp"
+    ReconciliationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          enum:
+          - all
+          - upstream
+          - filesystem
+    RetryRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - expectedRevision
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+    WorkflowStep:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - actionPlanId
+      - state
+      properties:
+        id:
+          type: string
+        actionPlanId:
+          "$ref": "#/components/schemas/Id"
+        state:
+          "$ref": "#/components/schemas/StepState"
+        approvalGate:
+          type: string
+          description: Server-derived approval requirement from the referenced immutable
+            plan.
+        actionRunId:
+          "$ref": "#/components/schemas/Id"
+    WorkflowRunCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - steps
+      properties:
+        name:
+          type: string
+          minLength: 1
+        recipeVersion:
+          type: string
+        deadlineSeconds:
+          type: integer
+          minimum: 1
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - actionPlanId
+            properties:
+              id:
+                type: string
+              actionPlanId:
+                "$ref": "#/components/schemas/Id"
+    WorkflowRun:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - steps
+      - state
+      - currentStep
+      - deadlineAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        name:
+          type: string
+        recipeVersion:
+          type: string
+        steps:
+          type: array
+          items:
+            "$ref": "#/components/schemas/WorkflowStep"
+        approvalGates:
+          type: array
+          items:
+            type: string
+        currentStep:
+          type: string
+          nullable: true
+        state:
+          "$ref": "#/components/schemas/WorkflowState"
+        deadlineAt:
+          "$ref": "#/components/schemas/NullableTimestamp"
+        aggregateEffectCount:
+          type: integer
+          minimum: 0
+        unresolvedCount:
+          type: integer
+          minimum: 0
+        cancellation:
+          "$ref": "#/components/schemas/Cancellation"
+    WorkflowRunList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/WorkflowRun"
+        page:
+          "$ref": "#/components/schemas/Page"
+    TrashEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - files
+      - originalPaths
+      - expiresAt
+      - state
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FileManifestEntry"
+        originalPaths:
+          type: array
+          items:
+            "$ref": "#/components/schemas/FileTarget"
+        expiresAt:
+          "$ref": "#/components/schemas/Timestamp"
+        state:
+          type: string
+          enum:
+          - held
+          - ready
+          - restoring
+          - purging
+          - purged
+          - blocked
+        clientAssociations:
+          type: array
+          items:
+            type: string
+        holds:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+    TrashList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/TrashEntry"
+        page:
+          "$ref": "#/components/schemas/Page"
+    Descriptor:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - size
+      - digest
+      - availability
+      - capturedAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        type:
+          type: string
+          enum:
+          - torrent
+          - nzb
+          - unknown
+        size:
+          type: integer
+          minimum: 0
+        digest:
+          type: string
+        availability:
+          type: string
+          enum:
+          - available
+          - unavailable
+          - unknown
+        capturedAt:
+          "$ref": "#/components/schemas/Timestamp"
+        source:
+          type: string
+        retentionUntil:
+          "$ref": "#/components/schemas/Timestamp"
+    DescriptorList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Descriptor"
+        page:
+          "$ref": "#/components/schemas/Page"
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - type
+      - actor
+      - occurredAt
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        type:
+          type: string
+        actor:
+          type: string
+          enum:
+          - unauthenticated
+        resourceId:
+          "$ref": "#/components/schemas/Id"
+        occurredAt:
+          "$ref": "#/components/schemas/Timestamp"
+        summary:
+          type: string
+        effectCount:
+          type: integer
+          minimum: 0
+    AuditEventList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - page
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/AuditEvent"
+        page:
+          "$ref": "#/components/schemas/Page"
+    AsyncAccepted:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - parentId
+      - state
+      properties:
+        id:
+          "$ref": "#/components/schemas/Id"
+        parentId:
+          "$ref": "#/components/schemas/Id"
+        state:
+          "$ref": "#/components/schemas/AsyncState"
+        nextAttemptAt:
+          "$ref": "#/components/schemas/Timestamp"

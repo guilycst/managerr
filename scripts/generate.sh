@@ -31,6 +31,26 @@ make_config() {
   ' "$source" >"$destination"
 }
 
+bundle_openapi() {
+  if [ "$mode" = write ]; then
+    output=$repo_dir/api/openapi.yaml
+  else
+    output=$tmp_dir/openapi.yaml
+  fi
+
+  (
+    cd "$tools_dir"
+    GOWORK=off go run ./internal/openapi-bundle \
+      --input "$repo_dir/api/fragments" \
+      --output "$output"
+  )
+
+  if [ "$mode" = check ] && ! cmp -s "$output" "$repo_dir/api/openapi.yaml"; then
+    echo "bundled OpenAPI document is out of date: $repo_dir/api/openapi.yaml" >&2
+    exit 1
+  fi
+}
+
 generate_oapi() {
   config=$1
   source_config=$2
@@ -55,6 +75,8 @@ generate_oapi() {
     exit 1
   fi
 }
+
+bundle_openapi
 
 generate_oapi \
   "$tmp_dir/api-oapi-codegen.yaml" \

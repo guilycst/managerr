@@ -1,0 +1,22 @@
+---
+paths:
+  "/api/v1/audit-events":
+    get:
+      operationId: listAuditEvents
+      tags:
+      - audit
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Cursor-paginated audit events.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuditEventList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

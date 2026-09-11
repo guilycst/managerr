@@ -1,0 +1,26 @@
+---
+paths:
+  "/api/v1/action-runs/{actionRunId}/attempts":
+    parameters:
+    - "$ref": "#/components/parameters/ActionRunId"
+    get:
+      operationId: listActionAttempts
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Sanitized attempt journal.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AttemptList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+        '404':
+          "$ref": "#/components/responses/Problem404"

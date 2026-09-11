@@ -1,0 +1,23 @@
+---
+paths:
+  "/api/v1/downloads":
+    get:
+      operationId: listDownloads
+      tags:
+      - observations
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/ConnectionFilter"
+      responses:
+        '200':
+          description: Download-client observations.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DownloadList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"

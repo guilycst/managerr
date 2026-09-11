@@ -1,0 +1,29 @@
+---
+paths:
+  "/api/v1/scans/{scanId}/cancellations":
+    parameters:
+    - "$ref": "#/components/parameters/ScanId"
+    post:
+      operationId: cancelScan
+      tags:
+      - execution
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      responses:
+        '202':
+          description: Cancellation requested.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Cancellation"
+        '404':
+          "$ref": "#/components/responses/Problem404"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '429':
+          "$ref": "#/components/responses/Problem429"

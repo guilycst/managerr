@@ -1,0 +1,56 @@
+---
+paths:
+  "/api/v1/action-plans":
+    get:
+      operationId: listActionPlans
+      tags:
+      - plans
+      parameters:
+      - "$ref": "#/components/parameters/Cursor"
+      - "$ref": "#/components/parameters/Limit"
+      responses:
+        '200':
+          description: Immutable action plan revisions.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ActionPlanList"
+        '409':
+          "$ref": "#/components/responses/ProblemSnapshotExpired"
+    post:
+      operationId: createActionPlan
+      tags:
+      - plans
+      parameters:
+      - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ActionPlanCreate"
+      responses:
+        '201':
+          description: Immutable read-only plan created.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Location:
+              "$ref": "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ActionPlan"
+        '400':
+          "$ref": "#/components/responses/Problem400"
+        '409':
+          "$ref": "#/components/responses/Problem409"
+        '413':
+          "$ref": "#/components/responses/Problem413"
+        '429':
+          "$ref": "#/components/responses/Problem429"
+        '422':
+          "$ref": "#/components/responses/Problem422"

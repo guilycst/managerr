@@ -1,0 +1,30 @@
+---
+paths:
+  "/api/v1/descriptors/{descriptorId}/content":
+    parameters:
+    - "$ref": "#/components/parameters/DescriptorId"
+    get:
+      operationId: getDescriptorContent
+      tags:
+      - observations
+      responses:
+        '200':
+          description: Original descriptor bytes.
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/Cache-Control"
+            Content-Disposition:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum:
+                - nosniff
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          "$ref": "#/components/responses/Problem404"

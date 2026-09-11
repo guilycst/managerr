@@ -1,0 +1,14 @@
+---
+paths:
+  "/health/live":
+    get:
+      operationId: getLiveHealth
+      tags:
+      - health
+      responses:
+        '200':
+          description: Process is running.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Health"
