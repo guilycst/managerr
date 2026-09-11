@@ -378,15 +378,16 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
       "baseSha": "e28ff3f7e6978a94e6357aa2c998a70b1fc286c6",
       "integratedSha": null,
-      "implementationCommit": "d713fe432db106503d49870def691af5d4dbc911",
+      "implementationCommit": "0dce2b9b882130d892fa0e02ffaaf0e2f3761da3",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
         "docs/execution/handoffs/D-01-review-round2.md",
+        "docs/execution/handoffs/D-01-review-round3.md",
         "internal/storage/store_test.go",
         "./scripts/generate.sh --check",
         "GOWORK=off go mod verify"
@@ -425,7 +426,7 @@
           "round": 3,
           "reviewer": "/root/d01_reviewer",
           "commit": null,
-          "status": "in_progress",
+          "status": "pending",
           "correctionCommit": null
         }
       ],
