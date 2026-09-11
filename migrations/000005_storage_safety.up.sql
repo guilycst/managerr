@@ -7,6 +7,8 @@
 PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
 
+-- The downgrade keeps these append-only guards in place. Recreate them here
+-- so a v5 -> v4 -> v5 cycle is safe and repeatable.
 CREATE TABLE IF NOT EXISTS tracking_observation_quarantine (
     id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
     original_observation_id TEXT NOT NULL UNIQUE CHECK (length(trim(original_observation_id)) > 0),
@@ -38,6 +40,49 @@ CREATE TABLE IF NOT EXISTS tracking_observation_quarantine (
     source_schema_version INTEGER NOT NULL CHECK (source_schema_version > 0)
 );
 
+DROP TRIGGER IF EXISTS tracking_observations_connection_scope_update;
+DROP TRIGGER IF EXISTS tracking_observations_connection_scope_insert;
+DROP TRIGGER IF EXISTS tracking_observations_identity_scope_update;
+DROP TRIGGER IF EXISTS tracking_observations_identity_scope_insert;
+DROP TRIGGER IF EXISTS tracking_observations_absence_coverage_update;
+DROP TRIGGER IF EXISTS tracking_observations_absence_coverage_insert;
+
+-- A rollback to the nullable v4 table must not allow an observation ID to be
+-- reused with different evidence while its original row is quarantined. The
+-- preflight runs before the legacy table is renamed or either row is dropped;
+-- a conflict therefore leaves both pieces of evidence available in a dirty
+-- migration for operator repair. Exact duplicates remain idempotent.
+CREATE TEMP TABLE d05_tracking_quarantine_collision (
+    ok INTEGER NOT NULL CHECK (ok = 1)
+);
+INSERT INTO d05_tracking_quarantine_collision (ok)
+SELECT 0
+FROM tracking_observations AS legacy
+JOIN tracking_observation_quarantine AS quarantine
+  ON quarantine.original_observation_id = legacy.id
+WHERE NOT (
+    legacy.external_record_id IS quarantine.original_external_record_id
+    AND legacy.media_identity_id IS quarantine.original_media_identity_id
+    AND legacy.connection_id IS quarantine.original_connection_id
+    AND legacy.root_id IS quarantine.original_root_id
+    AND legacy.dimension IS quarantine.dimension
+    AND legacy.status IS quarantine.original_status
+    AND legacy.evidence_json IS quarantine.original_evidence_json
+    AND legacy.coverage_id IS quarantine.coverage_id
+    AND legacy.coverage_max_age_seconds IS quarantine.coverage_max_age_seconds
+    AND legacy.observed_at IS quarantine.observed_at
+    AND legacy.registered_at IS quarantine.registered_at
+    AND legacy.imported_at IS quarantine.imported_at
+);
+DROP TABLE d05_tracking_quarantine_collision;
+
+-- Only remove the older table guards after the collision preflight succeeds;
+-- a dirty migration must keep the evidence append-only and identity-reserved.
+DROP TRIGGER IF EXISTS tracking_observation_quarantine_immutable_update;
+DROP TRIGGER IF EXISTS tracking_observation_quarantine_immutable_delete;
+DROP TRIGGER IF EXISTS tracking_observations_quarantine_id_guard_insert;
+DROP TRIGGER IF EXISTS tracking_observations_quarantine_id_guard_update;
+
 CREATE TRIGGER tracking_observation_quarantine_immutable_update
 BEFORE UPDATE ON tracking_observation_quarantine
 BEGIN
@@ -49,13 +94,6 @@ BEFORE DELETE ON tracking_observation_quarantine
 BEGIN
     SELECT RAISE(ABORT, 'tracking observation quarantine is immutable');
 END;
-
-DROP TRIGGER IF EXISTS tracking_observations_connection_scope_update;
-DROP TRIGGER IF EXISTS tracking_observations_connection_scope_insert;
-DROP TRIGGER IF EXISTS tracking_observations_identity_scope_update;
-DROP TRIGGER IF EXISTS tracking_observations_identity_scope_insert;
-DROP TRIGGER IF EXISTS tracking_observations_absence_coverage_update;
-DROP TRIGGER IF EXISTS tracking_observations_absence_coverage_insert;
 
 -- Materialize the old rows with the external-record identity beside the
 -- observation identity. This makes the copy decision explicit and avoids
@@ -154,7 +192,7 @@ CREATE TABLE tracking_observations (
     UNIQUE (external_record_id, dimension, observed_at)
 );
 
-INSERT OR IGNORE INTO tracking_observation_quarantine (
+INSERT INTO tracking_observation_quarantine (
     id, original_observation_id, reason, original_external_record_id,
     original_media_identity_id, original_connection_id, original_root_id,
     dimension, original_status, original_evidence_json, coverage_id,
@@ -167,7 +205,8 @@ SELECT 'tracking-quarantine:' || id, id, quarantine_reason,
        coverage_max_age_seconds, observed_at, registered_at, imported_at,
        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 4
 FROM d05_tracking_legacy
-WHERE quarantine_reason IS NOT NULL;
+WHERE quarantine_reason IS NOT NULL
+ON CONFLICT (original_observation_id) DO NOTHING;
 
 INSERT INTO tracking_observations (
     id, external_record_id, media_identity_id, connection_id, root_id, dimension,
@@ -182,7 +221,12 @@ SELECT id, external_record_id,
        derived_connection_id, root_id, dimension, status, evidence_json,
        coverage_id, coverage_max_age_seconds, observed_at, registered_at, imported_at
 FROM d05_tracking_legacy
-WHERE quarantine_reason IS NULL;
+WHERE quarantine_reason IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM tracking_observation_quarantine AS quarantine
+      WHERE quarantine.original_observation_id = d05_tracking_legacy.id
+  );
 DROP TABLE d05_tracking_legacy;
 DROP TABLE tracking_observations_legacy;
 

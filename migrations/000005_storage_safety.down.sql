@@ -5,8 +5,58 @@
 PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
 
-DROP TRIGGER IF EXISTS tracking_observation_quarantine_immutable_delete;
-DROP TRIGGER IF EXISTS tracking_observation_quarantine_immutable_update;
+-- A direct v5 -> v4 downgrade also removes the target table and action-run
+-- CAS column. Neutralize approval-bearing work before that information is
+-- removed so the v4 runtime cannot resume it as an ordinary janitor claim.
+UPDATE action_runs
+SET state = 'needs_review',
+    claimed_by = NULL,
+    lease_until = NULL,
+    version = version + 1,
+    outcome_json = json_object(
+        'reason', 'approval_requires_new_review_after_downgrade',
+        'previous_state', state,
+        'previous_outcome', outcome_json
+    ),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id IN (
+    SELECT approval_action_run_id
+    FROM janitor_records
+    WHERE approval_plan_id IS NOT NULL
+       OR approval_plan_revision IS NOT NULL
+       OR approval_plan_digest IS NOT NULL
+       OR approval_decision_id IS NOT NULL
+       OR approval_action_run_id IS NOT NULL
+       OR approved_entry_version IS NOT NULL
+       OR approval_action_run_version IS NOT NULL
+)
+  AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded', 'needs_review');
+
+UPDATE janitor_records
+SET state = 'held',
+    claimed_by = NULL,
+    lease_until = NULL,
+    version = version + 1,
+    outcome_json = json_object(
+        'reason', 'approval_requires_new_review_after_downgrade',
+        'previous_state', state,
+        'previous_outcome', outcome_json
+    ),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE (
+       approval_plan_id IS NOT NULL
+    OR approval_plan_revision IS NOT NULL
+    OR approval_plan_digest IS NOT NULL
+    OR approval_decision_id IS NOT NULL
+    OR approval_action_run_id IS NOT NULL
+    OR approved_entry_version IS NOT NULL
+    OR approval_action_run_version IS NOT NULL
+)
+  AND state IN ('queued', 'running', 'waiting_dependency', 'reconciling');
+
+DROP TRIGGER IF EXISTS tracking_observations_quarantine_id_guard_insert;
+DROP TRIGGER IF EXISTS tracking_observations_quarantine_id_guard_update;
+DROP TRIGGER IF EXISTS janitor_records_generic_claim_requires_exact_approval;
 DROP TRIGGER IF EXISTS external_records_tracking_scope_update;
 DROP TRIGGER IF EXISTS tracking_observations_connection_required_update;
 DROP TRIGGER IF EXISTS tracking_observations_connection_required_insert;
@@ -66,6 +116,24 @@ DROP TRIGGER IF EXISTS janitor_records_finish_trash_entry;
 -- v4 approval columns remain because 000004 introduced them; only the v5
 -- action-run CAS column is removed here.
 ALTER TABLE janitor_records DROP COLUMN approval_action_run_version;
+
+-- The v4-compatible guard keeps approval-bearing rows out of the ordinary
+-- janitor claim even after the v5 CAS column has been removed.
+CREATE TRIGGER janitor_records_generic_claim_requires_exact_approval
+BEFORE UPDATE OF state ON janitor_records
+WHEN NEW.state = 'running'
+ AND OLD.state <> 'running'
+ AND (
+       OLD.approval_plan_id IS NOT NULL
+    OR OLD.approval_plan_revision IS NOT NULL
+    OR OLD.approval_plan_digest IS NOT NULL
+    OR OLD.approval_decision_id IS NOT NULL
+    OR OLD.approval_action_run_id IS NOT NULL
+    OR OLD.approved_entry_version IS NOT NULL
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'approval-bearing janitor requires an exact approved claim');
+END;
 
 CREATE TRIGGER tracking_observations_connection_scope_insert
 BEFORE INSERT ON tracking_observations
@@ -147,6 +215,31 @@ WHEN NEW.status = 'absent'
  )
 BEGIN
     SELECT RAISE(ABORT, 'absent tracking observation requires matching fresh complete coverage');
+END;
+
+-- Quarantine rows are durable evidence even while the active v4 table remains
+-- nullable. Prevent an older writer from reusing their observation identity;
+-- the v5 upgrade preflight compares any bypassed row and fails closed before
+-- dropping either version of the evidence.
+CREATE TRIGGER tracking_observations_quarantine_id_guard_insert
+BEFORE INSERT ON tracking_observations
+WHEN EXISTS (
+    SELECT 1 FROM tracking_observation_quarantine
+    WHERE original_observation_id = NEW.id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'tracking observation identity is reserved by quarantine');
+END;
+
+CREATE TRIGGER tracking_observations_quarantine_id_guard_update
+BEFORE UPDATE OF id ON tracking_observations
+WHEN NEW.id IS NOT OLD.id
+ AND EXISTS (
+    SELECT 1 FROM tracking_observation_quarantine
+    WHERE original_observation_id = NEW.id
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'tracking observation identity is reserved by quarantine');
 END;
 
 CREATE TRIGGER janitor_records_claim_trash_entry

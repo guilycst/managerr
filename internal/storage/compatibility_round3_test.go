@@ -107,8 +107,8 @@ func TestPopulatedLegacyTrackingAndJanitorUpgrade(t *testing.T) {
 			if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&schemaVersion); err != nil {
 				t.Fatal(err)
 			}
-			if schemaVersion != 5 {
-				t.Fatalf("schema version = %d, want 5", schemaVersion)
+			if schemaVersion != 6 {
+				t.Fatalf("schema version = %d, want 6", schemaVersion)
 			}
 			assertNoForeignKeyViolations(t, upgraded.DB())
 
@@ -433,16 +433,6 @@ func TestApprovedEarlyPurgeRequiresExactApprovalAndEntryVersion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := queries.CreateReviewDecision(ctx, &sqlc.CreateReviewDecisionParams{
-		ID: "early-decision", PlanID: "early-plan", PlanRevision: 1, PlanDigest: "early-digest", Decision: "approve", Actor: "unauthenticated", IdempotencyScope: "early-review", IdempotencyKey: "early-key", CreatedAt: legacyFixtureTime,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := queries.CreateActionRun(ctx, &sqlc.CreateActionRunParams{
-		ID: "early-action-run", PlanID: "early-plan", PlanRevision: 1, PlanDigest: "early-digest", State: "queued", DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := queries.CreateTrashEntry(ctx, &sqlc.CreateTrashEntryParams{
 		ID: "early-entry", RootID: "early-trash-root", State: "trashed", OriginalPrefix: "original/early", TrashPrefix: "trash/early", ManifestJson: `[{"path":"movie.mkv"}]`, RetentionSeconds: 3600, TrashedAt: sql.NullString{String: legacyFixtureTime, Valid: true}, ExpiresAt: "2026-09-20T00:00:00Z", ClientStateJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
 	}); err != nil {
@@ -450,6 +440,16 @@ func TestApprovedEarlyPurgeRequiresExactApprovalAndEntryVersion(t *testing.T) {
 	}
 	if _, err := queries.CreateEarlyPurgePlanTarget(ctx, &sqlc.CreateEarlyPurgePlanTargetParams{
 		PlanID: "early-plan", Revision: 1, PlanDigest: "early-digest", IntentKind: "fs.delete", TrashEntryID: "early-entry", TrashEntryVersion: 1, ManifestJson: `[{"path":"movie.mkv"}]`, CreatedAt: legacyFixtureTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queries.CreateReviewDecision(ctx, &sqlc.CreateReviewDecisionParams{
+		ID: "early-decision", PlanID: "early-plan", PlanRevision: 1, PlanDigest: "early-digest", Decision: "approve", Actor: "unauthenticated", IdempotencyScope: "early-review", IdempotencyKey: "early-key", CreatedAt: legacyFixtureTime,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queries.CreateActionRun(ctx, &sqlc.CreateActionRunParams{
+		ID: "early-action-run", PlanID: "early-plan", PlanRevision: 1, PlanDigest: "early-digest", State: "queued", DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -67,8 +67,8 @@ func TestRound4TrackingUpgradeQuarantinesFalseAndUnscopedRows(t *testing.T) {
 	if err := upgraded.DB().QueryRow("SELECT version FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("schema version = %d, want 5", version)
+	if version != 6 {
+		t.Fatalf("schema version = %d, want 6", version)
 	}
 
 	active, err := upgraded.Queries().ListTrackingObservations(context.Background(), &sqlc.ListTrackingObservationsParams{})
@@ -364,9 +364,9 @@ func TestRound4MigrationDownRestoresV4Shape(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
-	if err := runner.Steps(-1); err != nil {
+	if err := runner.Steps(-2); err != nil {
 		_, _ = runner.Close()
-		t.Fatalf("v5 down migration: %v", err)
+		t.Fatalf("v6/v5 down migrations: %v", err)
 	}
 	sourceErr, databaseErr := runner.Close()
 	if sourceErr != nil || databaseErr != nil {
@@ -445,16 +445,16 @@ func seedRound4EarlyPurge(t *testing.T, store *Store, suffix, actionState string
 	if _, err := store.Queries().CreateActionPlanRevision(ctx, &sqlc.CreateActionPlanRevisionParams{PlanID: fixture.planID, Revision: 1, Digest: fixture.digest, State: "ready", InputJson: `{}`, PreconditionsJson: `{}`, CapabilitiesJson: `[]`, ManifestJson: `[{"path":"movie.mkv"}]`, CreatedAt: legacyFixtureTime, ExpiresAt: "2026-09-20T00:00:00Z", ReadyAt: sql.NullString{String: legacyFixtureTime, Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Queries().CreateReviewDecision(ctx, &sqlc.CreateReviewDecisionParams{ID: fixture.decisionID, PlanID: fixture.planID, PlanRevision: 1, PlanDigest: fixture.digest, Decision: "approve", Actor: "unauthenticated", IdempotencyScope: "round4-" + suffix, IdempotencyKey: "review", CreatedAt: legacyFixtureTime}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Queries().CreateActionRun(ctx, &sqlc.CreateActionRunParams{ID: fixture.actionRunID, PlanID: fixture.planID, PlanRevision: 1, PlanDigest: fixture.digest, State: actionState, DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.Queries().CreateTrashEntry(ctx, &sqlc.CreateTrashEntryParams{ID: fixture.entryID, RootID: "round4-" + suffix + "-root", State: "trashed", OriginalPrefix: "original/" + suffix, TrashPrefix: "trash/" + suffix, ManifestJson: `[{"path":"movie.mkv"}]`, RetentionSeconds: 3600, TrashedAt: sql.NullString{String: legacyFixtureTime, Valid: true}, ExpiresAt: "2026-09-20T00:00:00Z", ClientStateJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Queries().CreateEarlyPurgePlanTarget(ctx, &sqlc.CreateEarlyPurgePlanTargetParams{PlanID: fixture.planID, Revision: 1, PlanDigest: fixture.digest, IntentKind: "fs.delete", TrashEntryID: fixture.entryID, TrashEntryVersion: 1, ManifestJson: `[{"path":"movie.mkv"}]`, CreatedAt: legacyFixtureTime}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateReviewDecision(ctx, &sqlc.CreateReviewDecisionParams{ID: fixture.decisionID, PlanID: fixture.planID, PlanRevision: 1, PlanDigest: fixture.digest, Decision: "approve", Actor: "unauthenticated", IdempotencyScope: "round4-" + suffix, IdempotencyKey: "review", CreatedAt: legacyFixtureTime}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionRun(ctx, &sqlc.CreateActionRunParams{ID: fixture.actionRunID, PlanID: fixture.planID, PlanRevision: 1, PlanDigest: fixture.digest, State: actionState, DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Queries().CreateJanitorRecord(ctx, &sqlc.CreateJanitorRecordParams{ID: fixture.janitorID, TrashEntryID: fixture.entryID, Operation: "purge", State: "queued", OutcomeJson: `{}`, CreatedAt: legacyFixtureTime, UpdatedAt: legacyFixtureTime}); err != nil {
@@ -505,16 +505,16 @@ func assertRound4EarlyPurgePendingState(t *testing.T, store *Store, fixture roun
 }
 
 func TestRound4MigrationHistoryIsImmutable(t *testing.T) {
-	for _, name := range []string{"000001_initial.up.sql", "000003_storage_contract.up.sql", "000004_storage_compatibility.up.sql"} {
-		var expected string
-		switch name {
-		case "000001_initial.up.sql":
-			expected = "1b5bd13d2184f5109b5483026783466ad1f5551c377fef174500496f34aacead"
-		case "000003_storage_contract.up.sql":
-			expected = "502c484fb39e822f047ea1ad05697b13ce30ed1d1bb8835d73183bbef7f80393"
-		case "000004_storage_compatibility.up.sql":
-			expected = "3c77b61d8f216f0ae985f9e244ff37cde5b6c6e41a2d6c73bf093f182edc6b2c"
-		}
+	expectedDigests := map[string]string{
+		"000001_initial.up.sql":               "1b5bd13d2184f5109b5483026783466ad1f5551c377fef174500496f34aacead",
+		"000003_storage_contract.up.sql":      "502c484fb39e822f047ea1ad05697b13ce30ed1d1bb8835d73183bbef7f80393",
+		"000004_storage_compatibility.up.sql": "3c77b61d8f216f0ae985f9e244ff37cde5b6c6e41a2d6c73bf093f182edc6b2c",
+		"000005_storage_safety.up.sql":        "dc394314e4e13eff00976028cedb0110b222eb30a5afe8bbef79a0e6156a65bf",
+		"000005_storage_safety.down.sql":      "1ae04987891fd42f5b4b3976666b97a34144863c0826d3e6efa873f4ce1b3781",
+		"000006_approval_safety.up.sql":       "145c1726d20277a72402222204fbc581fafc62380429d20a116126a038b618a9",
+		"000006_approval_safety.down.sql":     "c172ff330989cb1eeb6d98af7923daaababe036b5d6d1d9e406da4622fccae28",
+	}
+	for name, expected := range expectedDigests {
 		data, err := fs.ReadFile(migrations.FS, name)
 		if err != nil {
 			t.Fatal(err)
