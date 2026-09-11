@@ -378,18 +378,22 @@
       }
     },
     "D-01": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d01_implementer",
-      "baseSha": "bc75aacbfda920272618d8e76118b4bc5f10df23",
+      "baseSha": "563afd8ca729977968223296fd2e0d5bb59e6e5d",
       "integratedSha": null,
-      "implementationCommit": "1a469f858b82b0f78b2d6d48c5e50999cdfdf00f",
+      "implementationCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
       "evidence": [
         "docs/execution/handoffs/D-01.md",
         "docs/execution/handoffs/D-01-review-round1.md",
         "docs/execution/handoffs/D-01-review-round2.md",
         "docs/execution/handoffs/D-01-review-round3.md",
         "docs/execution/handoffs/D-01-review-round4.md",
+        "docs/execution/handoffs/D-01-review-round5.md",
         "internal/storage/store_test.go",
+        "internal/storage/compatibility_round5_test.go",
+        "c688f2cc5fcd59515943fb6e5c4baca361dca3b6 D-01 round-five product",
+        "8c2d76cc4927af04a0d6837d0be8e12fbb97518c D-01 round-five handoff",
         "./scripts/generate.sh --check",
         "GOWORK=off go mod verify"
       ],
@@ -444,8 +448,8 @@
           "reviewer": "/root/d01_reviewer",
           "commit": null,
           "status": "pending",
-          "correctionCommit": null,
-          "sourceCommit": "1a469f858b82b0f78b2d6d48c5e50999cdfdf00f",
+          "correctionCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
+          "sourceCommit": "c688f2cc5fcd59515943fb6e5c4baca361dca3b6",
           "receipt": "docs/execution/handoffs/D-01-review-round5.md"
         }
       ],
@@ -465,7 +469,7 @@
           "A-43",
           "A-45"
         ],
-        "reviewPath": "docs/execution/handoffs/D-01-review-round4.md",
+        "reviewPath": "docs/execution/handoffs/D-01-review-round5.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
