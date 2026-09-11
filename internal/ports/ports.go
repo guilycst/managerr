@@ -269,6 +269,10 @@ type FilesystemObservation struct {
 
 type FilesystemReadPort interface {
 	Enumerate(ctx context.Context, rootID domain.ConfigID, relativePrefix string, limit int) (Page[domain.FileManifestEntry], error)
+	// EnumeratePage resumes a bounded observation using the opaque cursor from
+	// the previous page. Implementations must reject cursors from a changed
+	// directory snapshot rather than silently mixing evidence.
+	EnumeratePage(ctx context.Context, rootID domain.ConfigID, relativePrefix, cursor string, limit int) (Page[domain.FileManifestEntry], error)
 	Stat(ctx context.Context, target domain.FileTarget) (FilesystemObservation, error)
 	Hash(ctx context.Context, target domain.FileTarget) (string, error)
 	Capabilities(ctx context.Context, rootID domain.ConfigID) ([]domain.Capability, error)
