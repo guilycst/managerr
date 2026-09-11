@@ -181,6 +181,12 @@ type DownloadObservation struct {
 	MappedPath    *domain.FileTarget
 	Queue         *QueueObservation
 	History       *HistoryObservation
+
+	// These fields retain exact-name parameter presence across queue/history
+	// merging. An empty or unusable exact drone parameter must not turn back
+	// into the numeric fallback merely because the other view lacks it.
+	droneParameterPresent bool
+	droneParameterUsable  bool
 }
 
 // DetailedPage is the adapter-specific bounded page returned by ListDetailed.
@@ -571,12 +577,7 @@ func mergeObservation(existing *DownloadObservation, incoming DownloadObservatio
 		existing.ContentPath = incoming.ContentPath
 		existing.MappedPath = cloneFileTarget(incoming.MappedPath)
 	}
-	if existing.Drone == "" || (existing.ArrDownloadID == nzbIDString(existing.NZBID) && incoming.Drone != "") {
-		existing.Drone = incoming.Drone
-	}
-	if existing.ArrDownloadID == "" || (existing.ArrDownloadID == nzbIDString(existing.NZBID) && incoming.Drone != "") {
-		existing.ArrDownloadID = incoming.ArrDownloadID
-	}
+	mergeDroneEvidence(existing, &incoming)
 	if existing.Item.Name == "" {
 		existing.Item.Name = incoming.Item.Name
 	}
@@ -589,6 +590,28 @@ func mergeObservation(existing *DownloadObservation, incoming DownloadObservatio
 	}
 	if existing.Item.Descriptor == nil || (!existing.Item.Descriptor.Available && incoming.Item.Descriptor != nil && incoming.Item.Descriptor.Available) {
 		existing.Item.Descriptor = incoming.Item.Descriptor
+	}
+}
+
+func mergeDroneEvidence(existing, incoming *DownloadObservation) {
+	if !existing.droneParameterPresent && !incoming.droneParameterPresent {
+		return
+	}
+	if existing.droneParameterPresent && incoming.droneParameterPresent {
+		if !existing.droneParameterUsable || !incoming.droneParameterUsable || existing.Drone != incoming.Drone {
+			existing.Drone = ""
+			existing.ArrDownloadID = ""
+			existing.droneParameterPresent = true
+			existing.droneParameterUsable = false
+			return
+		}
+		return
+	}
+	if !existing.droneParameterPresent {
+		existing.droneParameterPresent = incoming.droneParameterPresent
+		existing.droneParameterUsable = incoming.droneParameterUsable
+		existing.Drone = incoming.Drone
+		existing.ArrDownloadID = incoming.ArrDownloadID
 	}
 }
 
@@ -670,13 +693,18 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 		state, done, known = "unknown", false, false
 	}
 	progress, progressKnown := queueProgress(record)
-	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
+	droneStatus := parameterValueStatus(record.Parameters, "drone")
+	drone := usableParameterValue(droneStatus)
+	arrDownloadID := id
+	if droneStatus.Present {
+		arrDownloadID = drone
+	}
 	observation := DownloadObservation{
 		NZBID: effectiveID, HistoryID: record.DeprecatedID, Kind: record.Kind,
 		NZBFilename: record.NZBFilename, NZBName: name, DestDir: record.DestDir,
 		FinalDir: record.FinalDir, ContentPath: firstNonEmpty(record.FinalDir, record.DestDir),
-		Drone: drone, ArrDownloadID: firstNonEmpty(drone, id),
-		Queue: queueObservation(record),
+		Drone: drone, ArrDownloadID: arrDownloadID,
+		Queue: queueObservation(record), droneParameterPresent: droneStatus.Present, droneParameterUsable: droneStatus.Usable,
 	}
 	observation.ScopedIdentity = client.ScopedIdentity(id)
 	observation.Item = ports.DownloadItem{ExternalID: id, Name: name, Protocol: "nzbget", State: state, Progress: progress, ProcessingDone: done, Category: record.Category}
@@ -707,7 +735,7 @@ func (client *Client) observeQueue(ctx context.Context, connectionID domain.Conf
 	if observation.ArrDownloadID == "" {
 		reasons = append(reasons, "arr_download_id_unknown")
 	}
-	if parametersMalformed(record.Parameters) || !droneValid {
+	if parametersMalformed(record.Parameters) || (droneStatus.Present && !droneStatus.Usable) {
 		reasons = append(reasons, "parameters_malformed")
 	}
 	reasons = append(reasons, client.mapObservationPath(&observation)...)
@@ -733,13 +761,18 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 		state, done, known, statusReason = "unknown", false, false, "identity_invalid"
 	}
 	progress := historyProgress(record, done)
-	drone, droneValid := parameterValueStatus(record.Parameters, "drone")
+	droneStatus := parameterValueStatus(record.Parameters, "drone")
+	drone := usableParameterValue(droneStatus)
+	arrDownloadID := id
+	if droneStatus.Present {
+		arrDownloadID = drone
+	}
 	observation := DownloadObservation{
 		NZBID: effectiveID, HistoryID: record.DeprecatedID, Kind: record.Kind,
 		NZBFilename: record.NZBFilename, NZBName: name, DestDir: record.DestDir,
 		FinalDir: record.FinalDir, ContentPath: firstNonEmpty(record.FinalDir, record.DestDir),
-		Drone: drone, ArrDownloadID: firstNonEmpty(drone, id),
-		History: historyObservation(record),
+		Drone: drone, ArrDownloadID: arrDownloadID,
+		History: historyObservation(record), droneParameterPresent: droneStatus.Present, droneParameterUsable: droneStatus.Usable,
 	}
 	if record.HistoryTime > 0 {
 		when, valid := timestampValue(record.HistoryTime)
@@ -777,7 +810,7 @@ func (client *Client) observeHistory(ctx context.Context, connectionID domain.Co
 	if observation.ArrDownloadID == "" {
 		reasons = append(reasons, "arr_download_id_unknown")
 	}
-	if parametersMalformed(record.Parameters) || !droneValid {
+	if parametersMalformed(record.Parameters) || (droneStatus.Present && !droneStatus.Usable) {
 		reasons = append(reasons, "parameters_malformed")
 	}
 	reasons = append(reasons, client.mapObservationPath(&observation)...)
@@ -841,44 +874,61 @@ func parameterObservations(parameters []rpcParameter) []ParameterObservation {
 	if len(parameters) == 0 {
 		return nil
 	}
+	droneCount := 0
+	for _, parameter := range parameters {
+		if parameter.Name == "drone" {
+			droneCount++
+		}
+	}
 	result := make([]ParameterObservation, 0, len(parameters))
 	for _, parameter := range parameters {
 		value, ok := rawString(parameter.Value)
 		if !ok {
 			continue
 		}
-		result = append(result, ParameterObservation{Name: parameter.Name, Value: sanitizeParameterValue(parameter.Name, value)})
+		result = append(result, ParameterObservation{Name: parameter.Name, Value: sanitizeParameterValue(parameter.Name, value, droneCount == 1)})
 	}
 	return result
 }
 
-func parameterValueStatus(parameters []rpcParameter, name string) (string, bool) {
-	var value string
-	found := false
+type parameterValueObservation struct {
+	Value   string
+	Present bool
+	Usable  bool
+}
+
+func parameterValueStatus(parameters []rpcParameter, name string) parameterValueObservation {
+	var observation parameterValueObservation
 	for _, parameter := range parameters {
 		if parameter.Name != name {
 			continue
 		}
-		candidate, ok := rawString(parameter.Value)
-		if !ok {
-			return "", false
+		if observation.Present {
+			// Radarr's SingleOrDefault treats every second exact-name value as
+			// ambiguous, including an equal duplicate.
+			observation.Usable = false
+			continue
 		}
-		if candidate == "" {
+		observation.Present = true
+		candidate, ok := rawString(parameter.Value)
+		if !ok || candidate == "" {
 			continue
 		}
 		candidate, ok = safeCorrelationValue(candidate)
 		if !ok {
-			return "", false
+			continue
 		}
-		if found && value != candidate {
-			return "", false
-		}
-		if !found {
-			value = candidate
-			found = true
-		}
+		observation.Value = candidate
+		observation.Usable = true
 	}
-	return value, true
+	return observation
+}
+
+func usableParameterValue(observation parameterValueObservation) string {
+	if !observation.Usable {
+		return ""
+	}
+	return observation.Value
 }
 
 func parametersMalformed(parameters []rpcParameter) bool {
@@ -890,8 +940,8 @@ func parametersMalformed(parameters []rpcParameter) bool {
 	return false
 }
 
-func sanitizeParameterValue(name, value string) string {
-	if name == "drone" {
+func sanitizeParameterValue(name, value string, unique bool) string {
+	if name == "drone" && unique {
 		if safe, ok := safeCorrelationValue(value); ok {
 			return safe
 		}

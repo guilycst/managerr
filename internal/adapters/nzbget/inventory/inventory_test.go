@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -357,7 +356,7 @@ func TestRPCEnvelopeAndParameterEvidence(t *testing.T) {
 	client, closeServer := newFixtureClient(t, handler, "nzb-parameters", nil)
 	defer closeServer()
 	page, err := client.ListDetailed(context.Background(), "nzb-parameters", "", 1)
-	if err != nil || len(page.Items) != 1 || page.Items[0].ArrDownloadID != "91" || !hasReason(page.Coverage, "item_0_parameters_malformed") || page.Coverage.Completeness != domain.CompletenessPartial {
+	if err != nil || len(page.Items) != 1 || page.Items[0].ArrDownloadID != "" || !hasReason(page.Coverage, "item_0_parameters_malformed") || page.Coverage.Completeness != domain.CompletenessPartial {
 		t.Fatalf("malformed parameter evidence = %#v, %v", page, err)
 	}
 }
@@ -477,7 +476,7 @@ func TestNumericDroneDoesNotFabricateArrIdentity(t *testing.T) {
 		t.Fatalf("numeric drone page = %#v, %v", page, err)
 	}
 	item := page.Items[0]
-	if item.Drone != "" || item.ArrDownloadID != "902" || !hasReason(page.Coverage, "item_0_parameters_malformed") || len(item.Queue.Parameters) != 0 {
+	if item.Drone != "" || item.ArrDownloadID != "" || !hasReason(page.Coverage, "item_0_parameters_malformed") || len(item.Queue.Parameters) != 0 {
 		t.Fatalf("numeric drone correlation = %#v, coverage=%#v", item, page.Coverage)
 	}
 }
@@ -515,7 +514,7 @@ func TestDetailedSecretEvidenceIsRedacted(t *testing.T) {
 	if item.Queue == nil || item.History == nil || item.Queue.PostInfoText != "[redacted]" || item.History.URL != "https://example.test" {
 		t.Fatalf("redacted detail fields = %#v", item)
 	}
-	if item.Drone != "" || item.ArrDownloadID != "903" {
+	if item.Drone != "" || item.ArrDownloadID != "" {
 		t.Fatalf("secret-bearing drone was used as correlation: %#v", item)
 	}
 	for _, parameter := range append(item.Queue.Parameters, item.History.Parameters...) {
@@ -537,15 +536,18 @@ func TestDroneParameterNameSemanticsAreExact(t *testing.T) {
 		{"NZBID": 913, "NZBName": "Duplicate Equal Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-equal"}, {"Name": "drone", "Value": "arr-equal"}}},
 		{"NZBID": 914, "NZBName": "Duplicate Conflict Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-first"}, {"Name": "drone", "Value": "arr-second"}}},
 		{"NZBID": 919, "NZBName": "Pinned Arr Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "0123456789abcdef0123456789abcdef"}}},
+		{"NZBID": 920, "NZBName": "Empty Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": ""}}},
 	}
 	history := []map[string]any{
 		{"NZBID": 915, "ID": 915, "Kind": "NZB", "NZBName": "History Uppercase Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "DRONE", "Value": "history-wrong-case"}}},
 		{"NZBID": 916, "ID": 916, "Kind": "NZB", "NZBName": "History Exact Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "arr-history"}}},
+		{"NZBID": 921, "ID": 921, "Kind": "NZB", "NZBName": "History Duplicate Equal Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": "0123456789abcdef0123456789abcdef"}, {"Name": "drone", "Value": "0123456789abcdef0123456789abcdef"}}},
+		{"NZBID": 922, "ID": 922, "Kind": "NZB", "NZBName": "History Empty Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": ""}}},
 	}
 	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
 	client, closeServer := newFixtureClient(t, handler, "nzb-drone-name", nil)
 	defer closeServer()
-	page, err := client.ListDetailed(context.Background(), "nzb-drone-name", "", 10)
+	page, err := client.ListDetailed(context.Background(), "nzb-drone-name", "", 20)
 	if err != nil {
 		t.Fatalf("exact drone page: %v", err)
 	}
@@ -558,11 +560,14 @@ func TestDroneParameterNameSemanticsAreExact(t *testing.T) {
 		{id: 910, arrID: "910"},
 		{id: 911, arrID: "911"},
 		{id: 912, arrID: "912"},
-		{id: 913, arrID: "arr-equal", drone: "arr-equal"},
-		{id: 914, arrID: "914", partial: true},
+		{id: 913, partial: true},
+		{id: 914, partial: true},
 		{id: 915, arrID: "915"},
 		{id: 916, arrID: "arr-history", drone: "arr-history"},
 		{id: 919, arrID: "0123456789abcdef0123456789abcdef", drone: "0123456789abcdef0123456789abcdef"},
+		{id: 920, partial: true},
+		{id: 921, partial: true},
+		{id: 922, partial: true},
 	} {
 		var found *DownloadObservation
 		for index := range page.Items {
@@ -598,7 +603,7 @@ func TestOpaqueDroneDoesNotBypassCorrelationRedaction(t *testing.T) {
 		t.Fatalf("opaque drone page = %#v, %v", page, err)
 	}
 	for _, item := range page.Items {
-		if item.Drone != "" || item.ArrDownloadID != strconv.FormatInt(item.NZBID, 10) {
+		if item.Drone != "" || item.ArrDownloadID != "" {
 			t.Errorf("opaque drone became correlation for %#v", item)
 		}
 	}
@@ -607,6 +612,35 @@ func TestOpaqueDroneDoesNotBypassCorrelationRedaction(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprintf("%#v", page), sentinel) {
 		t.Fatalf("opaque drone leaked into detailed evidence: %#v", page)
+	}
+}
+
+func TestExactDronePresenceSurvivesQueueHistoryMerge(t *testing.T) {
+	const valid = "0123456789abcdef0123456789abcdef"
+	queue := []map[string]any{
+		{"NZBID": 1001, "NZBName": "Queue Empty Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": ""}}},
+		{"NZBID": 1002, "NZBName": "Queue No Drone", "Status": "QUEUED", "DestDir": "/downloads"},
+		{"NZBID": 1003, "NZBName": "Queue Duplicate Drone", "Status": "QUEUED", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": valid}, {"Name": "drone", "Value": valid}}},
+	}
+	history := []map[string]any{
+		{"NZBID": 1001, "ID": 1001, "Kind": "NZB", "NZBName": "Queue Empty Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads"},
+		{"NZBID": 1002, "ID": 1002, "Kind": "NZB", "NZBName": "Queue No Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads", "Parameters": []map[string]any{{"Name": "drone", "Value": ""}}},
+		{"NZBID": 1003, "ID": 1003, "Kind": "NZB", "NZBName": "Queue Duplicate Drone", "Status": "SUCCESS/ALL", "DestDir": "/downloads"},
+	}
+	handler := &rpcFixtureHandler{queue: rpcResult(t, queue), history: rpcResult(t, history), status: map[string]int{}, malformed: map[string]bool{}}
+	client, closeServer := newFixtureClient(t, handler, "nzb-drone-merge", nil)
+	defer closeServer()
+	page, err := client.ListDetailed(context.Background(), "nzb-drone-merge", "", 10)
+	if err != nil || len(page.Items) != 3 {
+		t.Fatalf("merged exact drone page = %#v, %v", page, err)
+	}
+	for index, item := range page.Items {
+		if item.ArrDownloadID != "" || item.Drone != "" {
+			t.Errorf("merged exact drone fallback for item %d = %#v", index, item)
+		}
+		if !hasReason(page.Coverage, fmt.Sprintf("item_%d_parameters_malformed", index)) {
+			t.Errorf("merged exact drone item %d missing partial reason: %#v", index, page.Coverage)
+		}
 	}
 }
 
