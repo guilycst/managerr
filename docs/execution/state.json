@@ -55,6 +55,17 @@
           "GOWORK=off go tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint version"
         ],
         "blocker": "Vacuum policy, lint configuration, architecture import checks and the versioned hook are still pending"
+      },
+      {
+        "sha": "9d85890d8c8787e9962d7b19ee0a778f975c8a19",
+        "message": "ci(api): enforce bundled Vacuum validation",
+        "checks": [
+          "./scripts/check-api.sh",
+          "./scripts/generate.sh --check",
+          "Vacuum v0.30.0 with zero warnings or errors",
+          "git diff --check"
+        ],
+        "blocker": "Lint, architecture import checks and the versioned hook are still pending"
       }
     ],
     "requiredChecks": [
