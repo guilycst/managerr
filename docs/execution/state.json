@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c01_openapi_frozen_c02_ready",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "C-02"
+  ],
   "openGates": [
     "G-01",
     "G-02",
@@ -178,12 +180,33 @@
       }
     },
     "C-02": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/c02_implementer",
+      "baseSha": "36156ee0dcb61d7859753b62c5f5cf655e77b9e3",
       "integratedSha": null,
       "evidence": [],
-      "review": null
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "go.mod",
+          "go.sum",
+          "tools/",
+          "ui/go.mod",
+          "ui/go.sum",
+          "scripts/generate.sh",
+          ".github/workflows/checks.yml"
+        ],
+        "expectedChecks": [
+          "A-43",
+          "A-45"
+        ],
+        "reviewPath": "docs/execution/handoffs/C-02-review.md",
+        "nextReviewer": "/root/c02_reviewer"
+      }
     },
     "C-03": {
       "status": "planned",
@@ -466,7 +489,7 @@
       "review": null
     }
   },
-  "nextAction": "Dispatch C-02 module and tooling lane",
+  "nextAction": "Await C-02 implementation handoff, then dispatch independent review",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
