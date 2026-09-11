@@ -13,7 +13,7 @@
   "interviewRecord": "docs/product/interview.md",
   "taskDefinitions": "docs/execution/tasks.json",
   "resumeDocument": "docs/execution/RESUME.md",
-  "contractsStatus": "c03_domain_bootstrap_in_progress",
+  "contractsStatus": "c03_domain_bootstrap_in_review",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
     "C-03"
@@ -266,12 +266,29 @@
       ]
     },
     "C-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root",
       "baseSha": "04368e0ad286db4506717c121bb016c3f274e301",
       "integratedSha": null,
-      "evidence": [],
-      "review": null,
+      "implementationCommit": "3efefcc4fc79a0af8f1d8eaaf20e831db74b3e31",
+      "evidence": [
+        "docs/execution/handoffs/C-03.md",
+        "GOWORK=off go test ./...",
+        "GOWORK=off go test -race ./internal/...",
+        "GOWORK=off go vet ./...",
+        "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOWORK=off go test -c ./internal/...",
+        "GOWORK=off go generate ./internal/bootstrap",
+        "./scripts/generate.sh --check",
+        "git diff --check"
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/c03_reviewer",
+        "commit": "3efefcc4fc79a0af8f1d8eaaf20e831db74b3e31",
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-11",
         "model": "gpt-5.6-luna",
@@ -585,7 +602,7 @@
       "review": null
     }
   },
-  "nextAction": "Coordinator takeover of C-03, then dispatch independent review",
+  "nextAction": "Independent review of C-03 implementation commit 3efefcc4fc79a0af8f1d8eaaf20e831db74b3e31",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
