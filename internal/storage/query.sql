@@ -616,24 +616,157 @@ RETURNING *;
 -- Completes the read-only journal after its exact janitor operation has
 -- reached a terminal state. This path never dispatches an external mutation;
 -- generic action recovery and claiming remain fenced until this CAS commits.
+-- The normal terminal shape has janitor/entry one generation ahead of the
+-- action. If cancellation is requested after that terminal transaction, the
+-- action advances once while the terminal janitor and entry cannot be changed;
+-- the cancellation flag plus equal generation is the separately proven shape.
 UPDATE action_runs
 SET state = CASE
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
-         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'applied'
+         AND (SELECT CASE
+                 WHEN json_valid(janitor.outcome_json) <> 1 THEN 'unknown'
+                 WHEN json_type(janitor.outcome_json) <> 'object' THEN 'unknown'
+                 WHEN (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'outcome') <> 1 THEN 'unknown'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'applied'
+                  AND (
+                      (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') > 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects')
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                          AND EXISTS (
+                              SELECT 1 FROM action_effects AS effect
+                              WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.effect_kind = 'fs.delete'
+                                AND effect.state = 'applied'
+                          )
+                      )
+                  )
+                     THEN 'applied'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'already_satisfied'
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') <= 1
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') <= 1
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM action_effects AS effect
+                      WHERE effect.action_run_id = janitor.approval_action_run_id
+                        AND effect.effect_kind = 'fs.delete'
+                        AND effect.state = 'applied'
+                  )
+                     THEN 'already_satisfied'
+                 ELSE 'unknown'
+               END
+              FROM janitor_records AS janitor
+              WHERE janitor.id = sqlc.arg(janitor_id)) = 'applied'
             THEN 'succeeded'
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
-         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'already_satisfied'
          AND (SELECT CASE
-                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
-                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
-                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
-                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
-                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
-                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
-                     THEN 1
-                 ELSE 0
+                 WHEN json_valid(janitor.outcome_json) <> 1 THEN 'unknown'
+                 WHEN json_type(janitor.outcome_json) <> 'object' THEN 'unknown'
+                 WHEN (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'outcome') <> 1 THEN 'unknown'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'applied'
+                  AND (
+                      (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') > 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects')
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                          AND EXISTS (
+                              SELECT 1 FROM action_effects AS effect
+                              WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.effect_kind = 'fs.delete'
+                                AND effect.state = 'applied'
+                          )
+                      )
+                  )
+                     THEN 'applied'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'already_satisfied'
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') <= 1
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') <= 1
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM action_effects AS effect
+                      WHERE effect.action_run_id = janitor.approval_action_run_id
+                        AND effect.effect_kind = 'fs.delete'
+                        AND effect.state = 'applied'
+                  )
+                     THEN 'already_satisfied'
+                 ELSE 'unknown'
                END
-              FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 1
+              FROM janitor_records AS janitor
+              WHERE janitor.id = sqlc.arg(janitor_id)) = 'already_satisfied'
             THEN 'succeeded'
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded' THEN 'needs_review'
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'failed' THEN 'failed'
@@ -645,21 +778,146 @@ SET state = CASE
     lease_until = NULL,
     outcome_json = CASE
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
-         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'applied'
+         AND (SELECT CASE
+                 WHEN json_valid(janitor.outcome_json) <> 1 THEN 'unknown'
+                 WHEN json_type(janitor.outcome_json) <> 'object' THEN 'unknown'
+                 WHEN (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'outcome') <> 1 THEN 'unknown'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'applied'
+                  AND (
+                      (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') > 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects')
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                          AND EXISTS (
+                              SELECT 1 FROM action_effects AS effect
+                              WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.state = 'applied'
+                          )
+                      )
+                  )
+                     THEN 'applied'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'already_satisfied'
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') <= 1
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') <= 1
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM action_effects AS effect
+                      WHERE effect.action_run_id = janitor.approval_action_run_id
+                        AND effect.state = 'applied'
+                  )
+                     THEN 'already_satisfied'
+                 ELSE 'unknown'
+               END
+              FROM janitor_records AS janitor
+              WHERE janitor.id = sqlc.arg(janitor_id)) = 'applied'
             THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
-         AND (SELECT json_extract(outcome_json, '$.outcome') FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'already_satisfied'
          AND (SELECT CASE
-                 WHEN (json_type(outcome_json, '$.deletedObjects') IS NULL
-                       OR (json_type(outcome_json, '$.deletedObjects') IN ('integer', 'real')
-                           AND json_extract(outcome_json, '$.deletedObjects') = 0))
-                  AND (json_type(outcome_json, '$.deleted_objects') IS NULL
-                       OR (json_type(outcome_json, '$.deleted_objects') IN ('integer', 'real')
-                           AND json_extract(outcome_json, '$.deleted_objects') = 0))
-                     THEN 1
-                 ELSE 0
+                 WHEN json_valid(janitor.outcome_json) <> 1 THEN 'unknown'
+                 WHEN json_type(janitor.outcome_json) <> 'object' THEN 'unknown'
+                 WHEN (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'outcome') <> 1 THEN 'unknown'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'applied'
+                  AND (
+                      (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') > 0
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 1
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 1
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') > 0
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects')
+                      )
+                      OR (
+                          (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                          AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                          AND EXISTS (
+                              SELECT 1 FROM action_effects AS effect
+                              WHERE effect.action_run_id = janitor.approval_action_run_id
+                                AND effect.state = 'applied'
+                          )
+                      )
+                  )
+                     THEN 'applied'
+                 WHEN (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'outcome') = 'already_satisfied'
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') <= 1
+                  AND (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') <= 1
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (
+                          (SELECT type FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 'integer'
+                          AND (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      )
+                  )
+                  AND (
+                      (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = 0
+                      OR (SELECT count(*) FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects') = 0
+                      OR (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deletedObjects') = (SELECT value FROM json_each(janitor.outcome_json) WHERE key = 'deleted_objects')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM action_effects AS effect
+                      WHERE effect.action_run_id = janitor.approval_action_run_id
+                        AND effect.state = 'applied'
+                  )
+                     THEN 'already_satisfied'
+                 ELSE 'unknown'
                END
-              FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 1
+              FROM janitor_records AS janitor
+              WHERE janitor.id = sqlc.arg(janitor_id)) = 'already_satisfied'
             THEN (SELECT outcome_json FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id))
         WHEN (SELECT state FROM janitor_records WHERE janitor_records.id = sqlc.arg(janitor_id)) = 'succeeded'
             THEN json_object('outcome', 'unknown', 'source', 'approved_purge_janitor', 'reason', 'terminal_outcome_unproven')
@@ -698,7 +956,13 @@ WHERE action_runs.id = sqlc.arg(action_run_id)
         AND janitor.approval_action_run_id = action_runs.id
         AND janitor.approved_entry_version = target.trash_entry_version
         AND janitor.approval_action_run_version IS NOT NULL
-        AND janitor.version = action_runs.version + 1
+        AND (
+            janitor.version = action_runs.version + 1
+            OR (
+                action_runs.cancellation_requested_at IS NOT NULL
+                AND janitor.version = action_runs.version
+            )
+        )
         AND plan.state = 'ready'
         AND plan.kind = 'fs.delete'
         AND revision.state = 'ready'
@@ -728,7 +992,13 @@ WHERE action_runs.id = sqlc.arg(action_run_id)
 RETURNING *;
 
 -- name: RequestActionCancellation :one
-UPDATE action_runs SET cancellation_requested_at = sqlc.arg(requested_at), version = version + 1, updated_at = sqlc.arg(updated_at)
+-- Cancellation is a durable one-shot generation change. Repeated requests
+-- return the existing row without moving a terminal-janitor binding away from
+-- the exact generation that its finalizer will consume.
+UPDATE action_runs SET
+    cancellation_requested_at = COALESCE(cancellation_requested_at, sqlc.arg(requested_at)),
+    version = version + CASE WHEN cancellation_requested_at IS NULL THEN 1 ELSE 0 END,
+    updated_at = CASE WHEN cancellation_requested_at IS NULL THEN sqlc.arg(updated_at) ELSE updated_at END
 WHERE id = sqlc.arg(id) AND state NOT IN ('succeeded', 'failed', 'cancelled', 'deadline_exceeded')
 RETURNING *;
 

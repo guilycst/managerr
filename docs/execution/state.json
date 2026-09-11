@@ -994,7 +994,7 @@
       ]
     },
     "X-03": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "71cb511a5f03727f56d4c534be7c47e8e56b9595",
       "integratedSha": null,
@@ -1021,14 +1021,21 @@
         "docs/execution/handoffs/X-03-review-round4.md",
         "5a4ceaac7307f264cdfacca126a88f319d76a842 X-03 correction round-five product",
         "58a5ecb80f5df7352be84cc6d7b33efdb5673328 X-03 correction round-five handoff",
-        "docs/execution/handoffs/X-03-correction-round5.md"
+        "docs/execution/handoffs/X-03-correction-round5.md",
+        "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548 X-03 review round-five receipt",
+        "docs/execution/handoffs/X-03-review-round5.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548",
+        "findings": [
+          "P1: caller-controlled Subtitle=true lets an .mkv with missing quality reach the manual-import POST",
+          "P1: Sonarr accepts and posts Radarr-only nested CustomFormat SelectOption.dividerAfter",
+          "P1: Radarr file movieId and Sonarr catalog episode seriesId contradictions can be rewritten into successful or complete wrong-title evidence",
+          "P2: exact duplicate Sonarr episode rows are silently accepted instead of remaining a review issue"
+        ],
         "round": 5
       },
       "dispatch": {
@@ -1047,7 +1054,7 @@
           "A-11",
           "A-16"
         ],
-        "reviewPath": "docs/execution/handoffs/X-03-review-round5.md",
+        "reviewPath": "docs/execution/handoffs/X-03-review-round6.md",
         "handoffPath": "docs/execution/handoffs/X-03.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
@@ -1055,14 +1062,12 @@
         },
         "implementationCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
         "handoffCommit": "58a5ecb80f5df7352be84cc6d7b33efdb5673328",
-        "reviewSourceCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
-        "reviewCommit": "51113716a3b9fccc20df26a097d634f758b78704",
-        "correctionRound": 5,
+        "reviewSourceCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
+        "reviewCommit": "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548",
+        "correctionRound": 6,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
-        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round5.md",
-        "correctionImplementationCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
-        "correctionHandoffCommit": "58a5ecb80f5df7352be84cc6d7b33efdb5673328"
+        "correctionBaseSha": "5a4ceaac7307f264cdfacca126a88f319d76a842",
+        "correctionReviewPath": "docs/execution/handoffs/X-03-review-round6.md"
       },
       "reviewHistory": [
         {
@@ -1096,6 +1101,14 @@
           "status": "changes_requested",
           "sourceCommit": "7c2c3712fd69865d03f0a13308633fadc7ba7228",
           "receipt": "docs/execution/handoffs/X-03-review-round4.md"
+        },
+        {
+          "round": 5,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "1afbd30d4d8dbaa3f32e4d5b558366ce2ae02548",
+          "status": "changes_requested",
+          "sourceCommit": "5a4ceaac7307f264cdfacca126a88f319d76a842",
+          "receipt": "docs/execution/handoffs/X-03-review-round5.md"
         }
       ]
     },
@@ -1373,7 +1386,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent X-03 round-five review, D-01 correction round eleven, and X-04 build",
+  "nextAction": "Complete X-03 correction round six, D-01 correction round eleven, and X-04 build",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",

@@ -61,6 +61,10 @@ type Querier interface {
 	// Completes the read-only journal after its exact janitor operation has
 	// reached a terminal state. This path never dispatches an external mutation;
 	// generic action recovery and claiming remain fenced until this CAS commits.
+	// The normal terminal shape has janitor/entry one generation ahead of the
+	// action. If cancellation is requested after that terminal transaction, the
+	// action advances once while the terminal janitor and entry cannot be changed;
+	// the cancellation flag plus equal generation is the separately proven shape.
 	FinalizeApprovedPurgeAction(ctx context.Context, arg *FinalizeApprovedPurgeActionParams) (*ActionRun, error)
 	FinalizeCancelledActionAttempts(ctx context.Context, now sql.NullString) ([]*ActionAttempt, error)
 	// Cancellation is terminal for undispatched queue work. A running or
@@ -129,6 +133,9 @@ type Querier interface {
 	// The trigger on janitor_records releases the worker lease on the shared
 	// trash entry while preserving its active operation for safe reconciliation.
 	RecoverRunningJanitorRecords(ctx context.Context, now string) ([]*JanitorRecord, error)
+	// Cancellation is a durable one-shot generation change. Repeated requests
+	// return the existing row without moving a terminal-janitor binding away from
+	// the exact generation that its finalizer will consume.
 	RequestActionCancellation(ctx context.Context, arg *RequestActionCancellationParams) (*ActionRun, error)
 	RetireConnection(ctx context.Context, arg *RetireConnectionParams) (*Connection, error)
 	RetirePathMapping(ctx context.Context, arg *RetirePathMappingParams) (*PathMapping, error)
