@@ -22,8 +22,9 @@ contract lanes.
 
 No application runtime, generated consumers, runnable service, container images or
 deployments were produced. C-00 evidence is complete and the C-01 OpenAPI contract
-is under independent review; runtime behavior and live-stack acceptance are not
-claimed.
+has passed its independent round-two review in
+`docs/execution/handoffs/C-01-review-round2.md`; C-02 is the next implementation
+lane. Runtime behavior and live-stack acceptance are not claimed.
 
 ## Publication verified
 

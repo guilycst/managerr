@@ -13,11 +13,9 @@
   "interviewRecord": "docs/product/interview.md",
   "taskDefinitions": "docs/execution/tasks.json",
   "resumeDocument": "docs/execution/RESUME.md",
-  "contractsStatus": "planning_baseline_openapi_pending_C-01",
+  "contractsStatus": "c01_openapi_frozen_c02_ready",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [
-    "C-01"
-  ],
+  "activeImplementationTasks": [],
   "openGates": [
     "G-01",
     "G-02",
@@ -96,11 +94,11 @@
       }
     },
     "C-01": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root",
       "baseSha": "f39f864915800f8b28284c394a53d602e7220b33",
-      "integratedSha": null,
-      "implementationCommit": "bc0ef35",
+      "integratedSha": "ed52c5395bedf1390b26652f7ba466f5df1c9459",
+      "implementationCommit": "bc0ef3584ff650792ba6bc18df559f640eb72c7b",
       "evidence": [
         "docs/execution/handoffs/C-01.md",
         "python3 scripts/check_planning.py",
@@ -108,23 +106,17 @@
         "npx --yes @redocly/cli@1.34.3 lint api/openapi.yaml",
         "go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0",
         "temporary generated-server discriminator test",
-        "temporary generated UI client module test"
+        "temporary generated UI client module test",
+        "docs/execution/handoffs/C-01-review-round2.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
-        "reviewer": "/root/c01_reviewer",
-        "commit": "0854c58",
-        "findings": [
-          "Add explicit mappings for all action discriminator values and prove generated decode/construct behavior.",
-          "Separate action, workflow and step states; expose retry/deadline state; derive approval gates from saved plans.",
-          "Separate stable configuration IDs from runtime UUIDs; align source metadata, ETags, storage roots, options and credentials.",
-          "Declare snapshot, precondition, idempotency, async Location/parent, capacity, dependency and no-store behavior.",
-          "Require registration fields, import transfer and filesystem executors; close Jellyfin scopes; remove duplicate plan kind.",
-          "Fix validator-incompatible query/path constraints and record a reproducible isolated generation command."
-        ],
-        "round": 1,
-        "correctionCommit": "bc0ef35"
+        "status": "approved",
+        "decision": "approved",
+        "reviewer": "/root/c01_reviewer_round2",
+        "commit": "ed52c5395bedf1390b26652f7ba466f5df1c9459",
+        "findings": [],
+        "round": 2,
+        "correctionCommit": "bc0ef3584ff650792ba6bc18df559f640eb72c7b"
       },
       "reviewHistory": [
         {
@@ -133,6 +125,14 @@
           "commit": "0854c58",
           "status": "changes_requested",
           "correctionCommit": "bc0ef35"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/c01_reviewer_round2",
+          "commit": "ed52c5395bedf1390b26652f7ba466f5df1c9459",
+          "status": "approved",
+          "correctionCommit": "bc0ef3584ff650792ba6bc18df559f640eb72c7b",
+          "sourceCommit": "09d0e021881fd05e7509ac1fa796dde4ed256e46"
         }
       ],
       "dispatch": {
@@ -157,7 +157,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/C-01-review-round2.md",
         "reviewer": "/root/c01_reviewer_round2",
-        "nextReviewer": "/root/c01_reviewer_round2",
+        "nextReviewer": null,
         "previousAttempt": {
           "owner": "/root/c01_implementer",
           "status": "interrupted",
@@ -466,7 +466,7 @@
       "review": null
     }
   },
-  "nextAction": "Complete independent C-01 review before opening C-02",
+  "nextAction": "Dispatch C-02 module and tooling lane",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
