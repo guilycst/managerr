@@ -26,14 +26,23 @@ Managerr must not promise no overwrite merely from check-then-write preflight.
 
 ## Download clients and catalogs
 
-- [qBittorrent 5 WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29)
-  documents stop, payload rename, relocation, deletion flags and response semantics.
-  Treat HTTP acceptance separately from observed desired state.
-- [NZBGet API reference](https://nzbget.com/documentation/api/)
-  documents supported RPC protocols, Basic authentication and positional JSON-RPC
-  parameters. Client history/descriptor availability needs capability tests.
-- [NZBGet post-processing](https://nzbget.com/documentation/post-processing-scripts/)
-  supplies lifecycle context. Completed transfer does not necessarily mean completed unpacking.
+- [qBittorrent 5 WebUI API](https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-%28qBittorrent-5.0%29?oldformat=true)
+  is pinned to page commit `cc6579ab58f534d03b40ae0deba5755c4a342319`, blob
+  `82f67b6f5aa73ef54d4c88dcd38c695ae1191b72`, in wiki snapshot
+  `485b0ee5e6f7e037f301500c25b23833569a2266`. It documents stop, payload rename,
+  relocation, deletion flags and response semantics. Treat HTTP acceptance
+  separately from observed desired state.
+- [NZBGet history schema](https://github.com/nzbgetcom/nzbget/blob/b609226e18da11955ce8dda2c7df959258655579/docs/api/HISTORY.md)
+  is pinned to source commit `b609226e18da11955ce8dda2c7df959258655579`, blob
+  `1807fc83be9af8354801f0ddcb9d7f04da4b7219`. It documents NZBID, deprecated ID,
+  positional JSON-RPC history fields and status values. The [Radarr NZBGet
+  adapter](https://github.com/Radarr/Radarr/blob/0220f0daa9f68ffa40e5f0fe1ce4f909858ceba4/src/NzbDrone.Core/Download/Clients/Nzbget/Nzbget.cs)
+  is pinned to source commit `0220f0daa9f68ffa40e5f0fe1ce4f909858ceba4`, blob
+  `fc4cd2ac3872a6593baae50f0aea5a618d4f7d38`.
+- [NZBGet post-processing](https://github.com/nzbgetcom/nzbget/blob/b609226e18da11955ce8dda2c7df959258655579/docs/extensions/POST-PROCESSING.md)
+  is pinned to the same source commit, blob
+  `11df5abd79671266308a7eaf6da8d9ccb6f81a43`. It supplies lifecycle context.
+  Completed transfer does not necessarily mean completed unpacking.
 - Seerr inspected commit: `68c5bc8c7d8560d295387adeeee73982ea518e8f`.
   [Media route](https://github.com/seerr-team/seerr/blob/68c5bc8c7d8560d295387adeeee73982ea518e8f/server/routes/media.ts)
   provides take/skip pagination and page information in the inspected schema.
