@@ -1981,14 +1981,26 @@
       ]
     },
     "X-12": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
-      "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
+      "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
       "integratedSha": null,
       "evidence": [
-        "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed"
+        "X-10 approved at 6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+        "C-05 approved at 93b0a0c4562d29059d6a05c0c2e369882b4da094",
+        "4c665d314d8d8e3ea31e54606be228829c595a25 X-12 product migration",
+        "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3 X-12 strict UTF-8 correction",
+        "c8c1df60b4ba553721fecbc6e1eddcea0d1c806b X-12 handoff",
+        "docs/execution/handoffs/X-12.md"
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/d01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-12",
         "model": "gpt-5.6-luna",
@@ -2002,8 +2014,6 @@
           "A-04",
           "A-09",
           "A-28",
-          "A-04/A-05 inventory evidence",
-          "A-09 coverage and unknown-state semantics",
           "GOWORK=off root and standalone module tests/race/vet/mod-verify",
           "root adapter architecture boundary and generated DTO non-leakage",
           "Linux amd64/arm64 CGO-free compile checks",
@@ -2016,9 +2026,18 @@
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
           "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
-          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094"
+          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094",
+          "root-client-dependencies": "522cf5bd1ea52e20754ea52d1458947b1eef1603"
         },
-        "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e"
+        "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
+        "implementationCommit": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
+        "productCommits": [
+          "4c665d314d8d8e3ea31e54606be228829c595a25",
+          "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3"
+        ],
+        "handoffCommit": "c8c1df60b4ba553721fecbc6e1eddcea0d1c806b",
+        "reviewSourceCommit": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
+        "reviewCommit": "pending"
       }
     },
     "X-13": {
@@ -2078,7 +2097,7 @@
       }
     }
   },
-  "nextAction": "X-13 is in independent review; X-12 qBittorrent adapter remains in parallel implementation. Review both migrations before X-05 or write/workflow lanes.",
+  "nextAction": "X-12 qBittorrent and X-13 NZBGet adapter migrations are in independent review; no X-05 or write/workflow lane dispatch until both clear.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
