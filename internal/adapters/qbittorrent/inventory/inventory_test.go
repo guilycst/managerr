@@ -1123,6 +1123,183 @@ func TestLegacyProjectionDoesNotRepairInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestLegacyProjectionValidatesTypesAndDuplicateMembers(t *testing.T) {
+	v1 := strings.Repeat("a", 40)
+	v2 := strings.Repeat("b", 64)
+	tests := []struct {
+		name string
+		kind legacyProjectionKind
+		body string
+	}{
+		{name: "duplicate v1", kind: legacyProjectionInfo, body: fmt.Sprintf(`[{"infohash_v1":%q,"infohash_v1":%q}]`, v1, strings.Repeat("c", 40))},
+		{name: "duplicate v2", kind: legacyProjectionInfo, body: fmt.Sprintf(`[{"infohash_v2":%q,"infohash_v2":%q}]`, v2, strings.Repeat("d", 64))},
+		{name: "duplicate metadata", kind: legacyProjectionInfo, body: `[{"has_metadata":true,"has_metadata":false}]`},
+		{name: "escaped duplicate", kind: legacyProjectionInfo, body: fmt.Sprintf("[{\"infohash_v1\":%q,\"infohash_\\u00761\":%q}]", v1, strings.Repeat("e", 40))},
+		{name: "duplicate seeds", kind: legacyProjectionFiles, body: `[{"seeds":4,"seeds":5}]`},
+		{name: "v1 number", kind: legacyProjectionInfo, body: `[{"infohash_v1":7}]`},
+		{name: "v2 boolean", kind: legacyProjectionInfo, body: `[{"infohash_v2":false}]`},
+		{name: "metadata string", kind: legacyProjectionInfo, body: `[{"has_metadata":"true"}]`},
+		{name: "metadata null", kind: legacyProjectionInfo, body: `[{"has_metadata":null}]`},
+		{name: "v1 invalid length", kind: legacyProjectionInfo, body: `[{"infohash_v1":"abcd"}]`},
+		{name: "v2 invalid hex", kind: legacyProjectionInfo, body: fmt.Sprintf(`[{"infohash_v2":%q}]`, strings.Repeat("g", 64))},
+		{name: "v1 whitespace", kind: legacyProjectionInfo, body: fmt.Sprintf(`[{"infohash_v1":%q}]`, " "+v1)},
+		{name: "seeds float", kind: legacyProjectionFiles, body: `[{"seeds":1.5}]`},
+		{name: "seeds string", kind: legacyProjectionFiles, body: `[{"seeds":"4"}]`},
+		{name: "seeds null", kind: legacyProjectionFiles, body: `[{"seeds":null}]`},
+		{name: "seeds negative", kind: legacyProjectionFiles, body: `[{"seeds":-1}]`},
+		{name: "seeds overflow", kind: legacyProjectionFiles, body: `[{"seeds":9223372036854775808}]`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			projected, err := projectLegacyInventoryFields([]byte(test.body), test.kind)
+			if err == nil {
+				t.Fatalf("projection accepted malformed legacy evidence: %q", projected)
+			}
+			if got := stripLegacyInventoryFields([]byte(test.body)); !bytes.Equal(got, []byte(test.body)) {
+				t.Fatalf("invalid evidence was rewritten: %q", got)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		kind legacyProjectionKind
+		body string
+	}{
+		{name: "empty optional identities", kind: legacyProjectionInfo, body: `[{"infohash_v1":"","infohash_v2":"","has_metadata":true}]`},
+		{name: "zero seeds", kind: legacyProjectionFiles, body: `[{"seeds":0}]`},
+		{name: "absent optional fields", kind: legacyProjectionInfo, body: `[{}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := projectLegacyInventoryFields([]byte(test.body), test.kind); err != nil {
+				t.Fatalf("valid legacy evidence rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestLegacyProjectionIsEndpointAndPathAware(t *testing.T) {
+	v1 := strings.Repeat("a", 40)
+	info := fmt.Sprintf(`[{"infohash_v1":%q,"infohash_v2":"","has_metadata":true,"seeds":7,"nested":{"infohash_v1":%q,"seeds":9}}]`, v1, v1)
+	projected, err := projectLegacyInventoryFields([]byte(info), legacyProjectionInfo)
+	if err != nil {
+		t.Fatalf("info projection: %v", err)
+	}
+	var infoRows []map[string]json.RawMessage
+	if err := json.Unmarshal(projected, &infoRows); err != nil {
+		t.Fatalf("decode projected info: %v", err)
+	}
+	if _, exists := infoRows[0]["infohash_v1"]; exists {
+		t.Fatal("info identity field remained at row root")
+	}
+	if _, exists := infoRows[0]["infohash_v2"]; exists {
+		t.Fatal("info v2 field remained at row root")
+	}
+	if _, exists := infoRows[0]["has_metadata"]; exists {
+		t.Fatal("info metadata field remained at row root")
+	}
+	if _, exists := infoRows[0]["seeds"]; !exists {
+		t.Fatal("cross-endpoint seeds field was stripped from info row")
+	}
+	var nestedInfo map[string]json.RawMessage
+	if err := json.Unmarshal(infoRows[0]["nested"], &nestedInfo); err != nil {
+		t.Fatalf("decode nested info: %v", err)
+	}
+	if _, exists := nestedInfo["infohash_v1"]; !exists {
+		t.Fatal("nested identity field was stripped from info row")
+	}
+	if _, exists := nestedInfo["seeds"]; !exists {
+		t.Fatal("nested seeds field was stripped from info row")
+	}
+
+	files := fmt.Sprintf(`[{"index":0,"name":"film.mkv","size":1,"progress":1,"priority":1,"is_seed":true,"piece_range":[0,0],"availability":1,"infohash_v1":%q,"seeds":4,"nested":{"seeds":9,"infohash_v1":%q}}]`, v1, v1)
+	projected, err = projectLegacyInventoryFields([]byte(files), legacyProjectionFiles)
+	if err != nil {
+		t.Fatalf("file projection: %v", err)
+	}
+	var fileRows []map[string]json.RawMessage
+	if err := json.Unmarshal(projected, &fileRows); err != nil {
+		t.Fatalf("decode projected files: %v", err)
+	}
+	if _, exists := fileRows[0]["seeds"]; exists {
+		t.Fatal("file seed field remained at row root")
+	}
+	if _, exists := fileRows[0]["infohash_v1"]; !exists {
+		t.Fatal("cross-endpoint identity field was stripped from file row")
+	}
+	var nestedFiles map[string]json.RawMessage
+	if err := json.Unmarshal(fileRows[0]["nested"], &nestedFiles); err != nil {
+		t.Fatalf("decode nested files: %v", err)
+	}
+	if _, exists := nestedFiles["seeds"]; !exists {
+		t.Fatal("nested seeds field was stripped from file row")
+	}
+	if _, exists := nestedFiles["infohash_v1"]; !exists {
+		t.Fatal("nested identity field was stripped from file row")
+	}
+}
+
+func TestMisplacedLegacyMembersReachStrictNativeDecoder(t *testing.T) {
+	v1 := strings.Repeat("a", 40)
+	cases := []struct {
+		name      string
+		info      []byte
+		files     []byte
+		wantError bool
+	}{
+		{
+			name:      "nested info seed",
+			info:      bytes.Replace(fixture(t, "info-single.json"), []byte(`"hash": "`+fixtureFilmHash+`",`), []byte(`"hash": "`+fixtureFilmHash+`","metadata":{"seeds":7},`), 1),
+			files:     fixture(t, "files-film.json"),
+			wantError: true,
+		},
+		{
+			name:      "cross endpoint info seed",
+			info:      bytes.Replace(fixture(t, "info-single.json"), []byte(`"num_seeds": 4,`), []byte(`"num_seeds": 4,"seeds":7,`), 1),
+			files:     fixture(t, "files-film.json"),
+			wantError: true,
+		},
+		{
+			name:  "nested file identity",
+			info:  fixture(t, "info-single.json"),
+			files: bytes.Replace(fixture(t, "files-film.json"), []byte(`"seeds": 4`), []byte(`"metadata":{"infohash_v1":"`+v1+`"},"seeds": 4`), 1),
+		},
+		{
+			name:  "cross endpoint file identity",
+			info:  fixture(t, "info-single.json"),
+			files: bytes.Replace(fixture(t, "files-film.json"), []byte(`"name": "Example Film (2024).mkv",`), []byte(`"name": "Example Film (2024).mkv","infohash_v1":"`+v1+`",`), 1),
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &qbitFixtureHandler{
+				info:       func(int) ([]byte, int) { return test.info, http.StatusOK },
+				properties: fixture(t, "properties.json"),
+				files:      map[string][]byte{fixtureFilmHash: test.files},
+			}
+			client, closeServer := newFixtureClient(t, handler, "qbt-main")
+			defer closeServer()
+			page, err := client.ListDetailed(context.Background(), "qbt-main", "", 1)
+			if test.wantError {
+				if err == nil {
+					t.Fatalf("misplaced legacy member accepted with page %#v", page)
+				}
+				assertErrorCode(t, err, domain.OutcomeUnknown)
+				if len(page.Items) != 0 {
+					t.Fatalf("malformed observation returned partial items: %#v", page.Items)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("file schema error: %v", err)
+			}
+			if len(page.Items) != 1 || len(page.Items[0].Files) != 0 || page.Coverage.Completeness != domain.CompletenessPartial || !hasReason(page.Coverage, "item_0_files_malformed") {
+				t.Fatalf("malformed file evidence was not partial: %#v", page)
+			}
+		})
+	}
+}
+
 func TestFullPageCursorRoundTrip(t *testing.T) {
 	summaries := make([]torrentSummary, 200)
 	for index := range summaries {

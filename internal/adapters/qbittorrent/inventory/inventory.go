@@ -22,6 +22,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -206,7 +207,9 @@ func (transport *infoCaptureTransport) RoundTrip(request *http.Request) (*http.R
 			capture.mu.Unlock()
 		}
 		if readErr == nil {
-			data = stripLegacyInventoryFields(data)
+			if projected, projectionErr := projectLegacyInventoryFields(data, legacyProjectionInfo); projectionErr == nil {
+				data = projected
+			}
 		}
 	} else if strings.HasSuffix(request.URL.Path, apiFiles) {
 		if capture, ok := request.Context().Value(fileCaptureContextKey{}).(*fileCapture); ok && capture != nil && readErr == nil {
@@ -215,7 +218,9 @@ func (transport *infoCaptureTransport) RoundTrip(request *http.Request) (*http.R
 			capture.mu.Unlock()
 		}
 		if readErr == nil {
-			data = stripLegacyInventoryFields(data)
+			if projected, projectionErr := projectLegacyInventoryFields(data, legacyProjectionFiles); projectionErr == nil {
+				data = projected
+			}
 		}
 	} else if readErr == nil && response.StatusCode == http.StatusOK {
 		// qBittorrent commonly returns an application version without a
@@ -259,26 +264,94 @@ func (capture *fileCapture) bytes() []byte {
 // fields. The original bounded bytes remain available through infoCapture so
 // descriptor identity and metadata semantics are preserved locally.
 func stripLegacyInventoryFields(data []byte) []byte {
-	if !utf8.Valid(data) {
+	projected, err := projectLegacyInventoryFields(data, legacyProjectionAll)
+	if err != nil {
 		return data
 	}
-	if !bytes.Contains(data, []byte(`"infohash_v1"`)) && !bytes.Contains(data, []byte(`"infohash_v2"`)) && !bytes.Contains(data, []byte(`"has_metadata"`)) && !bytes.Contains(data, []byte(`"seeds"`)) {
-		return data
+	return projected
+}
+
+type legacyProjectionKind uint8
+
+const (
+	legacyProjectionAll legacyProjectionKind = iota + 1
+	legacyProjectionInfo
+	legacyProjectionFiles
+)
+
+type legacyValueKind uint8
+
+const (
+	legacyValueString legacyValueKind = iota + 1
+	legacyValueBoolean
+	legacyValueInteger
+)
+
+// projectLegacyInventoryFields removes only the compatibility members that
+// belong to one endpoint's array-row schema. The standalone client rejects
+// all other members, including the same names in nested objects or another
+// endpoint. Before removing a member, this pass rejects duplicate semantic
+// names and validates its exact JSON type and value shape. Returning the
+// original bytes on any error lets the standalone strict decoder fail closed
+// without exposing a projection-specific error surface.
+func projectLegacyInventoryFields(data []byte, kind legacyProjectionKind) ([]byte, error) {
+	if !utf8.Valid(data) {
+		return nil, errors.New("inventory JSON is not valid UTF-8")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var output bytes.Buffer
-	if err := rewriteInventoryJSON(decoder, &output); err != nil {
-		return data
+	if err := rewriteLegacyInventoryArray(decoder, &output, kind); err != nil {
+		return nil, err
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return data
+		if err == nil {
+			return nil, errors.New("inventory JSON has trailing data")
+		}
+		return nil, err
 	}
-	return output.Bytes()
+	return output.Bytes(), nil
 }
 
+func rewriteLegacyInventoryArray(decoder *json.Decoder, output *bytes.Buffer, kind legacyProjectionKind) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if token != json.Delim('[') {
+		return errors.New("inventory JSON top-level value is not an array")
+	}
+	output.WriteByte('[')
+	first := true
+	for decoder.More() {
+		if !first {
+			output.WriteByte(',')
+		}
+		if err := rewriteLegacyInventoryValue(decoder, output, kind, true); err != nil {
+			return err
+		}
+		first = false
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim(']') {
+		if err != nil {
+			return err
+		}
+		return errors.New("inventory JSON array is incomplete")
+	}
+	output.WriteByte(']')
+	return nil
+}
+
+// rewriteInventoryJSON remains a small compatibility helper for package-local
+// callers. It rewrites one value without enabling legacy removal; endpoint
+// aware projection always enters through rewriteLegacyInventoryArray.
 func rewriteInventoryJSON(decoder *json.Decoder, output *bytes.Buffer) error {
+	return rewriteLegacyInventoryValue(decoder, output, legacyProjectionAll, false)
+}
+
+func rewriteLegacyInventoryValue(decoder *json.Decoder, output *bytes.Buffer, kind legacyProjectionKind, dropLegacy bool) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -287,13 +360,16 @@ func rewriteInventoryJSON(decoder *json.Decoder, output *bytes.Buffer) error {
 	case json.Delim:
 		switch delimiter {
 		case '[':
+			if dropLegacy {
+				return errors.New("inventory JSON array element is not an object")
+			}
 			output.WriteByte('[')
 			first := true
 			for decoder.More() {
 				if !first {
 					output.WriteByte(',')
 				}
-				if err := rewriteInventoryJSON(decoder, output); err != nil {
+				if err := rewriteLegacyInventoryValue(decoder, output, kind, false); err != nil {
 					return err
 				}
 				first = false
@@ -305,47 +381,17 @@ func rewriteInventoryJSON(decoder *json.Decoder, output *bytes.Buffer) error {
 			output.WriteByte(']')
 			return nil
 		case '{':
-			output.WriteByte('{')
-			first := true
-			for decoder.More() {
-				keyToken, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				key, ok := keyToken.(string)
-				if !ok {
-					return errors.New("inventory JSON key is invalid")
-				}
-				if legacyInventoryField(key) {
-					if err := skipInventoryJSON(decoder); err != nil {
-						return err
-					}
-					continue
-				}
-				if !first {
-					output.WriteByte(',')
-				}
-				encodedKey, err := json.Marshal(key)
-				if err != nil {
-					return err
-				}
-				output.Write(encodedKey)
-				output.WriteByte(':')
-				if err := rewriteInventoryJSON(decoder, output); err != nil {
-					return err
-				}
-				first = false
+			if dropLegacy == false {
+				return rewriteLegacyInventoryObject(decoder, output, kind, false)
 			}
-			end, err := decoder.Token()
-			if err != nil || end != json.Delim('}') {
-				return errors.New("inventory JSON object is incomplete")
-			}
-			output.WriteByte('}')
-			return nil
+			return rewriteLegacyInventoryObject(decoder, output, kind, true)
 		default:
 			return errors.New("inventory JSON delimiter is invalid")
 		}
 	default:
+		if dropLegacy {
+			return errors.New("inventory JSON array element is not an object")
+		}
 		encoded, err := json.Marshal(token)
 		if err != nil {
 			return err
@@ -355,18 +401,118 @@ func rewriteInventoryJSON(decoder *json.Decoder, output *bytes.Buffer) error {
 	}
 }
 
-func skipInventoryJSON(decoder *json.Decoder) error {
-	var discard json.RawMessage
-	return decoder.Decode(&discard)
+func rewriteLegacyInventoryObject(decoder *json.Decoder, output *bytes.Buffer, kind legacyProjectionKind, dropLegacy bool) error {
+	output.WriteByte('{')
+	first := true
+	seenLegacy := make(map[string]struct{})
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return errors.New("inventory JSON key is invalid")
+		}
+		valueKind, legacy := legacyProjectionField(kind, key)
+		if dropLegacy && legacy {
+			if _, exists := seenLegacy[key]; exists {
+				return errors.New("duplicate legacy inventory member")
+			}
+			seenLegacy[key] = struct{}{}
+			if err := validateLegacyInventoryValue(decoder, valueKind, key); err != nil {
+				return err
+			}
+			continue
+		}
+		if !first {
+			output.WriteByte(',')
+		}
+		encodedKey, err := json.Marshal(key)
+		if err != nil {
+			return err
+		}
+		output.Write(encodedKey)
+		output.WriteByte(':')
+		if err := rewriteLegacyInventoryValue(decoder, output, kind, false); err != nil {
+			return err
+		}
+		first = false
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		if err != nil {
+			return err
+		}
+		return errors.New("inventory JSON object is incomplete")
+	}
+	output.WriteByte('}')
+	return nil
 }
 
-func legacyInventoryField(key string) bool {
-	switch key {
-	case "infohash_v1", "infohash_v2", "has_metadata", "seeds":
-		return true
-	default:
-		return false
+func legacyProjectionField(kind legacyProjectionKind, key string) (legacyValueKind, bool) {
+	switch kind {
+	case legacyProjectionAll:
+		switch key {
+		case "infohash_v1", "infohash_v2":
+			return legacyValueString, true
+		case "has_metadata":
+			return legacyValueBoolean, true
+		case "seeds":
+			return legacyValueInteger, true
+		}
+	case legacyProjectionInfo:
+		switch key {
+		case "infohash_v1", "infohash_v2":
+			return legacyValueString, true
+		case "has_metadata":
+			return legacyValueBoolean, true
+		}
+	case legacyProjectionFiles:
+		if key == "seeds" {
+			return legacyValueInteger, true
+		}
 	}
+	return 0, false
+}
+
+func validateLegacyInventoryValue(decoder *json.Decoder, kind legacyValueKind, key string) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case legacyValueString:
+		value, ok := token.(string)
+		if !ok {
+			return fmt.Errorf("legacy inventory member %q must be a string", key)
+		}
+		if value != "" {
+			expectedLength := 40
+			if key == "infohash_v2" {
+				expectedLength = 64
+			}
+			if value != strings.TrimSpace(value) || normalizeHash(value, expectedLength) == "" {
+				return fmt.Errorf("legacy inventory member %q has invalid hash", key)
+			}
+		}
+	case legacyValueBoolean:
+		if _, ok := token.(bool); !ok {
+			return fmt.Errorf("legacy inventory member %q must be a boolean", key)
+		}
+	case legacyValueInteger:
+		number, ok := token.(json.Number)
+		if !ok {
+			return fmt.Errorf("legacy inventory member %q must be an integer", key)
+		}
+		value, parseErr := strconv.ParseInt(string(number), 10, 64)
+		if parseErr != nil || value < 0 || (strconv.IntSize == 32 && value > math.MaxInt32) {
+			return fmt.Errorf("legacy inventory member %q has invalid range", key)
+		}
+	default:
+		return errors.New("legacy inventory member type is unsupported")
+	}
+	return nil
 }
 
 var _ ports.DownloadInventoryPort = (*Client)(nil)
