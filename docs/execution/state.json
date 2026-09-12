@@ -2007,7 +2007,7 @@
       "review": {
         "status": "pending",
         "decision": "pending",
-        "reviewer": "/root/d01_reviewer",
+        "reviewer": "/root/f01_reviewer",
         "commit": null,
         "findings": [],
         "round": 3
@@ -2032,7 +2032,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-12-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-12-correction-round3.md",
-        "nextReviewer": "/root/d01_reviewer",
+        "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
           "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
@@ -2058,7 +2058,13 @@
         "correctionReviewPath": "docs/execution/handoffs/X-12-review-round2.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "37f62b515681f7ad37fc9b1d4597581f069320e5",
-        "correctionHandoffCommit": "04fa9689d565db23d92e05b1516dec5421d86cf6"
+        "correctionHandoffCommit": "04fa9689d565db23d92e05b1516dec5421d86cf6",
+        "reviewerReroute": {
+          "previousReviewer": "/root/d01_reviewer",
+          "status": "interrupted",
+          "reason": "review turn completed probes but emitted no receipt after bounded waits; no review commit was produced",
+          "newReviewer": "/root/f01_reviewer"
+        }
       }
     },
     "X-13": {
@@ -2150,7 +2156,7 @@
       ]
     }
   },
-  "nextAction": "X-12 correction round 3 is in independent review; X-13 is complete and approved. Keep X-05 and write/workflow lanes paused.",
+  "nextAction": "X-12 correction round 3 is assigned to the independent f01 reviewer after the prior review turn emitted no receipt; X-13 is complete and approved.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
