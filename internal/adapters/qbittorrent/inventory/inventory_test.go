@@ -1115,6 +1115,14 @@ func TestStableFingerprintForFixturePage(t *testing.T) {
 	}
 }
 
+func TestLegacyProjectionDoesNotRepairInvalidUTF8(t *testing.T) {
+	data := []byte("[{\"hash\":\"" + fixtureFilmHash + "\",\"infohash_v1\":\"\xff\"}]")
+	projected := stripLegacyInventoryFields(data)
+	if !bytes.Equal(projected, data) {
+		t.Fatalf("invalid UTF-8 was rewritten: %x", projected)
+	}
+}
+
 func TestFullPageCursorRoundTrip(t *testing.T) {
 	summaries := make([]torrentSummary, 200)
 	for index := range summaries {

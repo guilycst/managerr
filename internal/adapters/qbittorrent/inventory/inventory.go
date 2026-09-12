@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	native "github.com/guilycst/mastarr/clients/qbittorrent"
 	"github.com/guilycst/mastarr/internal/domain"
@@ -258,6 +259,12 @@ func (capture *fileCapture) bytes() []byte {
 // fields. The original bounded bytes remain available through infoCapture so
 // descriptor identity and metadata semantics are preserved locally.
 func stripLegacyInventoryFields(data []byte) []byte {
+	if !utf8.Valid(data) {
+		return data
+	}
+	if !bytes.Contains(data, []byte(`"infohash_v1"`)) && !bytes.Contains(data, []byte(`"infohash_v2"`)) && !bytes.Contains(data, []byte(`"has_metadata"`)) && !bytes.Contains(data, []byte(`"seeds"`)) {
+		return data
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var output bytes.Buffer
