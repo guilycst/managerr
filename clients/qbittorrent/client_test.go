@@ -1720,13 +1720,14 @@ func TestCanceledAuthenticationLeaderDoesNotPoisonLiveWaiter(t *testing.T) {
 	}
 }
 
-func TestCompletedAuthRejectionWinsLeaderCancellation(t *testing.T) {
+func TestOversizedCompletedAuthRejectionWinsLeaderCancellation(t *testing.T) {
 	leaderContext, cancelLeader := context.WithCancel(context.Background())
 	defer cancelLeader()
 	transport := &boundaryAuthTransport{
 		cancelLeader: cancelLeader,
 		firstStarted: make(chan struct{}),
 		releaseFirst: make(chan struct{}),
+		firstBody:    strings.Repeat("x", (16<<10)+1),
 	}
 	var releaseOnce sync.Once
 	releaseFirst := func() { releaseOnce.Do(func() { close(transport.releaseFirst) }) }

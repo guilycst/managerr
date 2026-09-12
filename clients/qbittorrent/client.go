@@ -57,6 +57,7 @@ const (
 var (
 	applicationVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$`)
 	webAPIVersionPattern      = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+]?[A-Za-z][A-Za-z0-9._+-]*)?$`)
+	errResponseTooLarge       = errors.New("response exceeds configured bound")
 )
 
 // ErrorCode classifies a sanitized qBittorrent failure. Error messages never
@@ -622,13 +623,12 @@ func (c *Client) authenticate(ctx context.Context) (string, error, bool) {
 	form := url.Values{}
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
-	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, "", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
-	responseComplete := status != 0 && err == nil
+	body, status, cookies, responseComplete, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, "", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
 	if status != 0 && status != http.StatusOK {
 		return "", statusError("qbit.auth.login", status), responseComplete
 	}
 	if err != nil {
-		return "", err, false
+		return "", err, responseComplete
 	}
 	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
 		return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}, responseComplete
@@ -685,7 +685,7 @@ func (c *Client) get(ctx context.Context, operation, endpoint string, query url.
 }
 
 func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string, query url.Values, retryAuth bool, credential sessionCredential) ([]byte, error) {
-	body, status, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, credential.sid, nil, "", c.config.MaxResponseBytes)
+	body, status, _, _, err := c.requestOnce(ctx, operation, http.MethodGet, endpoint, query, credential.sid, nil, "", c.config.MaxResponseBytes)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		if retryAuth {
 			c.invalidateSession(credential.generation)
@@ -709,9 +709,12 @@ func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string
 	return body, nil
 }
 
-func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, sid string, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, error) {
+// requestOnce reports whether an upstream response completed with a usable
+// status identity. An oversized body still has a completed HTTP status even
+// though its content is intentionally discarded at the bound.
+func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, sid string, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, bool, error) {
 	if err := contextError(ctx); err != nil {
-		return nil, 0, nil, err
+		return nil, 0, nil, false, err
 	}
 	requestURL := *c.endpoint
 	requestURL.Path = strings.TrimRight(c.endpoint.Path, "/") + endpoint
@@ -719,7 +722,7 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	requestURL.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
 	if err != nil {
-		return nil, 0, nil, UpstreamError{Code: ErrorInvalidInput, Operation: operation}
+		return nil, 0, nil, false, UpstreamError{Code: ErrorInvalidInput, Operation: operation}
 	}
 	request.Header.Set("Accept", "application/json, text/plain")
 	request.Header.Set("User-Agent", "mastarr-qbittorrent-client/0.0.1")
@@ -730,27 +733,28 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	}
 	if sid != "" {
 		if !usableSIDValue(sid) {
-			return nil, 0, nil, invalidInput(operation)
+			return nil, 0, nil, false, invalidInput(operation)
 		}
 		request.Header.Set("Cookie", "SID="+sid)
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, 0, nil, ctxErr
+			return nil, 0, nil, false, ctxErr
 		}
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return nil, 0, nil, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+			return nil, 0, nil, false, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
 		}
-		return nil, 0, nil, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
+		return nil, 0, nil, false, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
 	}
 	defer response.Body.Close()
 	cookies := response.Cookies()
 	data, err := readBounded(response.Body, maxBytes)
 	if err != nil {
-		return nil, response.StatusCode, cookies, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
+		bodyBounded := response.StatusCode != 0 && errors.Is(err, errResponseTooLarge)
+		return nil, response.StatusCode, cookies, bodyBounded, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
 	}
-	return data, response.StatusCode, cookies, nil
+	return data, response.StatusCode, cookies, true, nil
 }
 
 func (c *Client) origin() string {
@@ -1204,7 +1208,7 @@ func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 		return nil, errors.New("response could not be read")
 	}
 	if int64(len(data)) > maxBytes {
-		return nil, errors.New("response exceeds configured bound")
+		return nil, errResponseTooLarge
 	}
 	return data, nil
 }
