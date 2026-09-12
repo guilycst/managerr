@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1553,14 +1553,18 @@
         "docs/execution/handoffs/X-10-review-round8.md",
         "9f106d6fd4490a3f9a87306accd37f1ba34253b0 X-10 correction round 9 product",
         "75b572820cc3541c57ac9a323cc7a75bdceaf26a X-10 correction round 9 handoff",
-        "docs/execution/handoffs/X-10-correction-round9.md"
+        "docs/execution/handoffs/X-10-correction-round9.md",
+        "bb124a5287bb7a86134dcf928818edfb6ca37d32 X-10 review round 9 changes requested",
+        "docs/execution/handoffs/X-10-review-round9.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "bb124a5287bb7a86134dcf928818edfb6ca37d32",
+        "findings": [
+          "P1 oversized 403 response retains typed Unauthorized but body-read error marks response incomplete, allowing a canceled leader to poison shared flight and a live waiter to retry login; completed status must win across bounded body errors"
+        ],
         "round": 9
       },
       "dispatch": {
@@ -1590,14 +1594,14 @@
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewSourceCommit": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
-        "correctionRound": 9,
+        "correctionRound": 10,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round8.md",
+        "correctionBaseSha": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round9.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
         "correctionHandoffCommit": "75b572820cc3541c57ac9a323cc7a75bdceaf26a",
-        "reviewCommit": "pending"
+        "reviewCommit": "bb124a5287bb7a86134dcf928818edfb6ca37d32"
       },
       "implementationCommit": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
       "reviewHistory": [
@@ -1664,6 +1668,14 @@
           "status": "changes_requested",
           "sourceCommit": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
           "receipt": "docs/execution/handoffs/X-10-review-round8.md"
+        },
+        {
+          "round": 9,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "bb124a5287bb7a86134dcf928818edfb6ca37d32",
+          "status": "changes_requested",
+          "sourceCommit": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
+          "receipt": "docs/execution/handoffs/X-10-review-round9.md"
         }
       ]
     },
@@ -1790,7 +1802,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 9 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "X-10 correction round 10 must share completed 403 outcomes even when bounded body reads return an error; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
