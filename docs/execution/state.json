@@ -1981,7 +1981,7 @@
       ]
     },
     "X-12": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
       "integratedSha": null,
@@ -1991,14 +1991,20 @@
         "4c665d314d8d8e3ea31e54606be228829c595a25 X-12 product migration",
         "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3 X-12 strict UTF-8 correction",
         "c8c1df60b4ba553721fecbc6e1eddcea0d1c806b X-12 handoff",
-        "docs/execution/handoffs/X-12.md"
+        "docs/execution/handoffs/X-12.md",
+        "255d63c7a1b979f0a9244d72d97105e84a020a75 X-12 review round 1 changes requested",
+        "a8723268fda092d8efc9dda118bd6126f510247d integrated X-12 review receipt",
+        "docs/execution/handoffs/X-12-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "255d63c7a1b979f0a9244d72d97105e84a020a75",
+        "findings": [
+          "Legacy infohash/has_metadata/seeds projection bypasses strict duplicate/type validation and can produce complete coverage.",
+          "Field-name-only recursive projection hides misplaced unknown fields across info/files schemas, also producing complete coverage."
+        ],
         "round": 1
       },
       "dispatch": {
@@ -2019,8 +2025,8 @@
           "Linux amd64/arm64 CGO-free compile checks",
           "synthetic httptest fixture coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-12-review-round1.md",
-        "handoffPath": "docs/execution/handoffs/X-12.md",
+        "reviewPath": "docs/execution/handoffs/X-12-review-round2.md",
+        "handoffPath": "docs/execution/handoffs/X-12-correction-round2.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
@@ -2037,7 +2043,15 @@
         ],
         "handoffCommit": "c8c1df60b4ba553721fecbc6e1eddcea0d1c806b",
         "reviewSourceCommit": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
-        "reviewCommit": "pending"
+        "reviewCommit": "255d63c7a1b979f0a9244d72d97105e84a020a75",
+        "reviewIntegrationCommit": "a8723268fda092d8efc9dda118bd6126f510247d",
+        "correctionRound": 2,
+        "correctionOwner": "/root/c01_implementer",
+        "correctionBaseSha": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
+        "correctionReviewPath": "docs/execution/handoffs/X-12-review-round1.md",
+        "correctionReviewer": "/root/d01_reviewer",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending"
       }
     },
     "X-13": {
@@ -2115,7 +2129,7 @@
       }
     }
   },
-  "nextAction": "X-13 correction round 2 is in independent review; X-12 remains in independent review. Do not dispatch X-05 or write/workflow lanes until both clear.",
+  "nextAction": "X-12 correction round 2 is assigned for strict legacy projection validation; X-13 correction round 2 remains in independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
