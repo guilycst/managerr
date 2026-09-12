@@ -710,8 +710,9 @@ func (c *Client) getAfterSession(ctx context.Context, operation, endpoint string
 }
 
 // requestOnce reports whether an upstream response completed with a usable
-// status identity. An oversized body still has a completed HTTP status even
-// though its content is intentionally discarded at the bound.
+// status identity. Any received non-200 status remains complete even when its
+// body cannot be retained or read. An oversized body still has a completed
+// HTTP status even though its content is intentionally discarded at the bound.
 func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint string, query url.Values, sid string, body io.Reader, contentType string, maxBytes int64) ([]byte, int, []*http.Cookie, bool, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, 0, nil, false, err
@@ -751,8 +752,15 @@ func (c *Client) requestOnce(ctx context.Context, operation, method, endpoint st
 	cookies := response.Cookies()
 	data, err := readBounded(response.Body, maxBytes)
 	if err != nil {
-		bodyBounded := response.StatusCode != 0 && errors.Is(err, errResponseTooLarge)
-		return nil, response.StatusCode, cookies, bodyBounded, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
+		// Once headers provide a non-200 status, the status is a complete
+		// semantic result for status-first classification. Body retention is
+		// still bounded, and a failed body read remains a sanitized error.
+		// A 200 response is complete only for the intentionally bounded body
+		// sentinel; an interrupted or otherwise unreadable success must not
+		// install a session or be mistaken for a successful read.
+		responseComplete := response.StatusCode != 0 &&
+			(response.StatusCode != http.StatusOK || errors.Is(err, errResponseTooLarge))
+		return nil, response.StatusCode, cookies, responseComplete, UpstreamError{Code: ErrorUnknown, Operation: operation, Status: response.StatusCode}
 	}
 	return data, response.StatusCode, cookies, true, nil
 }

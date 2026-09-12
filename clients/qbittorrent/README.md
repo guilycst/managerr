@@ -45,9 +45,10 @@ and presence validation for every OpenAPI-required member of inventory,
 properties, file and category objects. Null object values and null required
 members are rejected. The default response bound is 8 MiB, with at most 10,000 inventory
 records, 100,000 files, or 10,000 category/tag values. Bounds reject an
-over-limit response instead of silently truncating evidence. HTTP status and
-response identity remain authoritative when bounded body retention rejects an
-oversized error body; the body is never returned or copied into an error.
+over-limit response instead of silently truncating evidence. A received
+non-200 HTTP status and its response identity remain authoritative even when
+bounded body retention or a body read fails; the body is never returned or
+copied into an error.
 qBittorrent Unix
 timestamps and its `-1` unknown sentinels are preserved in the normalized
 values. Every inventory record must carry one 40-character v1 or 64-character

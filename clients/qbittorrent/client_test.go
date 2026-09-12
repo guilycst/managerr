@@ -1553,15 +1553,35 @@ func (b *cancelAfterReadBody) Read(p []byte) (int, error) {
 
 func (b *cancelAfterReadBody) Close() error { return nil }
 
+// cancelAndErrorBody models a response whose headers are received but whose
+// body cannot be read. It cancels only the authentication leader at the same
+// boundary so joined waiters must retain the received non-200 status rather
+// than electing a duplicate login.
+type cancelAndErrorBody struct {
+	cancel context.CancelFunc
+	done   bool
+}
+
+func (b *cancelAndErrorBody) Read([]byte) (int, error) {
+	if !b.done {
+		b.done = true
+		b.cancel()
+	}
+	return 0, errors.New("synthetic unreadable response body")
+}
+
+func (b *cancelAndErrorBody) Close() error { return nil }
+
 type boundaryAuthTransport struct {
-	cancelLeader context.CancelFunc
-	firstStarted chan struct{}
-	releaseFirst chan struct{}
-	firstStatus  int
-	firstBody    string
-	firstCookie  string
-	attempts     atomic.Int32
-	reads        atomic.Int32
+	cancelLeader       context.CancelFunc
+	firstStarted       chan struct{}
+	releaseFirst       chan struct{}
+	firstStatus        int
+	firstBody          string
+	firstCookie        string
+	firstBodyReadError bool
+	attempts           atomic.Int32
+	reads              atomic.Int32
 }
 
 func (t *boundaryAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -1578,9 +1598,12 @@ func (t *boundaryAuthTransport) RoundTrip(req *http.Request) (*http.Response, er
 			if bodyText == "" {
 				bodyText = "synthetic unauthorized"
 			}
-			body := &cancelAfterReadBody{
+			var body io.ReadCloser = &cancelAfterReadBody{
 				data:   []byte(bodyText),
 				cancel: t.cancelLeader,
+			}
+			if t.firstBodyReadError {
+				body = &cancelAndErrorBody{cancel: t.cancelLeader}
 			}
 			header := make(http.Header)
 			if t.firstCookie != "" {
@@ -1773,6 +1796,78 @@ func TestOversizedCompletedAuthRejectionWinsLeaderCancellation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("leader did not return after the completed rejection")
+	}
+	select {
+	case waiterErr := <-waiterDone:
+		var upstream UpstreamError
+		if !errors.As(waiterErr, &upstream) || upstream.Code != ErrorUnauthorized || upstream.Status != http.StatusForbidden {
+			t.Fatalf("waiter error = %#v, want immutable unauthorized 403", waiterErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not receive the completed rejection")
+	}
+	if got, want := transport.attempts.Load(), int32(1); got != want {
+		t.Fatalf("authentication POSTs = %d, want %d", got, want)
+	}
+	if got := transport.reads.Load(); got != 0 {
+		t.Fatalf("reads after shared completed rejection = %d, want zero", got)
+	}
+}
+
+func TestUnreadableCompletedAuthRejectionWinsLeaderCancellation(t *testing.T) {
+	leaderContext, cancelLeader := context.WithCancel(context.Background())
+	defer cancelLeader()
+	transport := &boundaryAuthTransport{
+		cancelLeader:       cancelLeader,
+		firstStarted:       make(chan struct{}),
+		releaseFirst:       make(chan struct{}),
+		firstStatus:        http.StatusForbidden,
+		firstBodyReadError: true,
+	}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(transport.releaseFirst) }) }
+	defer releaseFirst()
+
+	client, err := New(Config{
+		Endpoint:   "http://synthetic.invalid",
+		Username:   testUsername,
+		Password:   testPassword,
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	leaderDone := make(chan error, 1)
+	go func() { leaderDone <- client.Login(leaderContext) }()
+	select {
+	case <-transport.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader login did not reach transport")
+	}
+
+	waiterContext := &observedDoneContext{
+		Context:  context.Background(),
+		observed: make(chan struct{}),
+	}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, waiterErr := client.ApplicationVersion(waiterContext)
+		waiterDone <- waiterErr
+	}()
+	select {
+	case <-waiterContext.observed:
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not join the active authentication flight")
+	}
+	releaseFirst()
+
+	select {
+	case leaderErr := <-leaderDone:
+		if !errors.Is(leaderErr, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", leaderErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader did not return after the unreadable rejection")
 	}
 	select {
 	case waiterErr := <-waiterDone:
