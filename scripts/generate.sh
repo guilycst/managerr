@@ -16,6 +16,26 @@ case "${1:-}" in
     ;;
 esac
 
+require_sqlc_config() {
+  sqlc_config_path=$repo_dir/sqlc.yaml
+  if [ ! -f "$sqlc_config_path" ]; then
+    echo "authoritative SQLC config is missing: $sqlc_config_path" >&2
+    exit 1
+  fi
+
+  # A staged deletion leaves the working-tree file available to generators.
+  # Check the index as well so hooks fail before a commit can remove the
+  # authoritative configuration while generation still appears successful.
+  if git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ! git -C "$repo_dir" ls-files --error-unmatch -- sqlc.yaml >/dev/null 2>&1; then
+      echo "authoritative SQLC config is absent from the index: $sqlc_config_path" >&2
+      exit 1
+    fi
+  fi
+}
+
+require_sqlc_config
+
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-generate.XXXXXX")
 trap 'rm -rf -- "$tmp_dir"' EXIT INT TERM
 
@@ -213,9 +233,7 @@ generate_sqlc() {
   fi
 }
 
-if [ -f "$repo_dir/sqlc.yaml" ]; then
-  generate_sqlc
-fi
+generate_sqlc
 
 if [ "$mode" = check ]; then
   echo "generation checks passed"

@@ -64,6 +64,63 @@ root_module = project_prefix.rstrip("/")
 violations: list[str] = []
 
 
+def _go_unquote(value: str) -> str:
+    """Decode Go interpreted-string escapes used in import paths."""
+    escapes = {
+        "a": "\a",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+        "v": "\v",
+        "\\": "\\",
+        "'": "'",
+        '"': '"',
+    }
+    decoded: list[str] = []
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character != "\\":
+            decoded.append(character)
+            index += 1
+            continue
+        if index + 1 >= len(value):
+            return value
+        escaped = value[index + 1]
+        if escaped in escapes:
+            decoded.append(escapes[escaped])
+            index += 2
+            continue
+        if escaped in "01234567":
+            digits = value[index + 1 : index + 4]
+            if len(digits) == 3 and all(digit in "01234567" for digit in digits):
+                decoded.append(chr(int(digits, 8)))
+                index += 4
+                continue
+            return value
+        if escaped == "x":
+            digits = value[index + 2 : index + 4]
+            if len(digits) == 2 and all(digit in "0123456789abcdefABCDEF" for digit in digits):
+                decoded.append(chr(int(digits, 16)))
+                index += 4
+                continue
+            return value
+        if escaped in ("u", "U"):
+            width = 4 if escaped == "u" else 8
+            digits = value[index + 2 : index + 2 + width]
+            if len(digits) == width and all(digit in "0123456789abcdefABCDEF" for digit in digits):
+                codepoint = int(digits, 16)
+                if codepoint <= 0x10FFFF:
+                    decoded.append(chr(codepoint))
+                    index += 2 + width
+                    continue
+            return value
+        return value
+    return "".join(decoded)
+
+
 def _go_tokens(source: str) -> list[tuple[str, str]]:
     """Tokenize enough Go syntax to read import declarations safely.
 
@@ -105,6 +162,8 @@ def _go_tokens(source: str) -> list[tuple[str, str]]:
                 index += 1
             value = source[value_start:index]
             if quote != "'":
+                if quote == '"':
+                    value = _go_unquote(value)
                 tokens.append(("string", value))
             if index < len(source):
                 index += 1
