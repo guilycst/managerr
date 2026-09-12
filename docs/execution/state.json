@@ -15,7 +15,10 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "X-12",
+    "X-13"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -1978,23 +1981,89 @@
       ]
     },
     "X-12": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/c01_implementer",
+      "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed"
+      ],
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-12",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/adapters/qbittorrent/inventory/",
+          "tests/fixtures/qbittorrent/"
+        ],
+        "expectedChecks": [
+          "A-04",
+          "A-09",
+          "A-28",
+          "A-04/A-05 inventory evidence",
+          "A-09 coverage and unknown-state semantics",
+          "GOWORK=off root and standalone module tests/race/vet/mod-verify",
+          "root adapter architecture boundary and generated DTO non-leakage",
+          "Linux amd64/arm64 CGO-free compile checks",
+          "synthetic httptest fixture coverage"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-12-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-12.md",
+        "nextReviewer": "/root/d01_reviewer",
+        "dependencyCommits": {
+          "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
+          "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+          "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
+          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094"
+        },
+        "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e"
+      }
     },
     "X-13": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/f01_implementer",
+      "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed"
+      ],
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-12",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "internal/adapters/nzbget/",
+          "tests/fixtures/nzbget/"
+        ],
+        "expectedChecks": [
+          "A-05",
+          "A-06",
+          "A-09",
+          "A-04/A-05 inventory evidence",
+          "A-09 coverage and unknown-state semantics",
+          "GOWORK=off root and standalone module tests/race/vet/mod-verify",
+          "root adapter architecture boundary and generated DTO non-leakage",
+          "Linux amd64/arm64 CGO-free compile checks",
+          "synthetic httptest fixture coverage"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-13-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-13.md",
+        "nextReviewer": "/root/f01_reviewer",
+        "dependencyCommits": {
+          "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
+          "X-11-review": "b71917bac3136b9554863e3d138812bd041c2c4b",
+          "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
+          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094"
+        },
+        "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e"
+      }
     }
   },
-  "nextAction": "C-05 guardrails are complete and approved; select the next unblocked implementation lane. Client modules X-10 and X-11 are complete; root adapters remain the next integration work.",
+  "nextAction": "X-12 and X-13 adapter migrations are in parallel implementation; reviewers are reserved per module. Do not dispatch X-05 or write/workflow lanes until both migrations are reviewed and integrated.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
