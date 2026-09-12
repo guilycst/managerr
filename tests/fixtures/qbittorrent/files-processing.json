@@ -6,7 +6,11 @@
     "progress": 0.25,
     "priority": 1,
     "availability": -1,
-    "seeds": 0,
-    "is_seed": false
+    "is_seed": false,
+    "piece_range": [
+      0,
+      0
+    ],
+    "seeds": 0
   }
 ]

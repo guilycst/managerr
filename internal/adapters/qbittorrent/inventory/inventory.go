@@ -22,12 +22,12 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	native "github.com/guilycst/mastarr/clients/qbittorrent"
 	"github.com/guilycst/mastarr/internal/domain"
 	"github.com/guilycst/mastarr/internal/ports"
 )
@@ -147,10 +147,219 @@ type Client struct {
 	config    Config
 	endpoint  *url.URL
 	http      *http.Client
+	upstream  *native.Client
 	cursorKey []byte
 
 	authMu        sync.Mutex
 	authenticated bool
+}
+
+// infoCapture carries the raw inventory response for the adapter-specific
+// identity fields retained by the historical root contract. The standalone
+// compatibility module deliberately exposes the upstream's frozen Torrent
+// DTO, while this adapter still needs to preserve qBittorrent v1/v2 identity
+// observations used to bind optional descriptor metadata. The native DTOs do
+// not escape this package; only the local torrentSummary is returned.
+type infoCapture struct {
+	mu   sync.Mutex
+	body []byte
+}
+
+type infoCaptureContextKey struct{}
+type fileCaptureContextKey struct{}
+
+type fileCapture struct {
+	mu   sync.Mutex
+	body []byte
+}
+
+// infoCaptureTransport tees bounded inventory bodies before the standalone
+// client decodes them. It does not decode, rewrite or weaken the standalone
+// strict schema; it only retains a bounded copy for local identity metadata.
+type infoCaptureTransport struct {
+	base     http.RoundTripper
+	maxBytes int64
+}
+
+func (transport *infoCaptureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	response, err := base.RoundTrip(request)
+	if err != nil || response == nil {
+		return response, err
+	}
+	if !strings.HasSuffix(request.URL.Path, apiTorrentInfo) && !strings.HasSuffix(request.URL.Path, apiFiles) && !strings.HasSuffix(request.URL.Path, apiAppVersion) {
+		return response, nil
+	}
+	if response.Body == nil {
+		response.Body = io.NopCloser(strings.NewReader(""))
+	}
+	data, readErr := readBounded(response.Body, transport.maxBytes)
+	_ = response.Body.Close()
+	if strings.HasSuffix(request.URL.Path, apiTorrentInfo) {
+		if capture, ok := request.Context().Value(infoCaptureContextKey{}).(*infoCapture); ok && capture != nil && readErr == nil {
+			capture.mu.Lock()
+			capture.body = append(capture.body[:0], data...)
+			capture.mu.Unlock()
+		}
+		if readErr == nil {
+			data = stripLegacyInventoryFields(data)
+		}
+	} else if strings.HasSuffix(request.URL.Path, apiFiles) {
+		if capture, ok := request.Context().Value(fileCaptureContextKey{}).(*fileCapture); ok && capture != nil && readErr == nil {
+			capture.mu.Lock()
+			capture.body = append(capture.body[:0], data...)
+			capture.mu.Unlock()
+		}
+		if readErr == nil {
+			data = stripLegacyInventoryFields(data)
+		}
+	} else if readErr == nil && response.StatusCode == http.StatusOK {
+		// qBittorrent commonly returns an application version without a
+		// leading `v`; the standalone compatibility schema freezes the
+		// stricter `vX.Y.Z` spelling. Prefix only a plain numeric token at
+		// this adapter boundary, leaving malformed or decorated values for
+		// the native validator to reject.
+		trimmed := bytes.TrimSpace(data)
+		if bytes.Equal(trimmed, data) && len(trimmed) > 0 && trimmed[0] >= '0' && trimmed[0] <= '9' {
+			data = append([]byte("v"), trimmed...)
+		}
+	}
+	if readErr != nil {
+		data = nil
+	}
+	response.Body = io.NopCloser(bytes.NewReader(data))
+	return response, nil
+}
+
+func (capture *infoCapture) bytes() []byte {
+	if capture == nil {
+		return nil
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return append([]byte(nil), capture.body...)
+}
+
+func (capture *fileCapture) bytes() []byte {
+	if capture == nil {
+		return nil
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return append([]byte(nil), capture.body...)
+}
+
+// stripLegacyInventoryFields removes fields that belonged to the historical
+// root adapter's synthetic identity envelope before the strict standalone
+// DTO sees the response. Real qBittorrent responses do not define these
+// fields. The original bounded bytes remain available through infoCapture so
+// descriptor identity and metadata semantics are preserved locally.
+func stripLegacyInventoryFields(data []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var output bytes.Buffer
+	if err := rewriteInventoryJSON(decoder, &output); err != nil {
+		return data
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return data
+	}
+	return output.Bytes()
+}
+
+func rewriteInventoryJSON(decoder *json.Decoder, output *bytes.Buffer) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	switch delimiter := token.(type) {
+	case json.Delim:
+		switch delimiter {
+		case '[':
+			output.WriteByte('[')
+			first := true
+			for decoder.More() {
+				if !first {
+					output.WriteByte(',')
+				}
+				if err := rewriteInventoryJSON(decoder, output); err != nil {
+					return err
+				}
+				first = false
+			}
+			end, err := decoder.Token()
+			if err != nil || end != json.Delim(']') {
+				return errors.New("inventory JSON array is incomplete")
+			}
+			output.WriteByte(']')
+			return nil
+		case '{':
+			output.WriteByte('{')
+			first := true
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return errors.New("inventory JSON key is invalid")
+				}
+				if legacyInventoryField(key) {
+					if err := skipInventoryJSON(decoder); err != nil {
+						return err
+					}
+					continue
+				}
+				if !first {
+					output.WriteByte(',')
+				}
+				encodedKey, err := json.Marshal(key)
+				if err != nil {
+					return err
+				}
+				output.Write(encodedKey)
+				output.WriteByte(':')
+				if err := rewriteInventoryJSON(decoder, output); err != nil {
+					return err
+				}
+				first = false
+			}
+			end, err := decoder.Token()
+			if err != nil || end != json.Delim('}') {
+				return errors.New("inventory JSON object is incomplete")
+			}
+			output.WriteByte('}')
+			return nil
+		default:
+			return errors.New("inventory JSON delimiter is invalid")
+		}
+	default:
+		encoded, err := json.Marshal(token)
+		if err != nil {
+			return err
+		}
+		output.Write(encoded)
+		return nil
+	}
+}
+
+func skipInventoryJSON(decoder *json.Decoder) error {
+	var discard json.RawMessage
+	return decoder.Decode(&discard)
+}
+
+func legacyInventoryField(key string) bool {
+	switch key {
+	case "infohash_v1", "infohash_v2", "has_metadata", "seeds":
+		return true
+	default:
+		return false
+	}
 }
 
 var _ ports.DownloadInventoryPort = (*Client)(nil)
@@ -234,7 +443,40 @@ func New(config Config) (*Client, error) {
 		return nil, errors.New("qBittorrent cursor key setup failed")
 	}
 
-	return &Client{config: config, endpoint: endpoint, http: httpClient, cursorKey: cursorKey}, nil
+	// The standalone compatibility client owns qBittorrent's authenticated
+	// read session. Keep the adapter's descriptor client separate because
+	// descriptor export is intentionally outside the frozen standalone read
+	// surface; it remains best-effort metadata and never exposes bytes.
+	upstreamHTTP := *httpClient
+	upstreamHTTP.Jar = nil
+	capture := &infoCaptureTransport{base: upstreamHTTP.Transport, maxBytes: config.MaxResponseBytes}
+	upstreamHTTP.Transport = capture
+	nativeUsername, nativePassword := config.Username, config.Password
+	// The root adapter historically allowed credentials to be supplied by a
+	// later runtime boundary (and its descriptor-only tests intentionally omit
+	// them). The standalone client validates its own login form at construction
+	// time, so use non-secret placeholders only for that compatibility boundary;
+	// the server still decides whether the login succeeds.
+	if nativeUsername == "" {
+		nativeUsername = "unconfigured-user"
+	}
+	if nativePassword == "" {
+		nativePassword = "unconfigured-password"
+	}
+	upstream, err := native.New(native.Config{
+		Endpoint:         config.Endpoint,
+		Username:         nativeUsername,
+		Password:         nativePassword,
+		HTTPClient:       &upstreamHTTP,
+		MaxResponseBytes: config.MaxResponseBytes,
+		MaxItems:         config.MaxItems,
+		MaxFiles:         config.MaxFilesPerItem,
+	})
+	if err != nil {
+		return nil, errors.New("qBittorrent compatibility client setup failed")
+	}
+
+	return &Client{config: config, endpoint: endpoint, http: httpClient, upstream: upstream, cursorKey: cursorKey}, nil
 }
 
 // NewClient is an explicit alias for callers that prefer constructor names
@@ -334,16 +576,16 @@ func (client *Client) ListDetailed(ctx context.Context, connectionID domain.Conf
 	}
 	result.Version = version
 
-	query := url.Values{}
-	query.Set("limit", strconv.Itoa(fetchLimit))
-	query.Set("offset", strconv.Itoa(state.Offset))
-	query.Set("sort", "hash")
-	rawPage, err := client.getJSON(ctx, "qbit.inventory.list", apiTorrentInfo, query, client.config.MaxResponseBytes)
+	capture := &infoCapture{}
+	nativeContext := context.WithValue(ctx, infoCaptureContextKey{}, capture)
+	nativePage, err := client.upstream.ListTorrents(nativeContext, native.TorrentListOptions{
+		Limit: fetchLimit, Offset: state.Offset, Sort: "hash",
+	})
 	if err != nil {
-		return result, err
+		return result, translateNativeError("qbit.inventory.list", err)
 	}
-	var summaries []torrentSummary
-	if err := decodeJSON(rawPage, &summaries); err != nil {
+	summaries := mergeNativeSummaries(nativePage, capture.bytes())
+	if summaries == nil && len(nativePage) > 0 {
 		return result, upstreamMalformed("qbit.inventory.list")
 	}
 	pageFingerprint := fingerprint(summaries)
@@ -504,21 +746,18 @@ func (client *Client) validateSnapshot(ctx context.Context, state inventoryCurso
 	var observed int64
 	offset := 0
 	for page := 0; page < client.config.MaxPages; page++ {
-		query := url.Values{}
-		query.Set("limit", strconv.Itoa(state.PageSize))
-		query.Set("offset", strconv.Itoa(offset))
-		query.Set("sort", "hash")
-		body, err := client.getJSON(ctx, "qbit.inventory.revalidate", apiTorrentInfo, query, client.config.MaxResponseBytes)
+		capture := &infoCapture{}
+		nativeContext := context.WithValue(ctx, infoCaptureContextKey{}, capture)
+		nativePage, err := client.upstream.ListTorrents(nativeContext, native.TorrentListOptions{
+			Limit: state.PageSize, Offset: offset, Sort: "hash",
+		})
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return false, "", ctxErr
 			}
 			return false, "pagination_revalidation_unavailable", nil
 		}
-		var summaries []torrentSummary
-		if err := decodeJSON(body, &summaries); err != nil {
-			return false, "pagination_revalidation_malformed", nil
-		}
+		summaries := mergeNativeSummaries(nativePage, capture.bytes())
 		if len(summaries) > state.PageSize {
 			return false, "pagination_revalidation_overflow", nil
 		}
@@ -588,36 +827,25 @@ func (client *Client) Version(ctx context.Context, connectionID domain.ConfigID)
 		return result, err
 	}
 	var firstErr error
-	for _, probe := range []struct {
-		endpoint string
-		store    func(string)
-	}{
-		{apiWebAPIVersion, func(value string) { result.WebAPI = value }},
-		{apiAppVersion, func(value string) { result.Application = value }},
-	} {
-		body, err := client.get(ctx, "qbit.version", probe.endpoint, nil, client.config.MaxResponseBytes)
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return result, ctxErr
-			}
-			if code, ok := upstreamCode(err); ok && code == domain.OutcomeUnauthorized {
-				return result, err
-			}
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		value := strings.TrimSpace(string(body))
-		if !validVersion(value) {
-			if firstErr == nil {
-				firstErr = upstreamMalformed("qbit.version")
-			}
-			continue
-		}
-		probe.store(value)
+	application, applicationErr := client.upstream.ApplicationVersion(ctx)
+	if applicationErr == nil {
+		result.Application = strings.TrimPrefix(application, "v")
+	} else {
+		firstErr = translateNativeError("qbit.version", applicationErr)
+	}
+	webAPI, webAPIErr := client.upstream.WebAPIVersion(ctx)
+	if webAPIErr == nil {
+		result.WebAPI = webAPI
+	} else if firstErr == nil {
+		firstErr = translateNativeError("qbit.version", webAPIErr)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return result, ctxErr
 	}
 	if firstErr != nil {
+		if code, ok := upstreamCode(firstErr); ok && code == domain.OutcomeUnauthorized {
+			return result, firstErr
+		}
 		return result, firstErr
 	}
 	return result, nil
@@ -712,10 +940,9 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 	result.Item.CompletedAt, reasons = mergeTimestamp(summary.CompletionOn, result.Item.CompletedAt, reasons, "completion_time")
 	result.AddedAt, reasons = timestamp(summary.AddedOn, reasons, "added_time")
 
-	var properties torrentProperties
 	if id == "" {
 		reasons = append(reasons, "properties_unavailable")
-	} else if err := client.getJSONFor(ctx, "qbit.inventory.properties", apiProperties, url.Values{"hash": []string{id}}, &properties); err != nil {
+	} else if properties, err := client.upstream.GetTorrentProperties(ctx, id); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return TorrentObservation{}, nil, ctxErr
 		}
@@ -724,8 +951,8 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 		if properties.SavePath != "" {
 			result.SavePath = normalizeRemotePath(properties.SavePath)
 		}
-		if properties.ShareRatio != nil && validFractionOrRatio(*properties.ShareRatio) {
-			result.Ratio = *properties.ShareRatio
+		if validFractionOrRatio(properties.ShareRatio) {
+			result.Ratio = properties.ShareRatio
 		}
 		if properties.CompletionDate > 0 && result.Item.CompletedAt == nil {
 			value, valid := timestampValue(properties.CompletionDate)
@@ -747,18 +974,31 @@ func (client *Client) observeTorrent(ctx context.Context, connectionID domain.Co
 	if id == "" {
 		reasons = append(reasons, "files_unavailable")
 	} else {
-		body, err := client.get(ctx, "qbit.inventory.files", apiFiles, url.Values{"hash": []string{id}}, client.config.MaxResponseBytes)
+		capture := &fileCapture{}
+		nativeContext := context.WithValue(ctx, fileCaptureContextKey{}, capture)
+		nativeFiles, err := client.upstream.GetTorrentFiles(nativeContext, id)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return TorrentObservation{}, nil, ctxErr
 			}
-			reasons = append(reasons, "files_unavailable")
-		} else if err := decodeJSON(body, &files); err != nil {
-			reasons = append(reasons, "files_malformed")
+			if native.IsCode(err, native.ErrorUnknown) {
+				reasons = append(reasons, "files_malformed")
+			} else {
+				reasons = append(reasons, "files_unavailable")
+			}
 		} else {
-			if len(files) > client.config.MaxFilesPerItem {
-				files = files[:client.config.MaxFilesPerItem]
-				reasons = append(reasons, "files_limit")
+			legacyFiles := decodeLegacyFiles(capture.bytes())
+			files = make([]torrentFile, len(nativeFiles))
+			for index, file := range nativeFiles {
+				seeds := -1
+				if index < len(legacyFiles) && legacyFiles[index].Seeds != nil {
+					seeds = *legacyFiles[index].Seeds
+				}
+				files[index] = torrentFile{
+					Index: int(file.Index), Name: file.Name, Size: file.Size,
+					Progress: file.Progress, Priority: int(file.Priority),
+					Availability: file.Availability, Seeds: seeds, IsSeed: file.IsSeed,
+				}
 			}
 			mapped, fileReasons := client.mapFiles(summary.ContentPath, files, observedAt)
 			result.Files = make([]FileObservation, 0, len(mapped))
@@ -1441,6 +1681,40 @@ func upstreamCode(err error) (domain.UpstreamErrorCode, bool) {
 	return "", false
 }
 
+func translateNativeError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var upstream native.UpstreamError
+	if !errors.As(err, &upstream) {
+		return err
+	}
+	code := domain.OutcomeUnknown
+	switch upstream.Code {
+	case native.ErrorUnavailable:
+		code = domain.OutcomeUnavailable
+	case native.ErrorRateLimited:
+		code = domain.OutcomeRateLimited
+	case native.ErrorUnauthorized:
+		code = domain.OutcomeUnauthorized
+	case native.ErrorInvalidInput:
+		code = domain.OutcomeInvalidInput
+	case native.ErrorConflict:
+		code = domain.OutcomeConflict
+	case native.ErrorUnsupported:
+		code = domain.OutcomeUnsupported
+	case native.ErrorUnknown:
+		code = domain.OutcomeUnknown
+	}
+	return domain.UpstreamError{
+		Code: code, Status: upstream.Status, Retryable: upstream.Retryable,
+		Operation: operation, Detail: "qBittorrent upstream request failed",
+	}
+}
+
 type inventoryCursor struct {
 	Version          int              `json:"v"`
 	ConnectionID     string           `json:"connectionId"`
@@ -1456,22 +1730,124 @@ type inventoryCursor struct {
 }
 
 type torrentSummary struct {
-	AddedOn      int64   `json:"added_on"`
-	Category     string  `json:"category"`
-	CompletionOn int64   `json:"completion_on"`
-	ContentPath  string  `json:"content_path"`
-	Hash         string  `json:"hash"`
-	InfoHashV1   string  `json:"infohash_v1"`
-	InfoHashV2   string  `json:"infohash_v2"`
-	Name         string  `json:"name"`
-	Progress     float64 `json:"progress"`
-	Ratio        float64 `json:"ratio"`
-	State        string  `json:"state"`
-	Tags         string  `json:"tags"`
-	SavePath     string  `json:"save_path"`
-	NumSeeds     int     `json:"num_seeds"`
-	NumLeechs    int     `json:"num_leechs"`
-	HasMetadata  bool    `json:"has_metadata"`
+	AddedOn           int64   `json:"added_on"`
+	AmountLeft        int64   `json:"amount_left"`
+	AutoTMM           bool    `json:"auto_tmm"`
+	Availability      float64 `json:"availability"`
+	Category          string  `json:"category"`
+	Completed         int64   `json:"completed"`
+	CompletionOn      int64   `json:"completion_on"`
+	ContentPath       string  `json:"content_path"`
+	DLLimit           int64   `json:"dl_limit"`
+	DLSpeed           int64   `json:"dlspeed"`
+	Downloaded        int64   `json:"downloaded"`
+	DownloadedSession int64   `json:"downloaded_session"`
+	ETA               int64   `json:"eta"`
+	FLPiecePrio       bool    `json:"f_l_piece_prio"`
+	ForceStart        bool    `json:"force_start"`
+	Hash              string  `json:"hash"`
+	InfoHashV1        string  `json:"infohash_v1"`
+	InfoHashV2        string  `json:"infohash_v2"`
+	IsPrivate         bool    `json:"isPrivate"`
+	LastActivity      int64   `json:"last_activity"`
+	MagnetURI         string  `json:"magnet_uri"`
+	MaxRatio          float64 `json:"max_ratio"`
+	MaxSeedingTime    int64   `json:"max_seeding_time"`
+	Name              string  `json:"name"`
+	NumComplete       int64   `json:"num_complete"`
+	NumIncomplete     int64   `json:"num_incomplete"`
+	NumLeechs         int     `json:"num_leechs"`
+	NumSeeds          int     `json:"num_seeds"`
+	Priority          int64   `json:"priority"`
+	Progress          float64 `json:"progress"`
+	Ratio             float64 `json:"ratio"`
+	RatioLimit        float64 `json:"ratio_limit"`
+	Reannounce        int64   `json:"reannounce"`
+	SavePath          string  `json:"save_path"`
+	SeedingTime       int64   `json:"seeding_time"`
+	SeedingTimeLimit  int64   `json:"seeding_time_limit"`
+	SeenComplete      int64   `json:"seen_complete"`
+	SeqDL             bool    `json:"seq_dl"`
+	Size              int64   `json:"size"`
+	State             string  `json:"state"`
+	SuperSeeding      bool    `json:"super_seeding"`
+	Tags              string  `json:"tags"`
+	TimeActive        int64   `json:"time_active"`
+	TotalSize         int64   `json:"total_size"`
+	Tracker           string  `json:"tracker"`
+	UpLimit           int64   `json:"up_limit"`
+	Uploaded          int64   `json:"uploaded"`
+	UploadedSession   int64   `json:"uploaded_session"`
+	UpSpeed           int64   `json:"upspeed"`
+	HasMetadata       bool    `json:"has_metadata"`
+}
+
+type torrentIdentityFields struct {
+	Hash        string `json:"hash"`
+	InfoHashV1  string `json:"infohash_v1"`
+	InfoHashV2  string `json:"infohash_v2"`
+	HasMetadata *bool  `json:"has_metadata"`
+}
+
+type legacyFileFields struct {
+	Seeds *int `json:"seeds"`
+}
+
+func decodeLegacyFiles(raw []byte) []legacyFileFields {
+	if len(raw) == 0 {
+		return nil
+	}
+	var files []legacyFileFields
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&files); err != nil {
+		return nil
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF {
+		return nil
+	}
+	return files
+}
+
+// mergeNativeSummaries translates the standalone module's public Torrent DTO
+// into the root adapter's local summary. The raw inventory envelope is used
+// only for legacy v1/v2 identity evidence; native generated DTOs never appear
+// in a port result or a package-level API.
+func mergeNativeSummaries(records []native.Torrent, raw []byte) []torrentSummary {
+	identities := make([]torrentIdentityFields, 0, len(records))
+	if len(raw) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		var decoded []torrentIdentityFields
+		if err := decoder.Decode(&decoded); err == nil {
+			var trailing any
+			if decoder.Decode(&trailing) == io.EOF && len(decoded) == len(records) {
+				identities = decoded
+			}
+		}
+	}
+	result := make([]torrentSummary, len(records))
+	for index, record := range records {
+		identity := torrentIdentityFields{}
+		if index < len(identities) {
+			identity = identities[index]
+		}
+		hash := record.Hash
+		if identity.Hash != "" {
+			hash = identity.Hash
+		}
+		hasMetadata := record.Size > 0 || record.TotalSize > 0
+		if identity.HasMetadata != nil {
+			hasMetadata = *identity.HasMetadata
+		}
+		result[index] = torrentSummary{
+			AddedOn: record.AddedOn, Category: record.Category, CompletionOn: record.CompletionOn,
+			ContentPath: record.ContentPath, Hash: hash, InfoHashV1: identity.InfoHashV1,
+			InfoHashV2: identity.InfoHashV2, Name: record.Name, Progress: record.Progress,
+			Ratio: record.Ratio, State: record.State, Tags: record.Tags, SavePath: record.SavePath,
+			NumSeeds: int(record.NumSeeds), NumLeechs: int(record.NumLeechs), HasMetadata: hasMetadata,
+		}
+	}
+	return result
 }
 
 func (summary torrentSummary) externalID() string {

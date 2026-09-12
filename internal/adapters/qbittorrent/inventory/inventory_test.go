@@ -212,6 +212,9 @@ func sequenceInfo(t *testing.T, responses ...infoResponse) func(int) ([]byte, in
 
 func newFixtureClient(t *testing.T, handler *qbitFixtureHandler, connectionID domain.ConfigID) (*Client, func()) {
 	t.Helper()
+	if handler.properties == nil {
+		handler.properties = fixture(t, "properties.json")
+	}
 	server := httptest.NewServer(handler)
 	config := Config{
 		ConnectionID: connectionID,
@@ -490,7 +493,7 @@ func TestListDetailedPagesAndMetadata(t *testing.T) {
 	if film.Item.Descriptor == nil || film.Item.Descriptor.Available || film.Item.Descriptor.Unavailable != "not_requested" {
 		t.Fatalf("film descriptor = %#v", film.Item.Descriptor)
 	}
-	if film.Files[0].Index != 0 || film.Files[0].Size != 1234567890 || film.Files[0].Availability != 1 || !film.Files[0].IsSeed {
+	if film.Files[0].Index != 0 || film.Files[0].Size != 1234567890 || film.Files[0].Availability != 1 || film.Files[0].Seeds != 4 || !film.Files[0].IsSeed {
 		t.Fatalf("film file metadata = %#v", film.Files[0])
 	}
 	if film.Item.Payload[0].RootID != "library" || film.Item.Payload[0].RelativePath != "managed/Example Film (2024)/Example Film (2024).mkv" {

@@ -6,8 +6,12 @@
     "progress": 0.5,
     "priority": 1,
     "availability": -1,
-    "seeds": 2,
-    "is_seed": false
+    "is_seed": false,
+    "piece_range": [
+      0,
+      0
+    ],
+    "seeds": 2
   },
   {
     "index": 1,
@@ -16,7 +20,11 @@
     "progress": 0.5,
     "priority": 0,
     "availability": -1,
-    "seeds": 2,
-    "is_seed": false
+    "is_seed": false,
+    "piece_range": [
+      1,
+      1
+    ],
+    "seeds": 2
   }
 ]
