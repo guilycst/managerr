@@ -1980,7 +1980,7 @@
       ]
     },
     "X-12": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
       "integratedSha": null,
@@ -1993,18 +1993,18 @@
         "docs/execution/handoffs/X-12.md",
         "255d63c7a1b979f0a9244d72d97105e84a020a75 X-12 review round 1 changes requested",
         "a8723268fda092d8efc9dda118bd6126f510247d integrated X-12 review receipt",
-        "docs/execution/handoffs/X-12-review-round1.md"
+        "docs/execution/handoffs/X-12-review-round1.md",
+        "c1ce2d2dd5202801f09cad6420af864574b6cfef X-12 correction round 2 product",
+        "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7 X-12 correction round 2 handoff",
+        "docs/execution/handoffs/X-12-correction-round2.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "255d63c7a1b979f0a9244d72d97105e84a020a75",
-        "findings": [
-          "Legacy infohash/has_metadata/seeds projection bypasses strict duplicate/type validation and can produce complete coverage.",
-          "Field-name-only recursive projection hides misplaced unknown fields across info/files schemas, also producing complete coverage."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-12",
@@ -2035,22 +2035,23 @@
           "root-client-dependencies": "522cf5bd1ea52e20754ea52d1458947b1eef1603"
         },
         "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
-        "implementationCommit": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
+        "implementationCommit": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
         "productCommits": [
           "4c665d314d8d8e3ea31e54606be228829c595a25",
-          "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3"
+          "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
+          "c1ce2d2dd5202801f09cad6420af864574b6cfef"
         ],
-        "handoffCommit": "c8c1df60b4ba553721fecbc6e1eddcea0d1c806b",
-        "reviewSourceCommit": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
-        "reviewCommit": "255d63c7a1b979f0a9244d72d97105e84a020a75",
+        "handoffCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7",
+        "reviewSourceCommit": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
+        "reviewCommit": "pending",
         "reviewIntegrationCommit": "a8723268fda092d8efc9dda118bd6126f510247d",
         "correctionRound": 2,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
         "correctionReviewPath": "docs/execution/handoffs/X-12-review-round1.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending"
+        "correctionImplementationCommit": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
+        "correctionHandoffCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7"
       }
     },
     "X-13": {
@@ -2142,7 +2143,7 @@
       ]
     }
   },
-  "nextAction": "X-13 is complete and approved. X-12 qBittorrent correction round 2 remains in implementation; keep X-05 and write/workflow lanes paused.",
+  "nextAction": "X-12 correction round 2 is in independent review; X-13 is complete and approved. Keep X-05 and write/workflow lanes paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
