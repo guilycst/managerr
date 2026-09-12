@@ -16,6 +16,9 @@ case "${1:-}" in
     ;;
 esac
 
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-generate.XXXXXX")
+trap 'rm -rf -- "$tmp_dir"' EXIT INT TERM
+
 require_sqlc_config() {
   sqlc_config_path=$repo_dir/sqlc.yaml
   if [ ! -f "$sqlc_config_path" ]; then
@@ -36,8 +39,43 @@ require_sqlc_config() {
 
 require_sqlc_config
 
-tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-generate.XXXXXX")
-trap 'rm -rf -- "$tmp_dir"' EXIT INT TERM
+staged_path_exists() {
+  staged_tree=$1
+  staged_path=$2
+  staged_entry=$(git -C "$repo_dir" ls-tree -r --name-only "$staged_tree" -- "$staged_path")
+  [ "$staged_entry" = "$staged_path" ]
+}
+
+run_staged_check() {
+  staged_tree=$(git -C "$repo_dir" write-tree)
+  if ! staged_path_exists "$staged_tree" sqlc.yaml; then
+    echo "authoritative SQLC config is absent from the staged tree: $repo_dir/sqlc.yaml" >&2
+    exit 1
+  fi
+  if ! staged_path_exists "$staged_tree" scripts/generate.sh; then
+    echo "generation script is absent from the staged tree: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+
+  staged_root=$tmp_dir/staged-root
+  staged_archive=$tmp_dir/staged-tree.tar
+  mkdir -p "$staged_root"
+  git -C "$repo_dir" archive --format=tar "$staged_tree" >"$staged_archive"
+  tar -xf "$staged_archive" -C "$staged_root"
+
+  # Use the script currently being checked so an unstaged script edit cannot
+  # silently bypass this guard. All inputs and expected outputs come from the
+  # exact tree produced by git write-tree.
+  cp "$repo_dir/scripts/generate.sh" "$staged_root/scripts/generate.sh"
+  MASTARR_GENERATION_SNAPSHOT=1 sh "$staged_root/scripts/generate.sh" --check
+}
+
+if [ "$mode" = check ] && [ -z "${MASTARR_GENERATION_SNAPSHOT:-}" ]; then
+  if git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    run_staged_check
+    exit 0
+  fi
+fi
 
 make_config() {
   config_source=$1
