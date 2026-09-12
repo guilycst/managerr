@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1511,14 +1511,21 @@
         "4776dd80bda5a5a5c1b1bfcb600521cf5d283f99 C-05 product slice",
         "38a27ccf87ce04bc83f7180c99eb384df4bfcef9 C-05 final product",
         "343a0d68562e587f1356325bbed705338e293178 C-05 handoff",
-        "docs/execution/handoffs/C-05.md"
+        "docs/execution/handoffs/C-05.md",
+        "cdfcac8c1e7113d2dbeec060ee3923e13c3e5372 C-05 review round 1 changes requested",
+        "5063525b6bbe8bdbd83560cd4e4532cc08ce8dbb integrated C-05 review receipt",
+        "docs/execution/handoffs/C-05-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "cdfcac8c1e7113d2dbeec060ee3923e13c3e5372",
+        "findings": [
+          "P1 generation checks overwrite the shell-global output variable and compare temporary output to itself, accepting missing or stale root/UI/qBittorrent generated bindings",
+          "P1 SQLC check mode mutates repository outputs and can accept stale staged SQLC output",
+          "P1 architecture import scanner misses valid aliased single-line imports, allowing root/internal and cross-client imports"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -1558,9 +1565,28 @@
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
         "reviewSourceCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
-        "reviewCommit": "pending"
+        "reviewCommit": "cdfcac8c1e7113d2dbeec060ee3923e13c3e5372",
+        "reviewIntegrationCommit": "5063525b6bbe8bdbd83560cd4e4532cc08ce8dbb",
+        "correctionRound": 2,
+        "correctionOwner": "/root/c01_implementer",
+        "correctionBaseSha": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+        "correctionReviewPath": "docs/execution/handoffs/C-05-review-round1.md",
+        "correctionReviewer": "/root/f01_reviewer",
+        "correctionImplementationCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+        "correctionHandoffCommit": "343a0d68562e587f1356325bbed705338e293178"
       },
-      "implementationCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9"
+      "implementationCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "cdfcac8c1e7113d2dbeec060ee3923e13c3e5372",
+          "status": "changes_requested",
+          "sourceCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+          "receipt": "docs/execution/handoffs/C-05-review-round1.md",
+          "integratedCommit": "5063525b6bbe8bdbd83560cd4e4532cc08ce8dbb"
+        }
+      ]
     },
     "X-10": {
       "status": "done",
@@ -1880,7 +1906,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 is in independent review; X-10 and X-11 are approved. Keep UI and workflow lanes paused until C-05 review closes.",
+  "nextAction": "C-05 correction round 2 must make generation and SQLC checks side-effect-free and harden import scanning; keep UI and workflow lanes paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
