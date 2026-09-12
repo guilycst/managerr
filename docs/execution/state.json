@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1529,14 +1529,19 @@
         "docs/execution/handoffs/C-05-review-round3.md",
         "b9bf954933a6922bbebb69432d501921eec6b623 C-05 correction round 4 product",
         "c28435a2a5044ddcde1035336f58714fad2349f9 C-05 correction round 4 handoff",
-        "docs/execution/handoffs/C-05-correction-round4.md"
+        "docs/execution/handoffs/C-05-correction-round4.md",
+        "0282fdfd623b7e18ad648bf9483207e21d5e9ceb C-05 review round 4 changes requested",
+        "250800a61669dc6ac8c5e7d9d7db5c574ec982d8 integrated C-05 review receipt",
+        "docs/execution/handoffs/C-05-review-round4.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "0282fdfd623b7e18ad648bf9483207e21d5e9ceb",
+        "findings": [
+          "P1 staged scripts/generate.sh is overwritten with working-tree content during validation, so an older generator can be committed while generation, pre-commit, and CI pass"
+        ],
         "round": 4
       },
       "dispatch": {
@@ -1579,12 +1584,12 @@
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
         "reviewSourceCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
-        "reviewCommit": "pending",
-        "reviewIntegrationCommit": "ab2d6b7d3dec3e2254a5e155c64a74b20c92cf74",
-        "correctionRound": 4,
+        "reviewCommit": "0282fdfd623b7e18ad648bf9483207e21d5e9ceb",
+        "reviewIntegrationCommit": "250800a61669dc6ac8c5e7d9d7db5c574ec982d8",
+        "correctionRound": 5,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
-        "correctionReviewPath": "docs/execution/handoffs/C-05-review-round3.md",
+        "correctionBaseSha": "b9bf954933a6922bbebb69432d501921eec6b623",
+        "correctionReviewPath": "docs/execution/handoffs/C-05-review-round4.md",
         "correctionReviewer": "/root/f01_reviewer",
         "correctionImplementationCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
         "correctionHandoffCommit": "c28435a2a5044ddcde1035336f58714fad2349f9"
@@ -1617,6 +1622,15 @@
           "sourceCommit": "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
           "receipt": "docs/execution/handoffs/C-05-review-round3.md",
           "integratedCommit": "ab2d6b7d3dec3e2254a5e155c64a74b20c92cf74"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "0282fdfd623b7e18ad648bf9483207e21d5e9ceb",
+          "status": "changes_requested",
+          "sourceCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
+          "receipt": "docs/execution/handoffs/C-05-review-round4.md",
+          "integratedCommit": "250800a61669dc6ac8c5e7d9d7db5c574ec982d8"
         }
       ]
     },
@@ -1938,7 +1952,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 correction round 4 is in independent review; UI and workflow lanes remain paused.",
+  "nextAction": "C-05 correction round 5 must validate staged scripts/generate.sh content without overwriting it from the worktree; UI and workflow lanes remain paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
