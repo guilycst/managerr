@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1517,14 +1517,20 @@
         "docs/execution/handoffs/C-05-review-round1.md",
         "428199ae4e1f03936d58bb48dbee962186c7266f C-05 correction round 2 product",
         "385a783a454ff9e500b1250c7df94be0a7f47a07 C-05 correction round 2 handoff",
-        "docs/execution/handoffs/C-05-correction-round2.md"
+        "docs/execution/handoffs/C-05-correction-round2.md",
+        "1f611907ba4f23143b3896bc2d2707573bfa25e1 C-05 review round 2 changes requested",
+        "45daade2a8dd4ec1999ecff9ce88ff6a7f82f85c integrated C-05 review receipt",
+        "docs/execution/handoffs/C-05-review-round2.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "1f611907ba4f23143b3896bc2d2707573bfa25e1",
+        "findings": [
+          "P1 deleting or staging deletion of sqlc.yaml silently skips SQLC generation, allowing generation, pre-commit, and aggregate guardrails to pass",
+          "P2 architecture import lexer does not Go-unquote interpreted import paths, allowing escaped forbidden root/internal imports"
+        ],
         "round": 2
       },
       "dispatch": {
@@ -1565,12 +1571,12 @@
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
         "reviewSourceCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
-        "reviewCommit": "pending",
-        "reviewIntegrationCommit": "5063525b6bbe8bdbd83560cd4e4532cc08ce8dbb",
-        "correctionRound": 2,
+        "reviewCommit": "1f611907ba4f23143b3896bc2d2707573bfa25e1",
+        "reviewIntegrationCommit": "45daade2a8dd4ec1999ecff9ce88ff6a7f82f85c",
+        "correctionRound": 3,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
-        "correctionReviewPath": "docs/execution/handoffs/C-05-review-round1.md",
+        "correctionBaseSha": "428199ae4e1f03936d58bb48dbee962186c7266f",
+        "correctionReviewPath": "docs/execution/handoffs/C-05-review-round2.md",
         "correctionReviewer": "/root/f01_reviewer",
         "correctionImplementationCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
         "correctionHandoffCommit": "385a783a454ff9e500b1250c7df94be0a7f47a07"
@@ -1585,6 +1591,15 @@
           "sourceCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
           "receipt": "docs/execution/handoffs/C-05-review-round1.md",
           "integratedCommit": "5063525b6bbe8bdbd83560cd4e4532cc08ce8dbb"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "1f611907ba4f23143b3896bc2d2707573bfa25e1",
+          "status": "changes_requested",
+          "sourceCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
+          "receipt": "docs/execution/handoffs/C-05-review-round2.md",
+          "integratedCommit": "45daade2a8dd4ec1999ecff9ce88ff6a7f82f85c"
         }
       ]
     },
@@ -1906,7 +1921,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 correction round 2 is in independent review; UI and workflow lanes remain paused.",
+  "nextAction": "C-05 correction round 3 must fail closed when sqlc.yaml is missing and Go-unquote interpreted import paths before architecture comparison; UI and workflow lanes remain paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
