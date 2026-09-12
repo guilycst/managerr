@@ -58,7 +58,42 @@ run_module_checks() {
   )
 }
 
+check_staged_generation_identity() {
+  if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return
+  fi
+
+  # Guard the aggregate entrypoint before check-api invokes generation.  A
+  # partially staged generator must never be allowed to validate the staged
+  # tree with a different worktree script: that would make pre-commit and CI
+  # depend on bytes which are not part of the candidate commit.
+  staged_tree=$(git -C "$repo_dir" write-tree)
+  staged_script=$(git -C "$repo_dir" ls-tree -r --name-only "$staged_tree" -- scripts/generate.sh)
+  if [ "$staged_script" != scripts/generate.sh ]; then
+    echo "generation script is absent from the staged tree: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+  staged_config=$(git -C "$repo_dir" ls-tree -r --name-only "$staged_tree" -- sqlc.yaml)
+  if [ "$staged_config" != sqlc.yaml ]; then
+    echo "authoritative SQLC config is absent from the staged tree: $repo_dir/sqlc.yaml" >&2
+    exit 1
+  fi
+
+  staged_script_blob=$(git -C "$repo_dir" rev-parse "$staged_tree:scripts/generate.sh")
+  working_script_blob=$(git -C "$repo_dir" hash-object --path=scripts/generate.sh -- "$repo_dir/scripts/generate.sh")
+  if [ "$staged_script_blob" != "$working_script_blob" ]; then
+    echo "staged generation script differs from the working script: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+  staged_script_mode=$(git -C "$repo_dir" ls-tree "$staged_tree" -- scripts/generate.sh | awk '{ print $1 }')
+  if [ "$staged_script_mode" != 100755 ] || [ ! -x "$repo_dir/scripts/generate.sh" ]; then
+    echo "staged generation script is not executable: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+}
+
 run_fast() {
+  check_staged_generation_identity
   "$repo_dir/scripts/check-api.sh"
   "$repo_dir/scripts/check-lint.sh" --architecture-only
   check_format

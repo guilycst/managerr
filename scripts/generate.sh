@@ -74,10 +74,16 @@ run_staged_check() {
   git -C "$repo_dir" archive --format=tar "$staged_tree" >"$staged_archive"
   tar -xf "$staged_archive" -C "$staged_root"
 
-  # Run the exact script extracted from the tree. The blob and mode checks
-  # above make a staged generator differencing from the current worktree fail
-  # before this point.
-  MASTARR_GENERATION_SNAPSHOT=1 sh "$staged_root/scripts/generate.sh" --check
+  # Verify that archive extraction preserved the staged generator byte-for-
+  # byte, then execute that executable directly. The blob and mode checks
+  # above make a staged generator differing from the current worktree fail
+  # before this point; no worktree script is copied into the snapshot.
+  archived_script_blob=$(git -C "$repo_dir" hash-object -- "$staged_root/scripts/generate.sh")
+  if [ "$staged_script_blob" != "$archived_script_blob" ]; then
+    echo "staged generation script changed while creating the snapshot: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+  MASTARR_GENERATION_SNAPSHOT=1 "$staged_root/scripts/generate.sh" --check
 }
 
 if [ "$mode" = check ] && [ -z "${MASTARR_GENERATION_SNAPSHOT:-}" ]; then
