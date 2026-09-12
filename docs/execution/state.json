@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1520,18 +1520,18 @@
         "docs/execution/handoffs/C-05-correction-round2.md",
         "1f611907ba4f23143b3896bc2d2707573bfa25e1 C-05 review round 2 changes requested",
         "45daade2a8dd4ec1999ecff9ce88ff6a7f82f85c integrated C-05 review receipt",
-        "docs/execution/handoffs/C-05-review-round2.md"
+        "docs/execution/handoffs/C-05-review-round2.md",
+        "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8 C-05 correction round 3 product",
+        "ded1de2d1cf428cf87a8eddafacdbb0aa71aa838 C-05 correction round 3 handoff",
+        "docs/execution/handoffs/C-05-correction-round3.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "1f611907ba4f23143b3896bc2d2707573bfa25e1",
-        "findings": [
-          "P1 deleting or staging deletion of sqlc.yaml silently skips SQLC generation, allowing generation, pre-commit, and aggregate guardrails to pass",
-          "P2 architecture import lexer does not Go-unquote interpreted import paths, allowing escaped forbidden root/internal imports"
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1553,8 +1553,8 @@
           "architecture boundaries",
           "CI matrix"
         ],
-        "reviewPath": "docs/execution/handoffs/C-05-review-round2.md",
-        "handoffPath": "docs/execution/handoffs/C-05-correction-round2.md",
+        "reviewPath": "docs/execution/handoffs/C-05-review-round3.md",
+        "handoffPath": "docs/execution/handoffs/C-05-correction-round3.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
@@ -1567,21 +1567,22 @@
         "productCommits": [
           "4776dd80bda5a5a5c1b1bfcb600521cf5d283f99",
           "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
-          "428199ae4e1f03936d58bb48dbee962186c7266f"
+          "428199ae4e1f03936d58bb48dbee962186c7266f",
+          "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8"
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
-        "reviewSourceCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
-        "reviewCommit": "1f611907ba4f23143b3896bc2d2707573bfa25e1",
+        "reviewSourceCommit": "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
+        "reviewCommit": "pending",
         "reviewIntegrationCommit": "45daade2a8dd4ec1999ecff9ce88ff6a7f82f85c",
         "correctionRound": 3,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "428199ae4e1f03936d58bb48dbee962186c7266f",
         "correctionReviewPath": "docs/execution/handoffs/C-05-review-round2.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
-        "correctionHandoffCommit": "385a783a454ff9e500b1250c7df94be0a7f47a07"
+        "correctionImplementationCommit": "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
+        "correctionHandoffCommit": "ded1de2d1cf428cf87a8eddafacdbb0aa71aa838"
       },
-      "implementationCommit": "428199ae4e1f03936d58bb48dbee962186c7266f",
+      "implementationCommit": "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
       "reviewHistory": [
         {
           "round": 1,
@@ -1921,7 +1922,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 correction round 3 must fail closed when sqlc.yaml is missing and Go-unquote interpreted import paths before architecture comparison; UI and workflow lanes remain paused.",
+  "nextAction": "C-05 correction round 3 is in independent review; UI and workflow lanes remain paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
