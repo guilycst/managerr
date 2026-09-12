@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1538,17 +1538,18 @@
         "docs/execution/handoffs/C-05-correction-round5.md",
         "a6e3b643df259b4bd048cfd0f8e9e7235c98db1c C-05 review round 5 changes requested",
         "fe6ea8a4ac0e68c016d1b78f918c1236f09fdfb6 integrated C-05 review receipt",
-        "docs/execution/handoffs/C-05-review-round5.md"
+        "docs/execution/handoffs/C-05-review-round5.md",
+        "e58428caa17c55605b77f5a4d8d388b61b6e5fef C-05 correction round 6 product",
+        "ad00af9306468611c466b31ec99840b71fd127da C-05 correction round 6 handoff",
+        "docs/execution/handoffs/C-05-correction-round6.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "a6e3b643df259b4bd048cfd0f8e9e7235c98db1c",
-        "findings": [
-          "P1 inverse partial staging runs the older worktree generator instead of the corrected staged generator, so generation/pre-commit/CI can pass while the index retains the older script"
-        ],
-        "round": 5
+        "commit": null,
+        "findings": [],
+        "round": 6
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1570,8 +1571,8 @@
           "architecture boundaries",
           "CI matrix"
         ],
-        "reviewPath": "docs/execution/handoffs/C-05-review-round5.md",
-        "handoffPath": "docs/execution/handoffs/C-05-correction-round5.md",
+        "reviewPath": "docs/execution/handoffs/C-05-review-round6.md",
+        "handoffPath": "docs/execution/handoffs/C-05-correction-round6.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
@@ -1587,21 +1588,22 @@
           "428199ae4e1f03936d58bb48dbee962186c7266f",
           "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
           "b9bf954933a6922bbebb69432d501921eec6b623",
-          "2433b5c0b5114d61dee59657b2f8a6991d2e3755"
+          "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
+          "e58428caa17c55605b77f5a4d8d388b61b6e5fef"
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
-        "reviewSourceCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
-        "reviewCommit": "a6e3b643df259b4bd048cfd0f8e9e7235c98db1c",
+        "reviewSourceCommit": "e58428caa17c55605b77f5a4d8d388b61b6e5fef",
+        "reviewCommit": "pending",
         "reviewIntegrationCommit": "fe6ea8a4ac0e68c016d1b78f918c1236f09fdfb6",
         "correctionRound": 6,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
         "correctionReviewPath": "docs/execution/handoffs/C-05-review-round5.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
-        "correctionHandoffCommit": "ff7a0a40967012de6380c29a090a848d498a7e38"
+        "correctionImplementationCommit": "e58428caa17c55605b77f5a4d8d388b61b6e5fef",
+        "correctionHandoffCommit": "ad00af9306468611c466b31ec99840b71fd127da"
       },
-      "implementationCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
+      "implementationCommit": "e58428caa17c55605b77f5a4d8d388b61b6e5fef",
       "reviewHistory": [
         {
           "round": 1,
@@ -1968,7 +1970,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 correction round 6 must execute the staged generator without allowing the worktree script to overwrite it; UI and workflow lanes remain paused.",
+  "nextAction": "C-05 correction round 6 is in independent review; UI and workflow lanes remain paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
