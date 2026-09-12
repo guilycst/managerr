@@ -16,7 +16,7 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "X-10"
+    "C-05"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -1501,18 +1501,59 @@
       "review": null
     },
     "C-05": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "assigned",
+      "owner": "/root/c01_implementer",
+      "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "X-10 approved at 6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+        "X-11 approved at b71917bac3136b9554863e3d138812bd041c2c4b"
+      ],
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/f01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-11",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "ownedPaths": [
+          "scripts/generate.sh",
+          "scripts/check-guardrails.sh",
+          "scripts/check-lint.sh",
+          ".github/workflows/checks.yml",
+          "docs/execution/handoffs/C-05.md"
+        ],
+        "expectedChecks": [
+          "A-43",
+          "A-45",
+          "GOWORK=off nested module tests/race/vet/mod-verify/lint",
+          "deterministic generation",
+          "architecture boundaries",
+          "CI matrix"
+        ],
+        "reviewPath": "docs/execution/handoffs/C-05-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/C-05.md",
+        "nextReviewer": "/root/f01_reviewer",
+        "dependencyCommits": {
+          "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
+          "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+          "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
+          "X-11-review": "b71917bac3136b9554863e3d138812bd041c2c4b"
+        },
+        "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0"
+      }
     },
     "X-10": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
-      "integratedSha": null,
+      "integratedSha": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
       "evidence": [
         "915eaab2568394ae4afb2ab0e580e8db9936fec8 X-10 product",
         "54584d510466281d0bc5a39a7ec161894596e934 X-10 handoff",
@@ -1563,13 +1604,15 @@
         "docs/execution/handoffs/X-10-review-round10.md",
         "a9c847ff562fad1a3edf23e59bb6f6b27facb7af X-10 correction round 11 product",
         "2cde17f8bff2306112be8aa047220baa9acdad43 X-10 correction round 11 handoff",
-        "docs/execution/handoffs/X-10-correction-round11.md"
+        "docs/execution/handoffs/X-10-correction-round11.md",
+        "6b15c0b4862c8c1e6a4f64530f3614f788504b44 X-10 review round 11 approval",
+        "docs/execution/handoffs/X-10-review-round11.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
+        "commit": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
         "findings": [],
         "round": 11
       },
@@ -1592,7 +1635,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-10-review-round11.md",
         "handoffPath": "docs/execution/handoffs/X-10-correction-round11.md",
-        "nextReviewer": "/root/d01_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
@@ -1607,7 +1650,7 @@
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
         "correctionHandoffCommit": "2cde17f8bff2306112be8aa047220baa9acdad43",
-        "reviewCommit": "pending"
+        "reviewCommit": "6b15c0b4862c8c1e6a4f64530f3614f788504b44"
       },
       "implementationCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
       "reviewHistory": [
@@ -1690,6 +1733,14 @@
           "status": "changes_requested",
           "sourceCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
           "receipt": "docs/execution/handoffs/X-10-review-round10.md"
+        },
+        {
+          "round": 11,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+          "status": "approved",
+          "sourceCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
+          "receipt": "docs/execution/handoffs/X-10-review-round11.md"
         }
       ]
     },
@@ -1816,7 +1867,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 11 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "C-05 is assigned to extend generation, lint, architecture, and CI across the approved nested qBittorrent and NZBGet modules; do not start UI or workflow lanes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
