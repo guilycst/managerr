@@ -1980,7 +1980,7 @@
       ]
     },
     "X-12": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "58dfe1eb7881b74d5c03baef91034e0738b457b7",
       "integratedSha": null,
@@ -1996,14 +1996,19 @@
         "docs/execution/handoffs/X-12-review-round1.md",
         "c1ce2d2dd5202801f09cad6420af864574b6cfef X-12 correction round 2 product",
         "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7 X-12 correction round 2 handoff",
-        "docs/execution/handoffs/X-12-correction-round2.md"
+        "docs/execution/handoffs/X-12-correction-round2.md",
+        "3f72e56cc0e6f5c646c476d67fd56bedaa5f0264 X-12 review round 2 changes requested",
+        "055da019de55082f9608cd365d4de4ab3d04e786 integrated X-12 review receipt",
+        "docs/execution/handoffs/X-12-review-round2.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "3f72e56cc0e6f5c646c476d67fd56bedaa5f0264",
+        "findings": [
+          "Explicit file seeds=-1 is rejected, dropping valid file evidence; preserve -1 as the documented unknown sentinel and reject values below -1 or invalid types."
+        ],
         "round": 2
       },
       "dispatch": {
@@ -2024,8 +2029,8 @@
           "Linux amd64/arm64 CGO-free compile checks",
           "synthetic httptest fixture coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-12-review-round2.md",
-        "handoffPath": "docs/execution/handoffs/X-12-correction-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-12-review-round3.md",
+        "handoffPath": "docs/execution/handoffs/X-12-correction-round3.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
@@ -2043,15 +2048,15 @@
         ],
         "handoffCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7",
         "reviewSourceCommit": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
-        "reviewCommit": "pending",
-        "reviewIntegrationCommit": "a8723268fda092d8efc9dda118bd6126f510247d",
-        "correctionRound": 2,
+        "reviewCommit": "3f72e56cc0e6f5c646c476d67fd56bedaa5f0264",
+        "reviewIntegrationCommit": "055da019de55082f9608cd365d4de4ab3d04e786",
+        "correctionRound": 3,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "cb0c5db5cb4460e9fb8dacc4027ab09ada6dfda3",
-        "correctionReviewPath": "docs/execution/handoffs/X-12-review-round1.md",
+        "correctionBaseSha": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
+        "correctionReviewPath": "docs/execution/handoffs/X-12-review-round2.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "c1ce2d2dd5202801f09cad6420af864574b6cfef",
-        "correctionHandoffCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7"
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending"
       }
     },
     "X-13": {
@@ -2143,7 +2148,7 @@
       ]
     }
   },
-  "nextAction": "X-12 correction round 2 is in independent review; X-13 is complete and approved. Keep X-05 and write/workflow lanes paused.",
+  "nextAction": "X-12 correction round 3 is assigned for the explicit file seeds=-1 sentinel; X-13 is complete and approved. Keep X-05 and write/workflow lanes paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
