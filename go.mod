@@ -8,6 +8,8 @@ require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/guilycst/mastarr/clients/nzbget v0.0.0-20260911223922-1b9b3f9c425e
+	github.com/guilycst/mastarr/clients/qbittorrent v0.0.0-20260912004727-a9c847ff562f
 	github.com/oapi-codegen/runtime v1.7.0
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.56.0
