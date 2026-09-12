@@ -55,7 +55,6 @@ check_client_architecture() {
 from __future__ import annotations
 
 import pathlib
-import re
 import sys
 
 
@@ -64,27 +63,101 @@ project_prefix = "github.com/guilycst/mastarr/"
 root_module = project_prefix.rstrip("/")
 violations: list[str] = []
 
+
+def _go_tokens(source: str) -> list[tuple[str, str]]:
+    """Tokenize enough Go syntax to read import declarations safely.
+
+    The architecture check runs independently of compilation, so it cannot
+    rely on package loading to discover imports.  This small lexer skips Go
+    comments and literals and retains identifiers, punctuation, and import
+    strings.  In particular, it handles named, blank, and dot aliases in both
+    single-line and grouped declarations.
+    """
+    tokens: list[tuple[str, str]] = []
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if character in " \t\r":
+            index += 1
+            continue
+        if character == "\n":
+            tokens.append(("newline", character))
+            index += 1
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline
+            continue
+        if source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+            continue
+        if character in ('"', "`", "'"):
+            quote = character
+            index += 1
+            value_start = index
+            while index < len(source):
+                if quote == '"' and source[index] == "\\":
+                    index += 2
+                    continue
+                if source[index] == quote:
+                    break
+                index += 1
+            value = source[value_start:index]
+            if quote != "'":
+                tokens.append(("string", value))
+            if index < len(source):
+                index += 1
+            continue
+        if character == "_" or character.isalpha():
+            end = index + 1
+            while end < len(source) and (source[end] == "_" or source[end].isalnum()):
+                end += 1
+            tokens.append(("ident", source[index:end]))
+            index = end
+            continue
+        tokens.append((character, character))
+        index += 1
+    return tokens
+
+
+def _go_imports(source: str) -> list[str]:
+    tokens = _go_tokens(source)
+    imports: list[str] = []
+    index = 0
+    while index < len(tokens):
+        kind, value = tokens[index]
+        if kind != "ident" or value != "import":
+            index += 1
+            continue
+        index += 1
+        if index < len(tokens) and tokens[index][0] == "(":
+            depth = 1
+            index += 1
+            while index < len(tokens) and depth:
+                kind, value = tokens[index]
+                if kind == "(":
+                    depth += 1
+                elif kind == ")":
+                    depth -= 1
+                elif kind == "string" and depth == 1:
+                    imports.append(value)
+                index += 1
+            continue
+        while index < len(tokens) and tokens[index][0] not in ("newline", ";"):
+            kind, value = tokens[index]
+            if kind == "string":
+                imports.append(value)
+                break
+            index += 1
+        continue
+    return imports
+
+
 for path in sorted((root / "clients").rglob("*.go")):
     relative = path.relative_to(root).as_posix()
     client_name = relative.split("/", 2)[1]
-    lines = path.read_text(encoding="utf-8").splitlines()
-    index = 0
-    imported: list[str] = []
-    while index < len(lines):
-        line = lines[index]
-        single = re.match(r"^\s*import\s+\"([^\"]+)\"", line)
-        if single:
-            imported.append(single.group(1))
-            index += 1
-            continue
-        if re.match(r"^\s*import\s*\(", line):
-            index += 1
-            while index < len(lines) and not re.match(r"^\s*\)\s*$", lines[index]):
-                match = re.search(r'\"([^\"]+)\"', lines[index])
-                if match:
-                    imported.append(match.group(1))
-                index += 1
-        index += 1
+    imported = _go_imports(path.read_text(encoding="utf-8"))
     for dependency in imported:
         blocked = dependency == root_module or dependency.startswith(project_prefix)
         if dependency.startswith(project_prefix + "clients/"):
