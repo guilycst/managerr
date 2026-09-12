@@ -1501,13 +1501,17 @@
       "review": null
     },
     "C-05": {
-      "status": "assigned",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
       "evidence": [
         "X-10 approved at 6b15c0b4862c8c1e6a4f64530f3614f788504b44",
-        "X-11 approved at b71917bac3136b9554863e3d138812bd041c2c4b"
+        "X-11 approved at b71917bac3136b9554863e3d138812bd041c2c4b",
+        "4776dd80bda5a5a5c1b1bfcb600521cf5d283f99 C-05 product slice",
+        "38a27ccf87ce04bc83f7180c99eb384df4bfcef9 C-05 final product",
+        "343a0d68562e587f1356325bbed705338e293178 C-05 handoff",
+        "docs/execution/handoffs/C-05.md"
       ],
       "review": {
         "status": "pending",
@@ -1546,8 +1550,17 @@
           "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
           "X-11-review": "b71917bac3136b9554863e3d138812bd041c2c4b"
         },
-        "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0"
-      }
+        "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
+        "implementationCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+        "productCommits": [
+          "4776dd80bda5a5a5c1b1bfcb600521cf5d283f99",
+          "38a27ccf87ce04bc83f7180c99eb384df4bfcef9"
+        ],
+        "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
+        "reviewSourceCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
+        "reviewCommit": "pending"
+      },
+      "implementationCommit": "38a27ccf87ce04bc83f7180c99eb384df4bfcef9"
     },
     "X-10": {
       "status": "done",
@@ -1867,7 +1880,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 is assigned to extend generation, lint, architecture, and CI across the approved nested qBittorrent and NZBGet modules; do not start UI or workflow lanes.",
+  "nextAction": "C-05 is in independent review; X-10 and X-11 are approved. Keep UI and workflow lanes paused until C-05 review closes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
