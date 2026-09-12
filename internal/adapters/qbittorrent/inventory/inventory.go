@@ -506,7 +506,7 @@ func validateLegacyInventoryValue(decoder *json.Decoder, kind legacyValueKind, k
 			return fmt.Errorf("legacy inventory member %q must be an integer", key)
 		}
 		value, parseErr := strconv.ParseInt(string(number), 10, 64)
-		if parseErr != nil || value < 0 || (strconv.IntSize == 32 && value > math.MaxInt32) {
+		if parseErr != nil || value < -1 || (strconv.IntSize == 32 && value > math.MaxInt32) {
 			return fmt.Errorf("legacy inventory member %q has invalid range", key)
 		}
 	default:

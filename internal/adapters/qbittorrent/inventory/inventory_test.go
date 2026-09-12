@@ -1146,7 +1146,7 @@ func TestLegacyProjectionValidatesTypesAndDuplicateMembers(t *testing.T) {
 		{name: "seeds float", kind: legacyProjectionFiles, body: `[{"seeds":1.5}]`},
 		{name: "seeds string", kind: legacyProjectionFiles, body: `[{"seeds":"4"}]`},
 		{name: "seeds null", kind: legacyProjectionFiles, body: `[{"seeds":null}]`},
-		{name: "seeds negative", kind: legacyProjectionFiles, body: `[{"seeds":-1}]`},
+		{name: "seeds below sentinel", kind: legacyProjectionFiles, body: `[{"seeds":-2}]`},
 		{name: "seeds overflow", kind: legacyProjectionFiles, body: `[{"seeds":9223372036854775808}]`},
 	}
 	for _, test := range tests {
@@ -1167,6 +1167,7 @@ func TestLegacyProjectionValidatesTypesAndDuplicateMembers(t *testing.T) {
 		body string
 	}{
 		{name: "empty optional identities", kind: legacyProjectionInfo, body: `[{"infohash_v1":"","infohash_v2":"","has_metadata":true}]`},
+		{name: "unknown seed sentinel", kind: legacyProjectionFiles, body: `[{"seeds":-1}]`},
 		{name: "zero seeds", kind: legacyProjectionFiles, body: `[{"seeds":0}]`},
 		{name: "absent optional fields", kind: legacyProjectionInfo, body: `[{}]`},
 	} {
@@ -1236,6 +1237,79 @@ func TestLegacyProjectionIsEndpointAndPathAware(t *testing.T) {
 	}
 	if _, exists := nestedFiles["infohash_v1"]; !exists {
 		t.Fatal("nested identity field was stripped from file row")
+	}
+}
+
+func TestExplicitUnknownFileSeedsRetainsEvidence(t *testing.T) {
+	seedRows := func(t *testing.T, values ...string) []byte {
+		t.Helper()
+		body := fixture(t, "files-film.json")
+		anchor := []byte(`"seeds": 4`)
+		searchFrom := 0
+		for _, value := range values {
+			relativeIndex := bytes.Index(body[searchFrom:], anchor)
+			if relativeIndex < 0 {
+				t.Fatalf("seed row anchor missing while replacing with %q", value)
+			}
+			index := searchFrom + relativeIndex
+			replacement := []byte(`"seeds": ` + value)
+			updated := make([]byte, 0, len(body)-len(anchor)+len(replacement))
+			updated = append(updated, body[:index]...)
+			updated = append(updated, replacement...)
+			updated = append(updated, body[index+len(anchor):]...)
+			body = updated
+			searchFrom = index + len(replacement)
+		}
+		return body
+	}
+	withoutSeeds := bytes.ReplaceAll(fixture(t, "files-film.json"), []byte(",\n    \"seeds\": 4"), nil)
+	tests := []struct {
+		name       string
+		body       []byte
+		wantSeeds  []int
+		wantReason string
+		malformed  bool
+	}{
+		{name: "first row unknown", body: seedRows(t, "-1"), wantSeeds: []int{-1, 4}, wantReason: "item_0_file_seeds_unknown"},
+		{name: "later row unknown", body: seedRows(t, "4", "-1"), wantSeeds: []int{4, -1}, wantReason: "item_0_file_seeds_unknown"},
+		{name: "multiple rows unknown", body: seedRows(t, "-1", "-1"), wantSeeds: []int{-1, -1}, wantReason: "item_0_file_seeds_unknown"},
+		{name: "omitted rows unknown", body: withoutSeeds, wantSeeds: []int{-1, -1}, wantReason: "item_0_file_seeds_unknown"},
+		{name: "below sentinel rejected", body: seedRows(t, "-2"), malformed: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &qbitFixtureHandler{
+				info:       func(int) ([]byte, int) { return fixture(t, "info-single.json"), http.StatusOK },
+				properties: fixture(t, "properties.json"),
+				files:      map[string][]byte{fixtureFilmHash: test.body},
+			}
+			client, closeServer := newFixtureClient(t, handler, "qbt-main")
+			defer closeServer()
+			page, err := client.ListDetailed(context.Background(), "qbt-main", "", 2)
+			if err != nil {
+				t.Fatalf("ListDetailed: %v", err)
+			}
+			if len(page.Items) != 1 {
+				t.Fatalf("items = %d, want one: %#v", len(page.Items), page)
+			}
+			if test.malformed {
+				if len(page.Items[0].Files) != 0 || len(page.Items[0].Item.Payload) != 0 || !hasReason(page.Coverage, "item_0_files_malformed") || page.Coverage.Completeness != domain.CompletenessPartial {
+					t.Fatalf("below-sentinel evidence = %#v", page)
+				}
+				return
+			}
+			if len(page.Items[0].Files) != len(test.wantSeeds) || len(page.Items[0].Item.Payload) != len(test.wantSeeds) {
+				t.Fatalf("file/payload evidence = %#v, payload=%#v", page.Items[0].Files, page.Items[0].Item.Payload)
+			}
+			for index, want := range test.wantSeeds {
+				if page.Items[0].Files[index].Seeds != want {
+					t.Fatalf("file %d seeds = %d, want %d", index, page.Items[0].Files[index].Seeds, want)
+				}
+			}
+			if !hasReason(page.Coverage, test.wantReason) || page.Coverage.Completeness != domain.CompletenessPartial {
+				t.Fatalf("unknown seed coverage = %#v", page.Coverage)
+			}
+		})
 	}
 }
 
