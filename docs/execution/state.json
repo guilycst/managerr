@@ -2041,7 +2041,7 @@
       }
     },
     "X-13": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/f01_implementer",
       "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
       "integratedSha": null,
@@ -2049,14 +2049,20 @@
         "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed",
         "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c X-13 product",
         "a5f7e51570850535bcaf63fa805b623a309c3bb9 X-13 handoff",
-        "docs/execution/handoffs/X-13.md"
+        "docs/execution/handoffs/X-13.md",
+        "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26 X-13 review round 1 changes requested",
+        "66c0d0b0424c751aac410e3e89b89aa9f81d40d0 integrated X-13 review receipt",
+        "docs/execution/handoffs/X-13-review-round1.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26",
+        "findings": [
+          "HTTP 501 is mapped as retryable unavailable instead of unsupported/non-retryable.",
+          "JSON-RPC error code 0 loses UpstreamID \"0\" in the adapter translation."
+        ],
         "round": 1
       },
       "dispatch": {
@@ -2079,8 +2085,8 @@
           "Linux amd64/arm64 CGO-free compile checks",
           "synthetic httptest fixture coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-13-review-round1.md",
-        "handoffPath": "docs/execution/handoffs/X-13.md",
+        "reviewPath": "docs/execution/handoffs/X-13-review-round2.md",
+        "handoffPath": "docs/execution/handoffs/X-13-correction-round2.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
@@ -2093,11 +2099,19 @@
         "implementationCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
         "handoffCommit": "a5f7e51570850535bcaf63fa805b623a309c3bb9",
         "reviewSourceCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
-        "reviewCommit": "pending"
+        "reviewCommit": "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26",
+        "reviewIntegrationCommit": "66c0d0b0424c751aac410e3e89b89aa9f81d40d0",
+        "correctionRound": 2,
+        "correctionOwner": "/root/f01_implementer",
+        "correctionBaseSha": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
+        "correctionReviewPath": "docs/execution/handoffs/X-13-review-round1.md",
+        "correctionReviewer": "/root/f01_reviewer",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending"
       }
     }
   },
-  "nextAction": "X-12 qBittorrent and X-13 NZBGet adapter migrations are in independent review; no X-05 or write/workflow lane dispatch until both clear.",
+  "nextAction": "X-13 correction round 2 is assigned for the HTTP 501 classification and JSON-RPC code-0 provenance findings; X-12 remains in independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
