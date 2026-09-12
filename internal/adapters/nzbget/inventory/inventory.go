@@ -590,7 +590,7 @@ func mapClientError(method string, sourceError error) error {
 		},
 		cause: contextCause(sourceError),
 	}
-	if source.RPCCode != 0 {
+	if source.RPCCode != 0 || source.Kind == nzbgetclient.ErrorRemote {
 		translated.UpstreamID = strconv.FormatInt(source.RPCCode, 10)
 	}
 	return translated
@@ -610,6 +610,9 @@ func normalizeClientError(source *nzbgetclient.UpstreamError) (domain.UpstreamEr
 	case nzbgetclient.ErrorUnsupported:
 		return domain.OutcomeUnsupported, false, "upstream method is unsupported"
 	case nzbgetclient.ErrorUnavailable:
+		if source.StatusCode == http.StatusNotImplemented {
+			return domain.OutcomeUnsupported, false, "upstream method is unsupported"
+		}
 		return domain.OutcomeUnavailable, true, "upstream is unavailable"
 	case nzbgetclient.ErrorTimeout:
 		return domain.OutcomeUnavailable, true, "upstream request timed out"

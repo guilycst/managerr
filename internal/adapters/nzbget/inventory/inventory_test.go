@@ -409,6 +409,39 @@ func TestJSONRPC11EnvelopeAndRequest(t *testing.T) {
 	}(), domain.OutcomeUnknown)
 }
 
+func TestStandaloneErrorClassificationTranslation(t *testing.T) {
+	notImplementedHandler := &rpcFixtureHandler{
+		version:   fixture(t, "version.json"),
+		status:    map[string]int{"version": http.StatusNotImplemented},
+		malformed: map[string]bool{},
+	}
+	notImplementedClient, closeNotImplemented := newFixtureClient(t, notImplementedHandler, "nzb-http-501", nil)
+	defer closeNotImplemented()
+	notImplemented := assertErrorCode(t, func() error {
+		_, callErr := notImplementedClient.Version(context.Background(), "nzb-http-501")
+		return callErr
+	}(), domain.OutcomeUnsupported)
+	if notImplemented.Status != http.StatusNotImplemented || notImplemented.Retryable {
+		t.Fatalf("HTTP 501 classification = %#v", notImplemented)
+	}
+
+	zeroCodeHandler := &rpcFixtureHandler{
+		version:       fixture(t, "version.json"),
+		status:        map[string]int{},
+		malformed:     map[string]bool{},
+		responseError: &rpcError{Code: 0, Message: "synthetic remote failure"},
+	}
+	zeroCodeClient, closeZeroCode := newFixtureClient(t, zeroCodeHandler, "nzb-rpc-zero", nil)
+	defer closeZeroCode()
+	zeroCode := assertErrorCode(t, func() error {
+		_, callErr := zeroCodeClient.Version(context.Background(), "nzb-rpc-zero")
+		return callErr
+	}(), domain.OutcomeUnknown)
+	if zeroCode.UpstreamID != "0" {
+		t.Fatalf("JSON-RPC code zero identity = %#v", zeroCode)
+	}
+}
+
 func TestFinalDirMergeReplacesFallbackMappingAndReasonIndex(t *testing.T) {
 	queue := []map[string]any{{
 		"NZBID": 501, "ID": 501, "Kind": "NZB", "NZBName": "Merged Final Directory",
