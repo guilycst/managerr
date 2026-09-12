@@ -4,6 +4,16 @@ set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 lint_tool=github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+lint_mode=full
+
+case "${1:-}" in
+  "") ;;
+  --architecture-only) lint_mode=architecture ;;
+  *)
+    echo "usage: $0 [--architecture-only]" >&2
+    exit 2
+    ;;
+esac
 
 module_dirs="
 .
@@ -34,9 +44,11 @@ run_lint() {
   )
 }
 
-for module_dir in $module_dirs; do
-  run_lint "$module_dir"
-done
+if [ "$lint_mode" = full ]; then
+  for module_dir in $module_dirs; do
+    run_lint "$module_dir"
+  done
+fi
 
 check_client_architecture() {
   python3 - "$repo_dir" <<'PY'
@@ -95,4 +107,8 @@ PY
 python3 "$repo_dir/scripts/check-architecture.py"
 check_client_architecture
 
-echo "Go lint and architecture checks passed"
+if [ "$lint_mode" = architecture ]; then
+  echo "Go architecture checks passed"
+else
+  echo "Go lint and architecture checks passed"
+fi
