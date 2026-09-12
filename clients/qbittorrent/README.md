@@ -55,7 +55,9 @@ deliberately retry after it drains. Callers waiting for it retain context
 cancellation semantics. If the leader's context is canceled or reaches its
 deadline, the leader receives that error while uncanceled waiters elect one
 later shared authentication attempt instead of inheriting the leader's
-cancellation.
+cancellation. If a real upstream response completes at the same cancellation
+boundary, the leader receives its own context error while joined waiters retain
+the completed typed upstream result.
 
 Each read binds its selected `SID` and authentication generation as one
 credential snapshot. A 401 or 403 can invalidate only that generation; a

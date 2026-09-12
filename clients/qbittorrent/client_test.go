@@ -1532,6 +1532,93 @@ func (c *observedDoneContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
+type cancelAfterReadBody struct {
+	data   []byte
+	cancel context.CancelFunc
+	done   bool
+}
+
+func (b *cancelAfterReadBody) Read(p []byte) (int, error) {
+	if len(b.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, b.data)
+	b.data = b.data[n:]
+	if !b.done {
+		b.done = true
+		b.cancel()
+	}
+	return n, nil
+}
+
+func (b *cancelAfterReadBody) Close() error { return nil }
+
+type boundaryAuthTransport struct {
+	cancelLeader context.CancelFunc
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	firstStatus  int
+	firstBody    string
+	firstCookie  string
+	attempts     atomic.Int32
+	reads        atomic.Int32
+}
+
+func (t *boundaryAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Path == apiLogin && req.Method == http.MethodPost {
+		attempt := t.attempts.Add(1)
+		if attempt == 1 {
+			close(t.firstStarted)
+			<-t.releaseFirst
+			status := t.firstStatus
+			if status == 0 {
+				status = http.StatusForbidden
+			}
+			bodyText := t.firstBody
+			if bodyText == "" {
+				bodyText = "synthetic unauthorized"
+			}
+			body := &cancelAfterReadBody{
+				data:   []byte(bodyText),
+				cancel: t.cancelLeader,
+			}
+			header := make(http.Header)
+			if t.firstCookie != "" {
+				header.Set("Set-Cookie", t.firstCookie)
+			}
+			return &http.Response{
+				StatusCode:    status,
+				Status:        fmt.Sprintf("%d synthetic response", status),
+				Header:        header,
+				Body:          body,
+				ContentLength: int64(len(bodyText)),
+				Request:       req,
+			}, nil
+		}
+		return syntheticTransportResponse(req, http.StatusOK, "Ok.", "SID=session-2; Path=/"), nil
+	}
+	if req.URL.Path == apiAppVersion {
+		t.reads.Add(1)
+		return syntheticTransportResponse(req, http.StatusOK, "v5.0.0", ""), nil
+	}
+	return syntheticTransportResponse(req, http.StatusNotFound, "", ""), nil
+}
+
+func syntheticTransportResponse(req *http.Request, status int, body, setCookie string) *http.Response {
+	header := make(http.Header)
+	if setCookie != "" {
+		header.Set("Set-Cookie", setCookie)
+	}
+	return &http.Response{
+		StatusCode:    status,
+		Status:        fmt.Sprintf("%d synthetic response", status),
+		Header:        header,
+		Body:          io.NopCloser(strings.NewReader(body)),
+		ContentLength: int64(len(body)),
+		Request:       req,
+	}
+}
+
 func TestCanceledAuthenticationLeaderDoesNotPoisonLiveWaiter(t *testing.T) {
 	loginStarted := make(chan struct{})
 	secondLoginStarted := make(chan struct{})
@@ -1629,6 +1716,148 @@ func TestCanceledAuthenticationLeaderDoesNotPoisonLiveWaiter(t *testing.T) {
 		t.Fatalf("login attempts = %d, want canceled leader plus one retry", got)
 	}
 	if got, want := readCount.Load(), int32(1); got != want {
+		t.Fatalf("successful waiter reads = %d, want %d", got, want)
+	}
+}
+
+func TestCompletedAuthRejectionWinsLeaderCancellation(t *testing.T) {
+	leaderContext, cancelLeader := context.WithCancel(context.Background())
+	defer cancelLeader()
+	transport := &boundaryAuthTransport{
+		cancelLeader: cancelLeader,
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+	}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(transport.releaseFirst) }) }
+	defer releaseFirst()
+
+	client, err := New(Config{
+		Endpoint:   "http://synthetic.invalid",
+		Username:   testUsername,
+		Password:   testPassword,
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	leaderDone := make(chan error, 1)
+	go func() { leaderDone <- client.Login(leaderContext) }()
+	select {
+	case <-transport.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader login did not reach transport")
+	}
+
+	waiterContext := &observedDoneContext{
+		Context:  context.Background(),
+		observed: make(chan struct{}),
+	}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, waiterErr := client.ApplicationVersion(waiterContext)
+		waiterDone <- waiterErr
+	}()
+	select {
+	case <-waiterContext.observed:
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not join the active authentication flight")
+	}
+	releaseFirst()
+
+	select {
+	case leaderErr := <-leaderDone:
+		if !errors.Is(leaderErr, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", leaderErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader did not return after the completed rejection")
+	}
+	select {
+	case waiterErr := <-waiterDone:
+		var upstream UpstreamError
+		if !errors.As(waiterErr, &upstream) || upstream.Code != ErrorUnauthorized || upstream.Status != http.StatusForbidden {
+			t.Fatalf("waiter error = %#v, want immutable unauthorized 403", waiterErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not receive the completed rejection")
+	}
+	if got, want := transport.attempts.Load(), int32(1); got != want {
+		t.Fatalf("authentication POSTs = %d, want %d", got, want)
+	}
+	if got := transport.reads.Load(); got != 0 {
+		t.Fatalf("reads after shared completed rejection = %d, want zero", got)
+	}
+}
+
+func TestCompletedAuthSuccessRemainsAvailableToWaiter(t *testing.T) {
+	leaderContext, cancelLeader := context.WithCancel(context.Background())
+	defer cancelLeader()
+	transport := &boundaryAuthTransport{
+		cancelLeader: cancelLeader,
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+		firstStatus:  http.StatusOK,
+		firstBody:    "Ok.",
+		firstCookie:  "SID=session-2; Path=/",
+	}
+	var releaseOnce sync.Once
+	releaseFirst := func() { releaseOnce.Do(func() { close(transport.releaseFirst) }) }
+	defer releaseFirst()
+
+	client, err := New(Config{
+		Endpoint:   "http://synthetic.invalid",
+		Username:   testUsername,
+		Password:   testPassword,
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	leaderDone := make(chan error, 1)
+	go func() { leaderDone <- client.Login(leaderContext) }()
+	select {
+	case <-transport.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("leader login did not reach transport")
+	}
+
+	waiterContext := &observedDoneContext{
+		Context:  context.Background(),
+		observed: make(chan struct{}),
+	}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, waiterErr := client.ApplicationVersion(waiterContext)
+		waiterDone <- waiterErr
+	}()
+	select {
+	case <-waiterContext.observed:
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not join the active authentication flight")
+	}
+	releaseFirst()
+
+	select {
+	case leaderErr := <-leaderDone:
+		if !errors.Is(leaderErr, context.Canceled) {
+			t.Fatalf("leader error = %v, want context.Canceled", leaderErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("leader did not return after the completed success")
+	}
+	select {
+	case waiterErr := <-waiterDone:
+		if waiterErr != nil {
+			t.Fatalf("live waiter error = %v, want successful read", waiterErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("live waiter did not use the completed successful session")
+	}
+	if got, want := transport.attempts.Load(), int32(1); got != want {
+		t.Fatalf("authentication POSTs = %d, want %d", got, want)
+	}
+	if got, want := transport.reads.Load(), int32(1); got != want {
 		t.Fatalf("successful waiter reads = %d, want %d", got, want)
 	}
 }

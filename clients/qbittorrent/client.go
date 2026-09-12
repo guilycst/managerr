@@ -143,7 +143,8 @@ type Client struct {
 // separately so active waiters can elect one replacement attempt.
 type authFlight struct {
 	done           chan struct{}
-	err            error
+	err            error // immutable result returned to callers that joined
+	leaderErr      error // caller-scoped result returned to the leader
 	leaderCanceled bool
 }
 
@@ -562,26 +563,38 @@ func (c *Client) ensureSession(ctx context.Context) error {
 			c.authInFlight = flight
 			c.authMu.Unlock()
 
-			sid, authErr := c.authenticate(ctx)
+			sid, authErr, responseComplete := c.authenticate(ctx)
 			c.authMu.Lock()
 			err := authErr
+			leaderErr := authErr
 			if ctxErr := contextError(ctx); ctxErr != nil {
-				// Cancellation belongs to the leader's call. Publish it so
-				// that leader returns its own context error, but let active
-				// waiters elect a new leader instead of inheriting it.
-				err = ctxErr
-				flight.leaderCanceled = true
+				// Cancellation belongs to the leader's call. A completed
+				// upstream response still has an immutable result for active
+				// waiters. A completed successful login can install its
+				// validated session for them; only an interrupted attempt
+				// lets them elect a replacement flight.
+				leaderErr = ctxErr
+				if responseComplete && err == nil {
+					c.authenticated = true
+					c.authGeneration++
+					c.sessionSID = sid
+				} else if !responseComplete {
+					err = ctxErr
+					flight.leaderCanceled = true
+				}
 			} else if err == nil {
 				c.authenticated = true
 				c.authGeneration++
 				c.sessionSID = sid
 			}
 			flight.err = err
+			flight.leaderErr = leaderErr
+			leaderResult := flight.leaderErr
 			c.authInFlight = nil
 			close(flight.done)
 			c.authMu.Unlock()
-			if err != nil {
-				return err
+			if leaderResult != nil {
+				return leaderResult
 			}
 			if err := contextError(ctx); err != nil {
 				return err
@@ -605,24 +618,25 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	}
 }
 
-func (c *Client) authenticate(ctx context.Context) (string, error) {
+func (c *Client) authenticate(ctx context.Context) (string, error, bool) {
 	form := url.Values{}
 	form.Set("username", c.config.Username)
 	form.Set("password", c.config.Password)
 	body, status, cookies, err := c.requestOnce(ctx, "qbit.auth.login", http.MethodPost, apiLogin, nil, "", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	responseComplete := status != 0 && err == nil
 	if status != 0 && status != http.StatusOK {
-		return "", statusError("qbit.auth.login", status)
+		return "", statusError("qbit.auth.login", status), responseComplete
 	}
 	if err != nil {
-		return "", err
+		return "", err, false
 	}
 	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
-		return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+		return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}, responseComplete
 	}
 	if sid, ok := c.usableSID(cookies); ok {
-		return sid, nil
+		return sid, nil, responseComplete
 	}
-	return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}
+	return "", UpstreamError{Code: ErrorUnauthorized, Operation: "qbit.auth.login", Status: status}, responseComplete
 }
 
 func (c *Client) invalidateSession(expectedGeneration uint64) bool {
