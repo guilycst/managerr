@@ -2022,14 +2022,24 @@
       }
     },
     "X-13": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
       "integratedSha": null,
       "evidence": [
-        "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed"
+        "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed",
+        "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c X-13 product",
+        "a5f7e51570850535bcaf63fa805b623a309c3bb9 X-13 handoff",
+        "docs/execution/handoffs/X-13.md"
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/f01_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-12",
         "model": "gpt-5.6-luna",
@@ -2057,13 +2067,18 @@
           "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
           "X-11-review": "b71917bac3136b9554863e3d138812bd041c2c4b",
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
-          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094"
+          "C-05-review": "93b0a0c4562d29059d6a05c0c2e369882b4da094",
+          "root-client-dependencies": "522cf5bd1ea52e20754ea52d1458947b1eef1603"
         },
-        "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e"
+        "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
+        "implementationCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
+        "handoffCommit": "a5f7e51570850535bcaf63fa805b623a309c3bb9",
+        "reviewSourceCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
+        "reviewCommit": "pending"
       }
     }
   },
-  "nextAction": "X-12 and X-13 adapter migrations are in parallel implementation; reviewers are reserved per module. Do not dispatch X-05 or write/workflow lanes until both migrations are reviewed and integrated.",
+  "nextAction": "X-13 is in independent review; X-12 qBittorrent adapter remains in parallel implementation. Review both migrations before X-05 or write/workflow lanes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
