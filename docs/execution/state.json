@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1560,18 +1560,18 @@
         "b3e6a669108a01053cb2d0d6bdd5823690fd340d X-10 correction round 10 handoff",
         "docs/execution/handoffs/X-10-correction-round10.md",
         "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e X-10 review round 10 changes requested",
-        "docs/execution/handoffs/X-10-review-round10.md"
+        "docs/execution/handoffs/X-10-review-round10.md",
+        "a9c847ff562fad1a3edf23e59bb6f6b27facb7af X-10 correction round 11 product",
+        "2cde17f8bff2306112be8aa047220baa9acdad43 X-10 correction round 11 handoff",
+        "docs/execution/handoffs/X-10-correction-round11.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d01_reviewer",
-        "commit": "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e",
-        "findings": [
-          "P1 received non-200 status with non-bound body-read error is marked response incomplete, so leader cancellation causes a live waiter to repeat login instead of sharing status-first Unauthorized",
-          "P2 round-ten handoff cites stale 50de60f/round8 lineage instead of dispatch checkpoint 1b3cb11 and round-nine receipt bb124a"
-        ],
-        "round": 10
+        "commit": null,
+        "findings": [],
+        "round": 11
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1590,8 +1590,8 @@
           "oapi-codegen reproducibility",
           "synthetic WebUI httptest coverage"
         ],
-        "reviewPath": "docs/execution/handoffs/X-10-review-round10.md",
-        "handoffPath": "docs/execution/handoffs/X-10-correction-round10.md",
+        "reviewPath": "docs/execution/handoffs/X-10-review-round11.md",
+        "handoffPath": "docs/execution/handoffs/X-10-correction-round11.md",
         "nextReviewer": "/root/d01_reviewer",
         "dependencyCommits": {
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
@@ -1599,17 +1599,17 @@
         "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
-        "reviewSourceCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
+        "reviewSourceCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
         "correctionRound": 11,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "f514ced46d72775b4609f3b7956a79d54468777b",
         "correctionReviewPath": "docs/execution/handoffs/X-10-review-round10.md",
         "correctionReviewer": "/root/d01_reviewer",
-        "correctionImplementationCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
-        "correctionHandoffCommit": "b3e6a669108a01053cb2d0d6bdd5823690fd340d",
-        "reviewCommit": "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e"
+        "correctionImplementationCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
+        "correctionHandoffCommit": "2cde17f8bff2306112be8aa047220baa9acdad43",
+        "reviewCommit": "pending"
       },
-      "implementationCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
+      "implementationCommit": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
       "reviewHistory": [
         {
           "round": 1,
@@ -1816,7 +1816,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 11 must preserve status-first Unauthorized for any received non-200 response despite body-read errors and correct the round-ten handoff lineage; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
+  "nextAction": "X-10 correction round 11 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
