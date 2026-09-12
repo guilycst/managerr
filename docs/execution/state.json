@@ -1501,7 +1501,7 @@
       "review": null
     },
     "C-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/c01_implementer",
       "baseSha": "fcbb7404075ea57a8594db07bef3ac715b7bebf0",
       "integratedSha": null,
@@ -1532,17 +1532,18 @@
         "docs/execution/handoffs/C-05-correction-round4.md",
         "0282fdfd623b7e18ad648bf9483207e21d5e9ceb C-05 review round 4 changes requested",
         "250800a61669dc6ac8c5e7d9d7db5c574ec982d8 integrated C-05 review receipt",
-        "docs/execution/handoffs/C-05-review-round4.md"
+        "docs/execution/handoffs/C-05-review-round4.md",
+        "2433b5c0b5114d61dee59657b2f8a6991d2e3755 C-05 correction round 5 product",
+        "ff7a0a40967012de6380c29a090a848d498a7e38 C-05 correction round 5 handoff",
+        "docs/execution/handoffs/C-05-correction-round5.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "0282fdfd623b7e18ad648bf9483207e21d5e9ceb",
-        "findings": [
-          "P1 staged scripts/generate.sh is overwritten with working-tree content during validation, so an older generator can be committed while generation, pre-commit, and CI pass"
-        ],
-        "round": 4
+        "commit": null,
+        "findings": [],
+        "round": 5
       },
       "dispatch": {
         "assignedAt": "2026-09-11",
@@ -1564,8 +1565,8 @@
           "architecture boundaries",
           "CI matrix"
         ],
-        "reviewPath": "docs/execution/handoffs/C-05-review-round4.md",
-        "handoffPath": "docs/execution/handoffs/C-05-correction-round4.md",
+        "reviewPath": "docs/execution/handoffs/C-05-review-round5.md",
+        "handoffPath": "docs/execution/handoffs/C-05-correction-round5.md",
         "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
@@ -1580,21 +1581,22 @@
           "38a27ccf87ce04bc83f7180c99eb384df4bfcef9",
           "428199ae4e1f03936d58bb48dbee962186c7266f",
           "a3b37d9252e8a9a97bf6ed80b30fb31eb62111e8",
-          "b9bf954933a6922bbebb69432d501921eec6b623"
+          "b9bf954933a6922bbebb69432d501921eec6b623",
+          "2433b5c0b5114d61dee59657b2f8a6991d2e3755"
         ],
         "handoffCommit": "343a0d68562e587f1356325bbed705338e293178",
-        "reviewSourceCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
-        "reviewCommit": "0282fdfd623b7e18ad648bf9483207e21d5e9ceb",
+        "reviewSourceCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
+        "reviewCommit": "pending",
         "reviewIntegrationCommit": "250800a61669dc6ac8c5e7d9d7db5c574ec982d8",
         "correctionRound": 5,
         "correctionOwner": "/root/c01_implementer",
         "correctionBaseSha": "b9bf954933a6922bbebb69432d501921eec6b623",
         "correctionReviewPath": "docs/execution/handoffs/C-05-review-round4.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
-        "correctionHandoffCommit": "c28435a2a5044ddcde1035336f58714fad2349f9"
+        "correctionImplementationCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
+        "correctionHandoffCommit": "ff7a0a40967012de6380c29a090a848d498a7e38"
       },
-      "implementationCommit": "b9bf954933a6922bbebb69432d501921eec6b623",
+      "implementationCommit": "2433b5c0b5114d61dee59657b2f8a6991d2e3755",
       "reviewHistory": [
         {
           "round": 1,
@@ -1952,7 +1954,7 @@
       "review": null
     }
   },
-  "nextAction": "C-05 correction round 5 must validate staged scripts/generate.sh content without overwriting it from the worktree; UI and workflow lanes remain paused.",
+  "nextAction": "C-05 correction round 5 is in independent review; UI and workflow lanes remain paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
