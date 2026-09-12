@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1548,14 +1548,18 @@
         "docs/execution/handoffs/X-10-review-round7.md",
         "da5fa85f22d0c5374657d14cdc6a16ea09e0e038 X-10 correction round 8 product",
         "da37079df3cf041fcfab58228723b50e14d2d8d4 X-10 correction round 8 handoff",
-        "docs/execution/handoffs/X-10-correction-round8.md"
+        "docs/execution/handoffs/X-10-correction-round8.md",
+        "9751d8a834e0b999f96d35c5a555e2bc5b6fb0f3 X-10 review round 8 changes requested",
+        "docs/execution/handoffs/X-10-review-round8.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "9751d8a834e0b999f96d35c5a555e2bc5b6fb0f3",
+        "findings": [
+          "P1 completed HTTP 403 at leader-context cancellation boundary is overwritten by context.Canceled, causing a live waiter to repeat login instead of sharing one unauthorized result"
+        ],
         "round": 8
       },
       "dispatch": {
@@ -1585,14 +1589,14 @@
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewSourceCommit": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
-        "correctionRound": 8,
+        "correctionRound": 9,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round7.md",
+        "correctionBaseSha": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round8.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
         "correctionHandoffCommit": "da37079df3cf041fcfab58228723b50e14d2d8d4",
-        "reviewCommit": "pending"
+        "reviewCommit": "9751d8a834e0b999f96d35c5a555e2bc5b6fb0f3"
       },
       "implementationCommit": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
       "reviewHistory": [
@@ -1651,6 +1655,14 @@
           "status": "changes_requested",
           "sourceCommit": "a16e4b3713b75c4321ab7ff37c5de4ad64ab83d6",
           "receipt": "docs/execution/handoffs/X-10-review-round7.md"
+        },
+        {
+          "round": 8,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "9751d8a834e0b999f96d35c5a555e2bc5b6fb0f3",
+          "status": "changes_requested",
+          "sourceCommit": "da5fa85f22d0c5374657d14cdc6a16ea09e0e038",
+          "receipt": "docs/execution/handoffs/X-10-review-round8.md"
         }
       ]
     },
@@ -1777,7 +1789,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 8 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "X-10 correction round 9 must preserve a completed upstream 403 over leader cancellation and share one unauthorized result; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
