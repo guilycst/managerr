@@ -56,6 +56,17 @@ run_staged_check() {
     echo "generation script is absent from the staged tree: $repo_dir/scripts/generate.sh" >&2
     exit 1
   fi
+  staged_script_blob=$(git -C "$repo_dir" rev-parse "$staged_tree:scripts/generate.sh")
+  working_script_blob=$(git -C "$repo_dir" hash-object --path=scripts/generate.sh -- "$repo_dir/scripts/generate.sh")
+  if [ "$staged_script_blob" != "$working_script_blob" ]; then
+    echo "staged generation script differs from the working script: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
+  staged_script_mode=$(git -C "$repo_dir" ls-tree "$staged_tree" -- scripts/generate.sh | awk '{ print $1 }')
+  if [ "$staged_script_mode" != 100755 ] || [ ! -x "$repo_dir/scripts/generate.sh" ]; then
+    echo "staged generation script is not executable: $repo_dir/scripts/generate.sh" >&2
+    exit 1
+  fi
 
   staged_root=$tmp_dir/staged-root
   staged_archive=$tmp_dir/staged-tree.tar
@@ -63,10 +74,9 @@ run_staged_check() {
   git -C "$repo_dir" archive --format=tar "$staged_tree" >"$staged_archive"
   tar -xf "$staged_archive" -C "$staged_root"
 
-  # Use the script currently being checked so an unstaged script edit cannot
-  # silently bypass this guard. All inputs and expected outputs come from the
-  # exact tree produced by git write-tree.
-  cp "$repo_dir/scripts/generate.sh" "$staged_root/scripts/generate.sh"
+  # Run the exact script extracted from the tree. The blob and mode checks
+  # above make a staged generator differencing from the current worktree fail
+  # before this point.
   MASTARR_GENERATION_SNAPSHOT=1 sh "$staged_root/scripts/generate.sh" --check
 }
 
