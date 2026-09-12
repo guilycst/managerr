@@ -1509,7 +1509,7 @@
       "review": null
     },
     "X-10": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/c01_implementer",
       "baseSha": "b808057059f53dbed011a9d3be75e9da28926c77",
       "integratedSha": null,
@@ -1558,14 +1558,19 @@
         "docs/execution/handoffs/X-10-review-round9.md",
         "f514ced46d72775b4609f3b7956a79d54468777b X-10 correction round 10 product",
         "b3e6a669108a01053cb2d0d6bdd5823690fd340d X-10 correction round 10 handoff",
-        "docs/execution/handoffs/X-10-correction-round10.md"
+        "docs/execution/handoffs/X-10-correction-round10.md",
+        "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e X-10 review round 10 changes requested",
+        "docs/execution/handoffs/X-10-review-round10.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d01_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e",
+        "findings": [
+          "P1 received non-200 status with non-bound body-read error is marked response incomplete, so leader cancellation causes a live waiter to repeat login instead of sharing status-first Unauthorized",
+          "P2 round-ten handoff cites stale 50de60f/round8 lineage instead of dispatch checkpoint 1b3cb11 and round-nine receipt bb124a"
+        ],
         "round": 10
       },
       "dispatch": {
@@ -1595,14 +1600,14 @@
         "implementationCommit": "ddd2b83d01ac6acaa76316db6368002dc7e7ca5b",
         "handoffCommit": "c0cb825e5f559ae02cc4baa7757f1f8c2743e271",
         "reviewSourceCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
-        "correctionRound": 10,
+        "correctionRound": 11,
         "correctionOwner": "/root/c01_implementer",
-        "correctionBaseSha": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
-        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round9.md",
+        "correctionBaseSha": "f514ced46d72775b4609f3b7956a79d54468777b",
+        "correctionReviewPath": "docs/execution/handoffs/X-10-review-round10.md",
         "correctionReviewer": "/root/d01_reviewer",
         "correctionImplementationCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
         "correctionHandoffCommit": "b3e6a669108a01053cb2d0d6bdd5823690fd340d",
-        "reviewCommit": "pending"
+        "reviewCommit": "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e"
       },
       "implementationCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
       "reviewHistory": [
@@ -1677,6 +1682,14 @@
           "status": "changes_requested",
           "sourceCommit": "9f106d6fd4490a3f9a87306accd37f1ba34253b0",
           "receipt": "docs/execution/handoffs/X-10-review-round9.md"
+        },
+        {
+          "round": 10,
+          "reviewer": "/root/d01_reviewer",
+          "commit": "63b185c02e0276d9d3df82ef57ca34c8f9b8d40e",
+          "status": "changes_requested",
+          "sourceCommit": "f514ced46d72775b4609f3b7956a79d54468777b",
+          "receipt": "docs/execution/handoffs/X-10-review-round10.md"
         }
       ]
     },
@@ -1803,7 +1816,7 @@
       "review": null
     }
   },
-  "nextAction": "X-10 correction round 10 is in independent review; X-11 is approved. After X-10 approval, dispatch C-05 to extend generation and CI across nested clients.",
+  "nextAction": "X-10 correction round 11 must preserve status-first Unauthorized for any received non-200 response despite body-read errors and correct the round-ten handoff lineage; X-11 is approved. Keep C-05 blocked until X-10 receives independent approval.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
