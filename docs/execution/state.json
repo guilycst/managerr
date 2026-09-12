@@ -2041,7 +2041,7 @@
       }
     },
     "X-13": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/f01_implementer",
       "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
       "integratedSha": null,
@@ -2052,18 +2052,18 @@
         "docs/execution/handoffs/X-13.md",
         "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26 X-13 review round 1 changes requested",
         "66c0d0b0424c751aac410e3e89b89aa9f81d40d0 integrated X-13 review receipt",
-        "docs/execution/handoffs/X-13-review-round1.md"
+        "docs/execution/handoffs/X-13-review-round1.md",
+        "f54ec97c70d75a58099b92e7ee8350220599d009 X-13 correction round 2 product",
+        "6c0da1e81276a7377a93bd743494e92d51cf86d7 X-13 correction round 2 handoff",
+        "docs/execution/handoffs/X-13-correction-round2.md"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/f01_reviewer",
-        "commit": "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26",
-        "findings": [
-          "HTTP 501 is mapped as retryable unavailable instead of unsupported/non-retryable.",
-          "JSON-RPC error code 0 loses UpstreamID \"0\" in the adapter translation."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-12",
@@ -2096,22 +2096,26 @@
           "root-client-dependencies": "522cf5bd1ea52e20754ea52d1458947b1eef1603"
         },
         "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
-        "implementationCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
-        "handoffCommit": "a5f7e51570850535bcaf63fa805b623a309c3bb9",
-        "reviewSourceCommit": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
-        "reviewCommit": "3e94d1fe25b9aa9ff6e44a7c75e0d368707f2b26",
+        "implementationCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
+        "handoffCommit": "6c0da1e81276a7377a93bd743494e92d51cf86d7",
+        "reviewSourceCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
+        "reviewCommit": "pending",
         "reviewIntegrationCommit": "66c0d0b0424c751aac410e3e89b89aa9f81d40d0",
         "correctionRound": 2,
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
         "correctionReviewPath": "docs/execution/handoffs/X-13-review-round1.md",
         "correctionReviewer": "/root/f01_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending"
+        "correctionImplementationCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
+        "correctionHandoffCommit": "6c0da1e81276a7377a93bd743494e92d51cf86d7",
+        "productCommits": [
+          "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
+          "f54ec97c70d75a58099b92e7ee8350220599d009"
+        ]
       }
     }
   },
-  "nextAction": "X-13 correction round 2 is assigned for the HTTP 501 classification and JSON-RPC code-0 provenance findings; X-12 remains in independent review.",
+  "nextAction": "X-13 correction round 2 is in independent review; X-12 remains in independent review. Do not dispatch X-05 or write/workflow lanes until both clear.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
