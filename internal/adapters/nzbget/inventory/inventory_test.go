@@ -26,6 +26,13 @@ type rpcFixtureCall struct {
 	Params  []json.RawMessage
 }
 
+// rpcError is fixture-only wire data. Production transport and envelope
+// handling belong to the standalone NZBGet client.
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 type rpcFixtureHandler struct {
 	mu sync.Mutex
 

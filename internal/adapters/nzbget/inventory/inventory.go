@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,10 +23,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode"
 
+	nzbgetclient "github.com/guilycst/mastarr/clients/nzbget"
 	"github.com/guilycst/mastarr/internal/domain"
 	"github.com/guilycst/mastarr/internal/ports"
 )
@@ -42,12 +41,8 @@ const (
 	maxCursorBytes           = 16 << 10
 	maxEncodedCursorBytes    = 24 << 10
 	maxReasonCodes           = 256
-	maxVersionLength         = 128
-	maxRPCMethodLength       = 64
 	maxDroneLength           = 256
 )
-
-const rpcPath = "/jsonrpc"
 
 // DescriptorMode controls optional lookup of an original retained NZB file.
 // NZBGet history is never treated as an NZB descriptor.
@@ -199,10 +194,8 @@ type DetailedPage struct {
 // Client is a read-only authenticated NZBGet JSON-RPC client.
 type Client struct {
 	config    Config
-	endpoint  *url.URL
-	http      *http.Client
+	upstream  *nzbgetclient.Client
 	cursorKey []byte
-	requestID atomic.Uint64
 }
 
 var _ ports.DownloadInventoryPort = (*Client)(nil)
@@ -212,10 +205,6 @@ var _ ports.CapabilityPort = (*Client)(nil)
 func New(config Config) (*Client, error) {
 	if !config.ConnectionID.Valid() {
 		return nil, errors.New("NZBGet connection id is invalid")
-	}
-	endpoint, err := parseEndpoint(config.Endpoint)
-	if err != nil {
-		return nil, err
 	}
 	if config.MaxPageSize <= 0 {
 		config.MaxPageSize = defaultMaxPageSize
@@ -254,32 +243,21 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	config.Mappings = append([]domain.PathMapping(nil), config.Mappings...)
-
-	baseClient := http.DefaultClient
-	if config.HTTPClient != nil {
-		baseClient = config.HTTPClient
-	}
-	copyClient := *baseClient
-	httpClient := &copyClient
-	if httpClient.Timeout == 0 {
-		httpClient.Timeout = 15 * time.Second
-	}
-	baseScheme, baseHost := endpoint.Scheme, endpoint.Host
-	customRedirect := httpClient.CheckRedirect
-	httpClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if request.URL.Scheme != baseScheme || !strings.EqualFold(request.URL.Host, baseHost) {
-			return http.ErrUseLastResponse
-		}
-		if customRedirect != nil {
-			return customRedirect(request, via)
-		}
-		return nil
+	upstream, err := nzbgetclient.New(nzbgetclient.Config{
+		Endpoint:         config.Endpoint,
+		Username:         config.Username,
+		Password:         config.Password,
+		HTTPClient:       config.HTTPClient,
+		MaxResponseBytes: config.MaxResponseBytes,
+	})
+	if err != nil {
+		return nil, err
 	}
 	cursorKey := make([]byte, 32)
 	if _, err := cryptorand.Read(cursorKey); err != nil {
 		return nil, errors.New("NZBGet cursor key setup failed")
 	}
-	return &Client{config: config, endpoint: endpoint, http: httpClient, cursorKey: cursorKey}, nil
+	return &Client{config: config, upstream: upstream, cursorKey: cursorKey}, nil
 }
 
 // NewClient is an explicit constructor alias.
@@ -433,7 +411,7 @@ type inventorySnapshot struct {
 
 func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID) (inventorySnapshot, error) {
 	var snapshot inventorySnapshot
-	queueBody, queueErr := client.rpcCall(ctx, "listgroups", []any{0}, client.config.MaxResponseBytes)
+	queueBody, queueErr := client.invokeResult(ctx, nzbgetclient.MethodListGroups, []any{int64(0)})
 	if queueErr != nil {
 		if err := ctx.Err(); err != nil {
 			return snapshot, err
@@ -443,7 +421,7 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 		}
 		addReason(&snapshot.reasons, "queue_unavailable")
 	}
-	historyBody, historyErr := client.rpcCall(ctx, "history", []any{false}, client.config.MaxResponseBytes)
+	historyBody, historyErr := client.invokeResult(ctx, nzbgetclient.MethodHistory, []any{false})
 	if historyErr != nil {
 		if err := ctx.Err(); err != nil {
 			return snapshot, err
@@ -535,6 +513,148 @@ func (client *Client) collect(ctx context.Context, connectionID domain.ConfigID)
 	}
 	client.reconcilePathReasons(&snapshot)
 	return snapshot, nil
+}
+
+// invokeResult delegates the JSON-RPC envelope, authentication, response
+// bound and transport policy to the standalone NZBGet client. The result is
+// deliberately captured as raw JSON: the adapter must retain item-scoped
+// malformed-parameter evidence instead of allowing a strict typed decode to
+// discard the entire queue or history response. Raw JSON remains private to
+// this adapter and is decoded into its tolerant internal records below.
+func (client *Client) invokeResult(ctx context.Context, method string, params []any) (json.RawMessage, error) {
+	var result json.RawMessage
+	if err := client.upstream.Invoke(ctx, method, params, &result); err != nil {
+		return nil, mapClientError(method, err)
+	}
+	return result, nil
+}
+
+type translatedUpstreamError struct {
+	domain.UpstreamError
+	cause error
+}
+
+func (err *translatedUpstreamError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+	return err.UpstreamError.Error()
+}
+
+func (err *translatedUpstreamError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+// As exposes only Mastarr's normalized error contract. In particular, the
+// standalone client's wire/transport error type must not cross this adapter
+// boundary into root callers.
+func (err *translatedUpstreamError) As(target any) bool {
+	if err == nil {
+		return false
+	}
+	if normalized, ok := target.(*domain.UpstreamError); ok {
+		*normalized = err.UpstreamError
+		return true
+	}
+	return false
+}
+
+func mapClientError(method string, sourceError error) error {
+	if sourceError == nil {
+		return nil
+	}
+	operation := "nzbget." + method
+	var source *nzbgetclient.UpstreamError
+	if !errors.As(sourceError, &source) || source == nil {
+		return &translatedUpstreamError{
+			UpstreamError: domain.UpstreamError{
+				Code:      domain.OutcomeUnknown,
+				Operation: operation,
+				Detail:    "upstream request failed",
+			},
+			cause: contextCause(sourceError),
+		}
+	}
+
+	code, retryable, detail := normalizeClientError(source)
+	translated := &translatedUpstreamError{
+		UpstreamError: domain.UpstreamError{
+			Code:      code,
+			Status:    source.StatusCode,
+			Retryable: retryable,
+			Operation: operation,
+			Detail:    detail,
+		},
+		cause: contextCause(sourceError),
+	}
+	if source.RPCCode != 0 {
+		translated.UpstreamID = strconv.FormatInt(source.RPCCode, 10)
+	}
+	return translated
+}
+
+func normalizeClientError(source *nzbgetclient.UpstreamError) (domain.UpstreamErrorCode, bool, string) {
+	if source == nil {
+		return domain.OutcomeUnknown, false, "upstream request failed"
+	}
+	switch source.Kind {
+	case nzbgetclient.ErrorInvalidInput:
+		return domain.OutcomeInvalidInput, false, "input is invalid"
+	case nzbgetclient.ErrorUnauthorized, nzbgetclient.ErrorForbidden:
+		return domain.OutcomeUnauthorized, false, "upstream authorization failed"
+	case nzbgetclient.ErrorRateLimited:
+		return domain.OutcomeRateLimited, true, "upstream rate limit reached"
+	case nzbgetclient.ErrorUnsupported:
+		return domain.OutcomeUnsupported, false, "upstream method is unsupported"
+	case nzbgetclient.ErrorUnavailable:
+		return domain.OutcomeUnavailable, true, "upstream is unavailable"
+	case nzbgetclient.ErrorTimeout:
+		return domain.OutcomeUnavailable, true, "upstream request timed out"
+	case nzbgetclient.ErrorCanceled:
+		return domain.OutcomeUnavailable, false, "upstream request was canceled"
+	case nzbgetclient.ErrorHTTP:
+		return normalizeHTTPStatus(source.StatusCode)
+	case nzbgetclient.ErrorMalformed, nzbgetclient.ErrorProtocol:
+		return domain.OutcomeUnknown, false, "upstream response was malformed"
+	case nzbgetclient.ErrorResponseTooLarge:
+		return domain.OutcomeUnknown, false, "upstream response exceeds configured bound"
+	case nzbgetclient.ErrorRemote:
+		return domain.OutcomeUnknown, false, "upstream method failed"
+	default:
+		return domain.OutcomeUnknown, false, "upstream request failed"
+	}
+}
+
+func normalizeHTTPStatus(status int) (domain.UpstreamErrorCode, bool, string) {
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return domain.OutcomeUnauthorized, false, "upstream authorization failed"
+	case status == http.StatusTooManyRequests:
+		return domain.OutcomeRateLimited, true, "upstream rate limit reached"
+	case status == http.StatusBadRequest:
+		return domain.OutcomeInvalidInput, false, "upstream rejected the request"
+	case status == http.StatusConflict:
+		return domain.OutcomeConflict, false, "upstream reported a conflict"
+	case status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented:
+		return domain.OutcomeUnsupported, false, "upstream method is unsupported"
+	case status == http.StatusRequestTimeout || status >= http.StatusInternalServerError:
+		return domain.OutcomeUnavailable, true, "upstream is unavailable"
+	default:
+		return domain.OutcomeUnknown, false, "upstream request failed"
+	}
+}
+
+func contextCause(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func appendObservation(snapshot *inventorySnapshot, seen map[string]int, observation DownloadObservation) int {
@@ -1292,15 +1412,11 @@ func (client *Client) Version(ctx context.Context, connectionID domain.ConfigID)
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return result, err
 	}
-	body, err := client.rpcCall(ctx, "version", []any{}, 16<<10)
+	observation, err := client.upstream.Version(ctx)
 	if err != nil {
-		return result, err
+		return result, mapClientError(nzbgetclient.MethodVersion, err)
 	}
-	var value string
-	if err := decodeJSON(body, &value); err != nil || !validVersion(value) {
-		return result, upstreamMalformed("nzbget.version")
-	}
-	result.Version = strings.TrimSpace(value)
+	result.Version = observation.Version
 	return result, nil
 }
 
@@ -1398,106 +1514,6 @@ type rpcParameter struct {
 	Value json.RawMessage `json:"Value"`
 }
 
-type rpcRequest struct {
-	Version string `json:"version"`
-	Method  string `json:"method"`
-	Params  []any  `json:"params"`
-	ID      uint64 `json:"id"`
-}
-
-type rpcResponse struct {
-	Version string          `json:"version"`
-	ID      json.RawMessage `json:"id"`
-	Result  json.RawMessage `json:"result"`
-	Error   *rpcError       `json:"error"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-func (client *Client) rpcCall(ctx context.Context, method string, params []any, maxBytes int64) ([]byte, error) {
-	if len(method) == 0 || len(method) > maxRPCMethodLength || strings.IndexFunc(method, unicode.IsControl) >= 0 {
-		return nil, invalidInput("nzbget.rpc.method")
-	}
-	requestID := client.requestID.Add(1)
-	requestBody, err := json.Marshal(rpcRequest{Version: "1.1", Method: method, Params: params, ID: requestID})
-	if err != nil {
-		return nil, errors.New("NZBGet request could not be encoded")
-	}
-	requestURL := *client.endpoint
-	requestURL.Path = client.endpoint.Path
-	if strings.Trim(requestURL.Path, "/") == "" {
-		requestURL.Path = rpcPath
-	}
-	requestURL.RawPath = ""
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), bytes.NewReader(requestBody))
-	if err != nil {
-		return nil, errors.New("NZBGet request could not be created")
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", "managerr-nzbget-inventory/0.0.1")
-	if client.config.Username != "" || client.config.Password != "" {
-		request.SetBasicAuth(client.config.Username, client.config.Password)
-	}
-	response, err := client.http.Do(request)
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
-		}
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return nil, domain.UpstreamError{Code: domain.OutcomeUnavailable, Retryable: true, Operation: "nzbget." + method, Detail: "upstream request timed out"}
-		}
-		return nil, domain.UpstreamError{Code: domain.OutcomeUnavailable, Retryable: true, Operation: "nzbget." + method, Detail: "upstream is unavailable"}
-	}
-	defer response.Body.Close()
-	body, err := readBounded(response.Body, maxBytes)
-	if err != nil {
-		return nil, domain.UpstreamError{Code: domain.OutcomeUnknown, Status: response.StatusCode, Operation: "nzbget." + method, Detail: err.Error()}
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, normalizeStatus("nzbget."+method, response.StatusCode)
-	}
-	var envelope rpcResponse
-	if err := decodeJSON(body, &envelope); err != nil {
-		return nil, upstreamMalformed("nzbget." + method)
-	}
-	if envelope.Version != "1.1" || !rpcResponseIDMatches(envelope.ID, requestID) {
-		return nil, upstreamMalformed("nzbget." + method)
-	}
-	if envelope.Error != nil {
-		return nil, normalizeRPCError(method, envelope.Error)
-	}
-	if len(envelope.Result) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Result), []byte("null")) {
-		return nil, upstreamMalformed("nzbget." + method)
-	}
-	return envelope.Result, nil
-}
-
-func rpcResponseIDMatches(value json.RawMessage, expected uint64) bool {
-	var actual uint64
-	if len(value) == 0 || json.Unmarshal(value, &actual) != nil {
-		return false
-	}
-	return actual == expected
-}
-
-func normalizeRPCError(method string, rpcErr *rpcError) error {
-	code := domain.OutcomeUnknown
-	switch rpcErr.Code {
-	case -32600, -32602:
-		code = domain.OutcomeInvalidInput
-	case -32601:
-		code = domain.OutcomeUnsupported
-	}
-	return domain.UpstreamError{Code: code, Operation: "nzbget." + method, UpstreamID: strconv.Itoa(rpcErr.Code), Detail: "JSON-RPC method failed"}
-}
-
 func (client *Client) encodeCursorChecked(state inventoryCursor) (string, error) {
 	if len(client.cursorKey) == 0 || !state.SourceID.Valid() || state.StartedAt.IsZero() || state.PageSize <= 0 || state.PageSize > client.config.MaxPageSize || state.PageCount <= 0 || state.PageCount >= client.config.MaxPages || state.Offset <= 0 || state.Offset > client.config.MaxItems || state.ObservedCount < 0 || state.ObservedCount > int64(client.config.MaxItems) || len(state.SnapshotDigest) != sha256.Size*2 || normalizeHex(state.SnapshotDigest) != state.SnapshotDigest {
 		return "", cursorEncodingError()
@@ -1574,14 +1590,6 @@ func (client *Client) pageLimit(requested int) (int, error) {
 		return 0, invalidInput("nzbget.inventory.limit")
 	}
 	return requested, nil
-}
-
-func parseEndpoint(value string) (*url.URL, error) {
-	parsed, err := url.Parse(value)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, errors.New("NZBGet endpoint must be an absolute URL without credentials or query")
-	}
-	return parsed, nil
 }
 
 func validateMappings(connectionID domain.ConfigID, mappings []domain.PathMapping) error {
@@ -1748,19 +1756,6 @@ func timePtr(value time.Time) *time.Time {
 	return &copy
 }
 
-func validVersion(value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" || len(value) > maxVersionLength {
-		return false
-	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return false
-		}
-	}
-	return true
-}
-
 func validateConnectionScope(expected, actual domain.ConfigID) error {
 	if expected != actual {
 		return invalidInput("nzbget.inventory.connection")
@@ -1782,40 +1777,6 @@ func decodeJSON(data []byte, target any) error {
 		return errors.New("trailing JSON response data")
 	}
 	return nil
-}
-
-func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
-	if maxBytes <= 0 || maxBytes == math.MaxInt64 {
-		return nil, errors.New("response bound is invalid")
-	}
-	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
-	if err != nil {
-		return nil, errors.New("response could not be read")
-	}
-	if int64(len(data)) > maxBytes {
-		return nil, errors.New("response exceeds configured bound")
-	}
-	return data, nil
-}
-
-func normalizeStatus(operation string, status int) error {
-	code := domain.OutcomeUnknown
-	retryable := false
-	switch {
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		code = domain.OutcomeUnauthorized
-	case status == http.StatusTooManyRequests:
-		code, retryable = domain.OutcomeRateLimited, true
-	case status == http.StatusBadRequest:
-		code = domain.OutcomeInvalidInput
-	case status == http.StatusConflict:
-		code = domain.OutcomeConflict
-	case status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented:
-		code = domain.OutcomeUnsupported
-	case status == http.StatusRequestTimeout || status >= 500:
-		code, retryable = domain.OutcomeUnavailable, true
-	}
-	return domain.UpstreamError{Code: code, Status: status, Retryable: retryable, Operation: operation, Detail: "upstream request failed"}
 }
 
 func upstreamMalformed(operation string) error {
