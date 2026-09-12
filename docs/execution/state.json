@@ -16,8 +16,7 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "X-12",
-    "X-13"
+    "X-12"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -2055,10 +2054,10 @@
       }
     },
     "X-13": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/f01_implementer",
       "baseSha": "ba9801b408f1026360a77f38d7844f570d4c135e",
-      "integratedSha": null,
+      "integratedSha": "f54ec97c70d75a58099b92e7ee8350220599d009",
       "evidence": [
         "dispatched from ba9801b408f1026360a77f38d7844f570d4c135e after dependencies X-10/X-11 and C-05 passed",
         "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c X-13 product",
@@ -2069,13 +2068,16 @@
         "docs/execution/handoffs/X-13-review-round1.md",
         "f54ec97c70d75a58099b92e7ee8350220599d009 X-13 correction round 2 product",
         "6c0da1e81276a7377a93bd743494e92d51cf86d7 X-13 correction round 2 handoff",
-        "docs/execution/handoffs/X-13-correction-round2.md"
+        "docs/execution/handoffs/X-13-correction-round2.md",
+        "9fff098f61fafa8fd4487d9a918b3863885c29db X-13 review round 2 approved",
+        "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7 integrated X-13 review receipt",
+        "docs/execution/handoffs/X-13-review-round2.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/f01_reviewer",
-        "commit": null,
+        "commit": "9fff098f61fafa8fd4487d9a918b3863885c29db",
         "findings": [],
         "round": 2
       },
@@ -2101,7 +2103,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-13-review-round2.md",
         "handoffPath": "docs/execution/handoffs/X-13-correction-round2.md",
-        "nextReviewer": "/root/f01_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "X-11": "1b9b3f9c425e56a7a3be6dfb43829157d08877c9",
           "X-11-review": "b71917bac3136b9554863e3d138812bd041c2c4b",
@@ -2113,8 +2115,8 @@
         "implementationCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
         "handoffCommit": "6c0da1e81276a7377a93bd743494e92d51cf86d7",
         "reviewSourceCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
-        "reviewCommit": "pending",
-        "reviewIntegrationCommit": "66c0d0b0424c751aac410e3e89b89aa9f81d40d0",
+        "reviewCommit": "9fff098f61fafa8fd4487d9a918b3863885c29db",
+        "reviewIntegrationCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7",
         "correctionRound": 2,
         "correctionOwner": "/root/f01_implementer",
         "correctionBaseSha": "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
@@ -2126,10 +2128,21 @@
           "28a86ca9b7ca31e9adc2c14eaa356ed33ac0ee4c",
           "f54ec97c70d75a58099b92e7ee8350220599d009"
         ]
-      }
+      },
+      "reviewHistory": [
+        {
+          "round": 2,
+          "reviewer": "/root/f01_reviewer",
+          "commit": "9fff098f61fafa8fd4487d9a918b3863885c29db",
+          "status": "approved",
+          "sourceCommit": "f54ec97c70d75a58099b92e7ee8350220599d009",
+          "receipt": "docs/execution/handoffs/X-13-review-round2.md",
+          "integratedCommit": "e4ea4f6cc424ee151a9134f5cd365ae25a69a6e7"
+        }
+      ]
     }
   },
-  "nextAction": "X-12 correction round 2 is assigned for strict legacy projection validation; X-13 correction round 2 remains in independent review.",
+  "nextAction": "X-13 is complete and approved. X-12 qBittorrent correction round 2 remains in implementation; keep X-05 and write/workflow lanes paused.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
