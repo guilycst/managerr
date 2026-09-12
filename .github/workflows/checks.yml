@@ -102,7 +102,7 @@ jobs:
           GOWORK: off
         run: |
           (cd tools && go mod download)
-          ./scripts/generate.sh --check
+          ./scripts/check-guardrails.sh --generation
 
       - name: Check for changes
         run: git diff --exit-code

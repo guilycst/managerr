@@ -16,6 +16,14 @@ case "${1:-}" in
     ;;
 esac
 
+# A direct check must enter through the stable staged-check caller before this
+# worktree copy can perform any generation. The caller extracts and executes
+# the exact git write-tree script; its snapshot marker prevents recursion.
+if [ "$mode" = check ] && [ -z "${MASTARR_GENERATION_SNAPSHOT:-}" ] && \
+  git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  exec "$repo_dir/scripts/check-guardrails.sh" --generation
+fi
+
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-generate.XXXXXX")
 trap 'rm -rf -- "$tmp_dir"' EXIT INT TERM
 
