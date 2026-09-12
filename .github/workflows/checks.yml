@@ -22,6 +22,10 @@ jobs:
             directory: ui
           - module: tools
             directory: tools
+          - module: qBittorrent client
+            directory: clients/qbittorrent
+          - module: NZBGet client
+            directory: clients/nzbget
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -38,6 +42,8 @@ jobs:
             go.sum
             ui/go.sum
             tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
 
       - name: Download modules
         env:
@@ -54,22 +60,22 @@ jobs:
           GOWORK: off
         run: |
           packages=$(go list ./...)
-          if [ -n "$packages" ]; then
-            go test $packages
-          else
-            echo "no packages in this module yet"
+          if [ -z "$packages" ]; then
+            echo "module has no discoverable packages" >&2
+            exit 1
           fi
+          go test $packages
 
       - name: Vet
         env:
           GOWORK: off
         run: |
           packages=$(go list ./...)
-          if [ -n "$packages" ]; then
-            go vet $packages
-          else
-            echo "no packages in this module yet"
+          if [ -z "$packages" ]; then
+            echo "module has no discoverable packages" >&2
+            exit 1
           fi
+          go vet $packages
 
   generation:
     name: Reproducible generation
@@ -88,11 +94,15 @@ jobs:
             go.sum
             ui/go.sum
             tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
 
       - name: Check generated artifacts
         env:
           GOWORK: off
-        run: ./scripts/generate.sh --check
+        run: |
+          (cd tools && go mod download)
+          ./scripts/generate.sh --check
 
       - name: Check for changes
         run: git diff --exit-code
@@ -113,14 +123,16 @@ jobs:
             go.sum
             ui/go.sum
             tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          go mod download
-          (cd ui && go mod download)
-          (cd tools && go mod download)
+          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+            (cd "$directory" && go mod download)
+          done
 
       - name: Validate bundled contract and generated clients
         env:
@@ -143,14 +155,16 @@ jobs:
             go.sum
             ui/go.sum
             tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          go mod download
-          (cd ui && go mod download)
-          (cd tools && go mod download)
+          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+            (cd "$directory" && go mod download)
+          done
 
       - name: Run pinned lint and import checks
         env:
@@ -173,14 +187,16 @@ jobs:
             go.sum
             ui/go.sum
             tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          go mod download
-          (cd ui && go mod download)
-          (cd tools && go mod download)
+          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+            (cd "$directory" && go mod download)
+          done
 
       - name: Run full guardrail suite
         env:

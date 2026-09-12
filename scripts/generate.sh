@@ -55,6 +55,7 @@ generate_oapi() {
   config=$1
   source_config=$2
   output=$3
+  contract=$4
 
   if [ "$mode" = write ]; then
     target=$output
@@ -67,12 +68,18 @@ generate_oapi() {
   (
     cd "$tools_dir"
     GOWORK=off go tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
-      -config "$config" "$repo_dir/api/openapi.yaml"
+      -config "$config" "$contract"
   )
 
-  if [ "$mode" = check ] && [ -f "$output" ] && ! cmp -s "$target" "$output"; then
-    echo "generated file is out of date: $output" >&2
-    exit 1
+  if [ "$mode" = check ]; then
+    if [ ! -f "$output" ]; then
+      echo "generated file is missing: $output" >&2
+      exit 1
+    fi
+    if ! cmp -s "$target" "$output"; then
+      echo "generated file is out of date: $output" >&2
+      exit 1
+    fi
   fi
 }
 
@@ -81,12 +88,49 @@ bundle_openapi
 generate_oapi \
   "$tmp_dir/api-oapi-codegen.yaml" \
   "$repo_dir/api/oapi-codegen.yaml" \
-  "$repo_dir/internal/api/generated/server.gen.go"
+  "$repo_dir/internal/api/generated/server.gen.go" \
+  "$repo_dir/api/openapi.yaml"
 
 generate_oapi \
   "$tmp_dir/ui-oapi-codegen.yaml" \
   "$repo_dir/ui/oapi-codegen.yaml" \
-  "$repo_dir/ui/internal/api/generated/client.gen.go"
+  "$repo_dir/ui/internal/api/generated/client.gen.go" \
+  "$repo_dir/api/openapi.yaml"
+
+generate_oapi \
+  "$tmp_dir/qbittorrent-oapi-codegen.yaml" \
+  "$repo_dir/clients/qbittorrent/oapi-codegen.yaml" \
+  "$repo_dir/clients/qbittorrent/generated/client.gen.go" \
+  "$repo_dir/clients/qbittorrent/openapi.yaml"
+
+generate_nzbget() {
+  output=$repo_dir/clients/nzbget/generated.go
+  if [ "$mode" = write ]; then
+    target=$output
+  else
+    target=$tmp_dir/nzbget-generated.go
+  fi
+
+  (
+    cd "$tools_dir"
+    GOWORK=off go run -mod=readonly ./internal/nzbgetgen \
+      -input "$repo_dir/clients/nzbget/openrpc.json" \
+      -output "$target"
+  )
+
+  if [ "$mode" = check ]; then
+    if [ ! -f "$output" ]; then
+      echo "generated file is missing: $output" >&2
+      exit 1
+    fi
+    if ! cmp -s "$target" "$output"; then
+      echo "generated file is out of date: $output" >&2
+      exit 1
+    fi
+  fi
+}
+
+generate_nzbget
 
 generate_envdoc() {
   output=$repo_dir/docs/generated/environment.md
