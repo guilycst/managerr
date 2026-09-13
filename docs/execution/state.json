@@ -2007,7 +2007,7 @@
       "review": {
         "status": "pending",
         "decision": "pending",
-        "reviewer": "/root/d01_reviewer",
+        "reviewer": "/root/f01_reviewer",
         "commit": null,
         "findings": [],
         "round": 3
@@ -2032,7 +2032,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-12-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-12-correction-round3.md",
-        "nextReviewer": "/root/d01_reviewer",
+        "nextReviewer": "/root/f01_reviewer",
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
           "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
@@ -2060,10 +2060,10 @@
         "correctionImplementationCommit": "37f62b515681f7ad37fc9b1d4597581f069320e5",
         "correctionHandoffCommit": "04fa9689d565db23d92e05b1516dec5421d86cf6",
         "reviewerReroute": {
-          "previousReviewer": "/root/f01_reviewer",
-          "status": "errored",
-          "reason": "review turn failed before receipt: stream disconnected before completion (transport error decoding response body)",
-          "newReviewer": "/root/d01_reviewer"
+          "previousReviewer": "/root/d01_reviewer",
+          "status": "interrupted",
+          "reason": "fresh retry did not emit a receipt after bounded waits; rerouting to the available independent reviewer",
+          "newReviewer": "/root/f01_reviewer"
         },
         "reviewerRerouteHistory": [
           {
@@ -2071,6 +2071,12 @@
             "status": "interrupted",
             "reason": "review turn completed probes but emitted no receipt after bounded waits; no review commit was produced",
             "newReviewer": "/root/f01_reviewer"
+          },
+          {
+            "previousReviewer": "/root/f01_reviewer",
+            "status": "errored",
+            "reason": "review turn failed before receipt: stream disconnected before completion (transport error decoding response body)",
+            "newReviewer": "/root/d01_reviewer"
           }
         ]
       }
@@ -2164,7 +2170,7 @@
       ]
     }
   },
-  "nextAction": "X-12 correction round 3 is assigned to d01 after two reviewer-turn failures without receipts; X-13 is complete and approved.",
+  "nextAction": "X-12 correction round 3 is assigned to f01 after d01 retry emitted no receipt; use a bounded receipt-only review and keep X-13 complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
