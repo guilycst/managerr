@@ -2410,8 +2410,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued",
+        "correctionDispatchCommit": "f9b419cba1e42e5cc201b16826580d612ff7160f",
+        "correctionStatus": "dispatched",
         "correctionProductCommits": [],
         "correctionReviewSourceCommit": null,
         "reviewerReroute": {
@@ -3440,7 +3440,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round five is queued to /root/x05_implementer for durable retry intent when the prerequisite marker cannot be written; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round five is dispatched to /root/x05_implementer for durable retry intent when the prerequisite marker cannot be written; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
