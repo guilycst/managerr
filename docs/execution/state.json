@@ -832,7 +832,9 @@
         "3e86f117155753e7165f38e0f9290bdcc78bc322 D-03 product commit",
         "66527605f437c97886c0234c71e423ef7575350b D-03 initial handoff",
         "17e623cddbe307fa96879b5bdfc7aa56b8bfd711 D-03 handoff identity correction",
-        "D-03 handoff records the coordinator-owned direct gopkg.in/yaml.v3@v3.0.1 dependency as the remaining root-module blocker."
+        "D-03 handoff records the coordinator-owned direct gopkg.in/yaml.v3@v3.0.1 dependency as the remaining root-module blocker.",
+        "1a1e5d1c8899d19174c8785d2770a5bff89769d7 direct pinned gopkg.in/yaml.v3@v3.0.1 dependency added by coordinator; root module blocker resolved.",
+        "Full checks after dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed."
       ],
       "review": {
         "status": "pending",
@@ -871,7 +873,8 @@
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf"
         },
         "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
-        "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711"
+        "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
+        "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7"
       },
       "implementationCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
       "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
@@ -1566,7 +1569,8 @@
         "X-07 correction required: distinguish qBittorrent save location from final content path and add destination-vacancy/full-payload read-back checks; split operation-specific capability gates.",
         "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df X-07 correction round one product commit",
         "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef X-07 correction round one handoff",
-        "X-07 correction adds final-content relocation semantics, fail-closed destination vacancy evidence, full payload read-back and operation-specific capability gates."
+        "X-07 correction adds final-content relocation semantics, fail-closed destination vacancy evidence, full payload read-back and operation-specific capability gates.",
+        "Full checks after D-03 dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed."
       ],
       "review": {
         "status": "pending",
