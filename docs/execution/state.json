@@ -1571,11 +1571,11 @@
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": null,
+        "correctionDispatchCommit": "a169c65b46f3fd3c6cb603d6482851d28a0ed20a",
         "correctionProductCommits": [
           "3be99364621311c4edc31a2571c095acfb5c1ed4"
         ],
-        "correctionStatus": "awaiting_independent_review",
+        "correctionStatus": "review_dispatched",
         "correctionReviewSourceCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
@@ -3365,7 +3365,7 @@
       ]
     }
   },
-  "nextAction": "F-05 correction round four is ready for independent review by /root/x05_reviewer against 3be99364; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
+  "nextAction": "F-05 correction round four review is dispatched to /root/x05_reviewer against 3be99364; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
