@@ -708,6 +708,22 @@ func (state *claimState) snapshot() ClaimFence {
 	return state.fence
 }
 
+// advanceAfterOutcome accepts the single version increment made by an
+// action-level barrier marker while the same claim remains live. The marker
+// is an intentionally un-fenced recovery write, so the worker must adopt its
+// new version before making another fenced journal write. The exact worker,
+// lease and one-step version relationship keep an unrelated generation from
+// being adopted accidentally.
+func (state *claimState) advanceAfterOutcome(action Action) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if action.ID != state.fence.ActionID || action.State != domain.ActionRunning || action.ClaimedBy != state.fence.WorkerID || action.LeaseUntil != state.fence.LeaseUntil || action.CancellationRequestedAt != "" || action.Version != state.fence.Version+1 {
+		return false
+	}
+	state.fence.Version = action.Version
+	return true
+}
+
 type activeHandler struct {
 	cancel context.CancelFunc
 }
@@ -1321,6 +1337,14 @@ const reservationOutcomeField = "reservations"
 
 const dispatchBarrierReturnedField = "dispatchBarrierReturnedAttempt"
 
+// dispatchBarrierIntentField is written on the exact dispatch attempt before
+// the action-level return marker. The attempt row is durable even when an
+// action outcome update is temporarily unavailable, so a later executor can
+// distinguish a returned handler from one that may still be running.
+const dispatchBarrierIntentField = "dispatchBarrierRetryAttempt"
+
+const dispatchBarrierIntentDetail = "dispatch handler returned; barrier release pending"
+
 func dispatchBarrierReturnedAttempt(outcome json.RawMessage) (string, bool) {
 	if len(outcome) == 0 || string(outcome) == "null" {
 		return "", false
@@ -1357,6 +1381,46 @@ func outcomeWithDispatchBarrierReturned(outcome json.RawMessage, attemptID strin
 	encoded, err = json.Marshal(object)
 	if err != nil {
 		return nil, fmt.Errorf("%w: encode outcome: %v", ErrInvalidJournal, err)
+	}
+	return encoded, nil
+}
+
+func dispatchBarrierRetryIntentAttempt(evidence json.RawMessage) (string, bool) {
+	if len(evidence) == 0 || string(evidence) == "null" {
+		return "", false
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(evidence, &object); err != nil {
+		return "", false
+	}
+	raw, ok := object[dispatchBarrierIntentField]
+	if !ok {
+		return "", false
+	}
+	var attemptID string
+	if err := json.Unmarshal(raw, &attemptID); err != nil || strings.TrimSpace(attemptID) == "" {
+		return "", false
+	}
+	return attemptID, true
+}
+
+func evidenceWithDispatchBarrierRetryIntent(evidence json.RawMessage, attemptID string) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if len(evidence) == 0 || string(evidence) == "null" {
+		object = make(map[string]json.RawMessage)
+	} else if err := json.Unmarshal(evidence, &object); err != nil {
+		return nil, fmt.Errorf("%w: invalid attempt evidence: %v", ErrInvalidJournal, err)
+	} else if object == nil {
+		object = make(map[string]json.RawMessage)
+	}
+	encoded, err := json.Marshal(attemptID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode dispatch barrier intent: %v", ErrInvalidJournal, err)
+	}
+	object[dispatchBarrierIntentField] = encoded
+	encoded, err = json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode attempt evidence: %v", ErrInvalidJournal, err)
 	}
 	return encoded, nil
 }
@@ -1717,9 +1781,31 @@ func (executor *Executor) scheduleBarrierRetry(actionID, attemptID string) {
 // attempt ID prevents an old worker from changing a later dispatch attempt;
 // leaving the attempt running keeps recovered work blocked until this point.
 func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) error {
+	return executor.releaseDispatchBarrierWithClaim(actionID, attemptID, false)
+}
+
+// releaseDispatchBarrierWithClaim is used by a worker that has just claimed
+// an action carrying returned-dispatch evidence. That fresh claim remains
+// valid while the worker reconciles the exact returned attempt. Background
+// release paths pass false so a stale claim is cleared as soon as the barrier
+// is durably released.
+func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID string, preserveClaim bool) error {
 	var err error
 	for retry := 0; retry < 4; retry++ {
-		err = executor.markDispatchBarrierReturned(actionID, attemptID)
+		err = executor.persistDispatchBarrierIntent(actionID, attemptID)
+		if err == nil {
+			break
+		}
+		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+			return nil
+		}
+		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for retry := 0; retry < 4; retry++ {
+		err = executor.markDispatchBarrierReturned(actionID, attemptID, preserveClaim)
 		if err == nil {
 			break
 		}
@@ -1782,6 +1868,42 @@ func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) err
 	return err
 }
 
+// persistDispatchBarrierIntent writes durable evidence on the exact running
+// dispatch attempt before the action-level returned marker. It intentionally
+// does not require the old claim: the handler may have returned after that
+// claim was recovered, and the attempt ID remains the only safe identity.
+func (executor *Executor) persistDispatchBarrierIntent(actionID, attemptID string) error {
+	return executor.withTransaction(context.Background(), func(transactionCtx context.Context, journal Journal) error {
+		attempts, err := journal.ListAttempts(transactionCtx, actionID)
+		if err != nil {
+			return err
+		}
+		for _, attempt := range attempts {
+			if attempt.ID != attemptID || attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+				continue
+			}
+			if intentAttemptID, hasIntent := dispatchBarrierRetryIntentAttempt(attempt.Evidence); hasIntent {
+				if intentAttemptID == attempt.ID {
+					return nil
+				}
+				return fmt.Errorf("%w: dispatch barrier intent belongs to %q", ErrInvalidJournal, intentAttemptID)
+			}
+			evidence, err := evidenceWithDispatchBarrierRetryIntent(attempt.Evidence, attempt.ID)
+			if err != nil {
+				return err
+			}
+			attempt.OutcomeCertainty = CertaintyUncertain
+			attempt.ErrorCode = string(FailureUncertain)
+			attempt.ErrorDetail = dispatchBarrierIntentDetail
+			attempt.Evidence = evidence
+			attempt.FinishedAt = ""
+			_, err = journal.UpdateAttempt(transactionCtx, attempt)
+			return err
+		}
+		return nil
+	})
+}
+
 // dispatchBarrierResolved makes concurrent release attempts idempotent. A
 // transaction conflict is safe to treat as success once another worker has
 // already moved the exact dispatch attempt out of running; if it is still
@@ -1801,11 +1923,43 @@ func (executor *Executor) dispatchBarrierResolved(actionID, attemptID string) (b
 	return true, nil
 }
 
-// markDispatchBarrierReturned durably records the only evidence that permits
-// polling workers to retry a failed barrier release: the old handler has
-// returned. The marker is committed separately from the attempt/effect update
-// so a transient latter failure remains retryable across Executor instances.
-func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string) error {
+// dispatchBarrierIntentAttempt discovers a returned handler from the
+// attempt-level intent when the action-level marker was unavailable. The
+// intent carries the attempt ID as well as the row identity; mismatches are
+// ignored so evidence cannot release a different generation's barrier.
+func (executor *Executor) dispatchBarrierIntentAttempt(ctx context.Context, actionID string) (string, bool, error) {
+	attempts, err := executor.journal.ListAttempts(ctx, actionID)
+	if err != nil {
+		return "", false, err
+	}
+	var candidate Attempt
+	found := false
+	for _, attempt := range attempts {
+		if attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+			continue
+		}
+		intentAttemptID, hasIntent := dispatchBarrierRetryIntentAttempt(attempt.Evidence)
+		if !hasIntent || intentAttemptID != attempt.ID {
+			continue
+		}
+		if !found || attempt.AttemptNumber > candidate.AttemptNumber {
+			candidate = attempt
+			found = true
+		}
+	}
+	if !found {
+		return "", false, nil
+	}
+	return candidate.ID, true, nil
+}
+
+// markDispatchBarrierReturned durably records the action-level evidence that
+// permits polling workers to retry a failed barrier release. The marker is
+// committed separately from the attempt/effect update so a transient latter
+// failure remains retryable across Executor instances. A worker processing a
+// durable intent may preserve its fresh claim while a stale/background path
+// clears the claim after the handler return is known.
+func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string, preserveClaim bool) error {
 	return executor.withTransaction(context.Background(), func(transactionCtx context.Context, journal Journal) error {
 		attempts, err := journal.ListAttempts(transactionCtx, actionID)
 		if err != nil {
@@ -1825,12 +1979,12 @@ func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string
 		if err != nil {
 			return err
 		}
-		// A worker that just claimed a durable return marker must keep its
+		// A worker that just claimed durable return evidence must keep its
 		// generation live while it reconciles the returned dispatch. The marker
-		// may be retried by that worker (or by the background retry), but it must
-		// not fence the fresh claim a second time. An old handler has no marker
-		// yet, so its first call still transitions the action to reconciliation.
-		if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome); returned && returnedAttemptID == attemptID {
+		// may be retried by that worker (or by the background retry), but a
+		// background path must still clear a stale/fresh claim after the handler
+		// return is known.
+		if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome); returned && returnedAttemptID == attemptID && preserveClaim && current.CancellationRequestedAt == "" {
 			return nil
 		}
 		outcome, err := outcomeWithDispatchBarrierReturned(current.Outcome, attemptID)
@@ -1838,8 +1992,15 @@ func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string
 			return err
 		}
 		state := current.State
+		claimedBy := ""
+		leaseUntil := ""
 		if state == domain.ActionRunning {
-			state = domain.ActionReconciling
+			if preserveClaim && current.CancellationRequestedAt == "" {
+				claimedBy = current.ClaimedBy
+				leaseUntil = current.LeaseUntil
+			} else {
+				state = domain.ActionReconciling
+			}
 		}
 		unresolved, err := journalUnresolvedCount(transactionCtx, journal, actionID, true)
 		if err != nil {
@@ -1847,7 +2008,7 @@ func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string
 		}
 		_, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
 			ID: current.ID, Version: current.Version, State: state,
-			NextAttemptAt: formatTime(nowUTC(executor.options)), Outcome: outcome,
+			NextAttemptAt: formatTime(nowUTC(executor.options)), ClaimedBy: claimedBy, LeaseUntil: leaseUntil, Outcome: outcome,
 			UnresolvedCount: unresolved, UpdatedAt: formatTime(nowUTC(executor.options)),
 		})
 		return err
@@ -1866,8 +2027,22 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 		result.State = domain.ActionNeedsReview
 		return result
 	}
-	if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(action.Outcome); returned {
-		if err := executor.releaseDispatchBarrier(action.ID, returnedAttemptID); err != nil {
+	returnedAttemptID, returned := dispatchBarrierReturnedAttempt(action.Outcome)
+	if !returned {
+		returnedAttemptID, returned, err = executor.dispatchBarrierIntentAttempt(ctx, action.ID)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+	}
+	if returned {
+		release := executor.releaseDispatchBarrier
+		if claimed {
+			release = func(actionID, attemptID string) error {
+				return executor.releaseDispatchBarrierWithClaim(actionID, attemptID, true)
+			}
+		}
+		if err := release(action.ID, returnedAttemptID); err != nil {
 			executor.scheduleBarrierRetry(action.ID, returnedAttemptID)
 			result.Err = err
 			return result
@@ -1884,6 +2059,14 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 			result.Action = latest
 			result.State = latest.State
 			return result
+		}
+		if claimed && latest.Version != action.Version {
+			if state := claimStateFromContext(ctx); state == nil || !state.advanceAfterOutcome(latest) {
+				result.Action = latest
+				result.State = latest.State
+				result.Err = ErrLeaseLost
+				return result
+			}
 		}
 		action = latest
 		result.Action = latest
