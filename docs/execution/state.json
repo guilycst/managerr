@@ -1075,7 +1075,10 @@
         "F-02 round-four review rerouted to /root/d02_reviewer while /root/x05_reviewer completes F-04 round three; the receipt path remains docs/execution/handoffs/F-02-review-round4.md.",
         "49a2e72430acba544d77ecb34121624cbb73bb62 F-02 independent review round four changes requested",
         "2963240b6a833e60c8a42c7a8025d60492b02fd9 docs(review): integrate F-02 subtitle review receipt",
-        "F-02 round-four review closes prior pairing and bracket-label findings; one suffix-only flag parsing blocker remains."
+        "F-02 round-four review closes prior pairing and bracket-label findings; one suffix-only flag parsing blocker remains.",
+        "1a44ea97962f40820b042320970dc2f5d1571206 F-02 correction round four product",
+        "67e5e2d5fb5a86a02fb21009f8b25d301a707b19 F-02 correction round four handoff",
+        "F-02 correction round four derives flags only from exact matched subtitle suffixes; title-shaped Hi/Forced regressions and prior checks passed."
       ],
       "review": {
         "status": "changes_requested",
@@ -1120,7 +1123,7 @@
         },
         "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
         "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-        "reviewSourceCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
+        "reviewSourceCommit": "1a44ea97962f40820b042320970dc2f5d1571206",
         "reviewer": "/root/d02_reviewer",
         "reviewCommit": "30bca5041495eed51ea150b809332403d5c17eb3",
         "reviewIntegrationCommit": "28b1510afb8c43a131679d6ac9855807e3e530a8",
@@ -1132,13 +1135,14 @@
         "correctionReviewPath": "docs/execution/handoffs/F-02-review-round5.md",
         "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round4.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionImplementationCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
-        "correctionHandoffCommit": "da632a65257c6b5e477c006f78be3d6526cfc8ef",
+        "correctionImplementationCommit": "1a44ea97962f40820b042320970dc2f5d1571206",
+        "correctionHandoffCommit": "67e5e2d5fb5a86a02fb21009f8b25d301a707b19",
         "productCommits": [
           "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
           "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
           "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
-          "05dcd107d83b77632a0212d5faec31c65e3d4e13"
+          "05dcd107d83b77632a0212d5faec31c65e3d4e13",
+          "1a44ea97962f40820b042320970dc2f5d1571206"
         ],
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
@@ -1156,7 +1160,7 @@
       },
       "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
       "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-      "reviewSourceCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
+      "reviewSourceCommit": "1a44ea97962f40820b042320970dc2f5d1571206",
       "reviewHistory": [
         {
           "round": 1,
@@ -1199,7 +1203,8 @@
         "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
         "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
         "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
-        "05dcd107d83b77632a0212d5faec31c65e3d4e13"
+        "05dcd107d83b77632a0212d5faec31c65e3d4e13",
+        "1a44ea97962f40820b042320970dc2f5d1571206"
       ]
     },
     "F-03": {
@@ -3071,7 +3076,7 @@
       ]
     }
   },
-  "nextAction": "F-02 correction round four is queued for suffix-only subtitle flag parsing; F-05 filesystem organize implementation remains active with /root/x05_implementer. Await product/handoff commits before review.",
+  "nextAction": "F-02 correction round four product and handoff are recorded; dispatch independent review of 1a44ea9 by /root/x05_reviewer. F-05 organize implementation is ready for its owner commit.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
