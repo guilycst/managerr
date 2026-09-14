@@ -2405,8 +2405,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
         "correctionHandoffCommit": "f402eec6f9c308313399d1c471c73d48a68009f4",
-        "correctionDispatchCommit": null,
-        "correctionStatus": "awaiting_independent_review",
+        "correctionDispatchCommit": "8a3a1b62757f1cd79c2efdde663024a572a793a1",
+        "correctionStatus": "review_dispatched",
         "correctionProductCommits": [
           "d10bcb6bba9bc59ba80819950991b45cb05bce99"
         ],
@@ -3421,7 +3421,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round three is ready for independent review by /root/x05_reviewer against d10bcb6b; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round three review is dispatched to /root/x05_reviewer against d10bcb6b; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
