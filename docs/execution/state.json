@@ -1054,7 +1054,10 @@
         "F-02 will persist bounded directory observations and group video, subtitle, pack and ambiguous companion evidence without treating missing coverage as absence.",
         "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0 F-02 product commit for persisted discovery observations and grouping",
         "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785 F-02 product handoff with checks and downstream ObservationStore note",
-        "30bca5041495eed51ea150b809332403d5c17eb3 F-02 independent review round one changes requested"
+        "30bca5041495eed51ea150b809332403d5c17eb3 F-02 independent review round one changes requested",
+        "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec F-02 correction round one product",
+        "75faf5a048859aea02c63c3d2535e74786f92351 F-02 correction round one handoff",
+        "F-02 correction round one bounded pagination, incomplete-client readiness guards, connection-scoped evidence, conservative grouping and deep-clone checks passed."
       ],
       "review": {
         "status": "changes_requested",
@@ -1103,7 +1106,7 @@
         },
         "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
         "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-        "reviewSourceCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+        "reviewSourceCommit": "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
         "reviewer": "/root/d02_reviewer",
         "reviewCommit": "30bca5041495eed51ea150b809332403d5c17eb3",
         "reviewIntegrationCommit": "28b1510afb8c43a131679d6ac9855807e3e530a8",
@@ -1114,11 +1117,17 @@
         "correctionCheckout": "shared main",
         "correctionReviewPath": "docs/execution/handoffs/F-02-review-round2.md",
         "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round1.md",
-        "correctionReviewer": "/root/d02_reviewer"
+        "correctionReviewer": "/root/d02_reviewer",
+        "correctionImplementationCommit": "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
+        "correctionHandoffCommit": "75faf5a048859aea02c63c3d2535e74786f92351",
+        "productCommits": [
+          "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+          "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec"
+        ]
       },
       "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
       "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-      "reviewSourceCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+      "reviewSourceCommit": "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
       "reviewHistory": [
         {
           "round": 1,
@@ -2919,7 +2928,7 @@
       ]
     }
   },
-  "nextAction": "F-04 correction review is assigned to /root/d02_reviewer; F-02 correction remains with /root/d02_implementer. Integrate only after exact review receipts and clean guardrails.",
+  "nextAction": "F-04 and F-02 correction products are recorded; await independent review receipts for 3e8f2f5 and 949f4af before integration or next-lane dispatch.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
