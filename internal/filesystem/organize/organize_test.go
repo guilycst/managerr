@@ -16,7 +16,7 @@ import (
 )
 
 func TestMoveNoReplaceAndReadBack(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	writeSynthetic(t, sourcePath, "movie bytes")
@@ -37,7 +37,7 @@ func TestMoveNoReplaceAndReadBack(t *testing.T) {
 }
 
 func TestMoveDoesNotReplaceExistingDestination(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
@@ -58,7 +58,7 @@ func TestMoveDoesNotReplaceExistingDestination(t *testing.T) {
 }
 
 func TestMoveDirectoryUsesExactManifestChildren(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	pack := filepath.Join(sourceRoot, "pack")
 	mustMkdir(t, filepath.Join(pack, "Season 1"))
@@ -110,7 +110,7 @@ func TestMoveAlreadySatisfiedAfterPriorPublication(t *testing.T) {
 }
 
 func TestMoveRaceRejectsChangedSourceBeforeNativeCall(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
 	destinationPath := filepath.Join(destinationRoot, "Series", "episode.mkv")
@@ -139,7 +139,7 @@ func TestMoveRaceRejectsChangedSourceBeforeNativeCall(t *testing.T) {
 }
 
 func TestMovePathExchangeNeverPublishesReplacement(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
 	destinationPath := filepath.Join(destinationRoot, "Series", "episode.mkv")
@@ -163,7 +163,7 @@ func TestMovePathExchangeNeverPublishesReplacement(t *testing.T) {
 }
 
 func TestDeleteExactManifestAndIdempotent(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	_ = destinationRoot
 	_ = library
@@ -191,7 +191,7 @@ func TestDeleteExactManifestAndIdempotent(t *testing.T) {
 }
 
 func TestDeleteRejectsChangedSource(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	writeSynthetic(t, sourcePath, "approved movie")
@@ -207,7 +207,7 @@ func TestDeleteRejectsChangedSource(t *testing.T) {
 }
 
 func TestDeleteRacePreservesReplacement(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	writeSynthetic(t, sourcePath, "approved movie")
@@ -232,7 +232,7 @@ func TestDeleteRacePreservesReplacement(t *testing.T) {
 }
 
 func TestDeletePathExchangeNeverDeletesReplacement(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	writeSynthetic(t, sourcePath, "approved movie")
@@ -252,7 +252,7 @@ func TestDeletePathExchangeNeverDeletesReplacement(t *testing.T) {
 }
 
 func TestDeleteDirectoryRejectsUnreviewedChild(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	directoryPath := filepath.Join(sourceRoot, "pack")
 	mustMkdir(t, directoryPath)
@@ -271,7 +271,7 @@ func TestDeleteDirectoryRejectsUnreviewedChild(t *testing.T) {
 }
 
 func TestCopyVerifyDeleteRequiresDifferentFilesystem(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -330,7 +330,7 @@ func TestMoveRejectsCrossDeviceWithoutMutation(t *testing.T) {
 }
 
 func TestCopyVerifyDeletePreservesVerifiedCopyWhenSourceRemovalIsRejected(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -363,7 +363,7 @@ func TestCopyVerifyDeletePreservesVerifiedCopyWhenSourceRemovalIsRejected(t *tes
 }
 
 func TestCopyVerifyDeletePreservesSourceWhenDestinationDisappearsAtDeleteBoundary(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -392,7 +392,7 @@ func TestCopyVerifyDeletePreservesSourceWhenDestinationDisappearsAtDeleteBoundar
 }
 
 func TestCopyVerifyDeletePreservesDirectorySourceWhenDestinationDisappearsAtDeleteBoundary(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -432,7 +432,7 @@ func TestCopyVerifyDeletePreservesDirectorySourceWhenDestinationDisappearsAtDele
 }
 
 func TestCopyVerifyDeleteRetainsIndependentProtectionAfterDestinationMutation(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -479,7 +479,7 @@ func TestCopyVerifyDeleteRetainsIndependentProtectionAfterDestinationMutation(t 
 }
 
 func TestCopyVerifyDeleteRetainsIndependentDirectoryProtectionAfterMutation(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -524,7 +524,7 @@ func TestCopyVerifyDeleteRetainsIndependentDirectoryProtectionAfterMutation(t *t
 }
 
 func TestCopyVerifyDeleteDirectoryCompletesAndCleansProtection(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -559,7 +559,7 @@ func TestCopyVerifyDeleteDirectoryCompletesAndCleansProtection(t *testing.T) {
 }
 
 func TestCopyVerifyDeleteCleansEarlierGuardsOnLaterFailure(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := crossDeviceTempDir(t)
 	downloads := mustConfigID(t, "downloads")
@@ -637,7 +637,7 @@ func TestNewRejectsSymlinkedPhysicalRootAlias(t *testing.T) {
 }
 
 func TestCanceledActionsDoNotMutate(t *testing.T) {
-	requireOrganizeWrites(t)
+	requireOrganizeCleanup(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
 	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
 	writeSynthetic(t, sourcePath, "movie bytes")
@@ -655,10 +655,44 @@ func TestCanceledActionsDoNotMutate(t *testing.T) {
 	assertMissing(t, filepath.Join(destinationRoot, "Movies", "movie.mkv"))
 }
 
+func TestOrganizeCleanupFailsClosedBeforeQuarantineMutation(t *testing.T) {
+	if organizeCleanupSupported {
+		t.Skip("target has a reviewed inode-bound quarantine removal primitive")
+	}
+	sourceRoot, destinationRoot, downloads, library := testRoots(t)
+	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
+	writeSynthetic(t, sourcePath, "approved movie")
+	entry := manifestFor(t, downloads, sourceRoot, "movie.mkv", domain.ManifestFile)
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{})
+
+	if _, err := organizer.MoveWithOperation(context.Background(), "blocked-move", ports.FilesystemMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Movies/movie.mkv"},
+	}}}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("move error = %v, want unsupported", err)
+	}
+	assertSynthetic(t, sourcePath, "approved movie")
+	assertMissing(t, destinationPath)
+	assertMissing(t, filepath.Join(sourceRoot, privateEntryName("move", "blocked-move", 0, entry.RelativePath)))
+
+	if _, err := organizer.DeleteWithOperation(context.Background(), "blocked-delete", ports.FilesystemDeleteRequest{Files: []domain.FileManifestEntry{entry}}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("delete error = %v, want unsupported", err)
+	}
+	assertSynthetic(t, sourcePath, "approved movie")
+	assertMissing(t, filepath.Join(sourceRoot, privateEntryName("delete", "blocked-delete", 0, entry.RelativePath)))
+}
+
 func requireOrganizeWrites(t *testing.T) {
 	t.Helper()
 	if !organizeWritesSupported {
 		t.Skip("organize writes are fail-closed on this platform")
+	}
+}
+
+func requireOrganizeCleanup(t *testing.T) {
+	t.Helper()
+	if !organizeCleanupSupported {
+		t.Skip("quarantine cleanup is fail-closed on this platform")
 	}
 }
 

@@ -17,6 +17,17 @@ import (
 
 const organizeWritesSupported = true
 
+// Linux exposes descriptor-relative unlinkat, but it does not expose a
+// conditional unlink operation that binds the removal to an already-open
+// inode.  A pathname can therefore be exchanged after an identity check and
+// before unlinkat reaches the kernel.  Keep the placement primitives enabled,
+// but fail closed for organize actions that must remove a quarantined entry.
+const organizeCleanupSupported = false
+
+func requireQuarantineCleanup() error {
+	return fmt.Errorf("%w: Linux has no reviewed inode-bound quarantine removal primitive", ErrUnsupported)
+}
+
 func renameNoReplace(sourceParent *os.File, sourceName string, destinationParent *os.File, destinationName string) (bool, error) {
 	err := unix.Renameat2(int(sourceParent.Fd()), sourceName, int(destinationParent.Fd()), destinationName, unix.RENAME_NOREPLACE)
 	if err == nil {
@@ -45,16 +56,17 @@ func removeEntry(parent *os.File, name string, directory bool) error {
 	return nil
 }
 
-// moveOwned performs same-filesystem publication from an operation-private
-// quarantine. renameat2 has name-based source semantics, so the source name
-// is never sent directly to the destination. A raced replacement is first
-// quarantined, rejected by identity validation, then restored without replace.
-// The quarantine payload is kept below a mode-0700 directory, so cleanup is
-// never issued against a media-root pathname that another media process can
-// exchange. Regular files use AT_EMPTY_PATH for descriptor-bound destination
-// linking; directories use the validated private entry with no-replace rename
-// because Linux does not expose a descriptor-bound directory rename primitive.
+// moveOwned is the reviewed same-filesystem publication seam. Linux can bind
+// regular-file publication to an open descriptor, but it cannot bind the later
+// quarantine removal to that descriptor. Until an inode-bound removal primitive
+// is reviewed, requireQuarantineCleanup fails before this seam creates or
+// publishes quarantine state. Keeping the implementation here makes the
+// already-reviewed publication path available for a future capability gate
+// without allowing a validate-close-name-unlink sequence today.
 func moveOwned(ctx context.Context, operationID string, ordinal int, source *nodeHandle, destinationParent *os.File, destinationName string, mapping ports.FileMap) error {
+	if err := requireQuarantineCleanup(); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -156,11 +168,15 @@ func moveOwned(ctx context.Context, operationID string, ordinal int, source *nod
 	return nil
 }
 
-// deleteOwned applies exact-manifest deletion inside an operation-private
-// quarantine. The original source name is moved atomically before any
-// recursive child is removed. A replacement at the public path is therefore
-// restored untouched; no pathname unlink is issued against it.
+// deleteOwnedNode is the reviewed exact-manifest deletion seam. The current
+// Linux capability gate fails before quarantine creation because the platform
+// has no reviewed inode-bound removal operation. This keeps a future
+// descriptor-safe implementation isolated from any pathname unlink after a
+// validation close.
 func deleteOwnedNode(ctx context.Context, operationID string, ordinal int, parent *os.File, name string, entry domain.FileManifestEntry) ([]domain.FileManifestEntry, error) {
+	if err := requireQuarantineCleanup(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -285,6 +301,13 @@ func restoreQuarantine(parent, quarantineDirectory *os.File, quarantineName, pay
 }
 
 func removePrivateDirectory(parent *os.File, name string, approved fs.FileInfo) error {
+	return removePrivateDirectoryWithHook(parent, name, approved, nil)
+}
+
+func removePrivateDirectoryWithHook(parent *os.File, name string, approved fs.FileInfo, beforeRemoval func()) error {
+	// Keep the identity check and test seam explicit even while the production
+	// capability is fail-closed. A future implementation must replace this
+	// return with one removal syscall that remains bound to the approved object.
 	current, err := openChild(parent, name)
 	if err != nil {
 		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: private quarantine disappeared before removal: %v", ErrReconciliationNeeded, err)}
@@ -294,13 +317,20 @@ func removePrivateDirectory(parent *os.File, name string, approved fs.FileInfo) 
 	if !owned {
 		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: private quarantine was replaced before removal", ErrReconciliationNeeded)}
 	}
-	if err := removeEntry(parent, name, true); err != nil {
-		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: remove private quarantine: %v", ErrDeleteUnknown, err)}
+	if beforeRemoval != nil {
+		beforeRemoval()
 	}
-	return nil
+	return requireQuarantineCleanup()
 }
 
 func removeOwnedQuarantine(operationID string, ordinal int, parent *os.File, name string, approved fs.FileInfo) error {
+	return removeOwnedQuarantineWithHook(operationID, ordinal, parent, name, approved, nil)
+}
+
+func removeOwnedQuarantineWithHook(operationID string, ordinal int, parent *os.File, name string, approved fs.FileInfo, beforeRemoval func()) error {
+	// Do not close an identity-checked descriptor and then unlink its name. The
+	// only supported result on Linux is an explicit uncertain/unsupported
+	// outcome, leaving both the approved and any exchanged entry intact.
 	current, err := openChild(parent, name)
 	if err != nil {
 		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine payload disappeared before removal: %v", ErrReconciliationNeeded, err)}
@@ -310,10 +340,10 @@ func removeOwnedQuarantine(operationID string, ordinal int, parent *os.File, nam
 	if !owned {
 		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine payload was replaced before removal", ErrReconciliationNeeded)}
 	}
-	if err := removeEntry(parent, name, approved.IsDir()); err != nil {
-		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove quarantine payload: %v", ErrDeleteUnknown, err)}
+	if beforeRemoval != nil {
+		beforeRemoval()
 	}
-	return nil
+	return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: requireQuarantineCleanup()}
 }
 
 func linkDescriptorNoReplace(source, destinationParent *os.File, destinationName string) error {

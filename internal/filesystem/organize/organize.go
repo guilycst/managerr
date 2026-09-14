@@ -258,6 +258,9 @@ func (organizer *Organizer) CopyVerifyDeleteWithOperation(ctx context.Context, o
 		effect.ObservedAt = organizer.now()
 		return effect, nil
 	}
+	if err := requireQuarantineCleanup(); err != nil {
+		return effect, fmt.Errorf("%w: copy/verify/delete source removal is disabled", err)
+	}
 	copyRequest := ports.FilesystemCopyRequest{Files: pending}
 	copyEffect, err := organizer.place.CopyWithOperation(ctx, copyOperationID, copyRequest)
 	if err != nil {
@@ -328,6 +331,14 @@ func (organizer *Organizer) deleteWithProtection(ctx context.Context, operationI
 	plans, err := organizer.prepareDelete(ctx, request.Files)
 	if err != nil {
 		return ports.FilesystemEffect{}, err
+	}
+	for _, plan := range plans {
+		if plan.alreadySatisfied {
+			continue
+		}
+		if err := requireQuarantineCleanup(); err != nil {
+			return ports.FilesystemEffect{}, fmt.Errorf("%w: permanent delete is disabled", err)
+		}
 	}
 	effect := ports.FilesystemEffect{ObservedAt: organizer.now()}
 	for ordinal, plan := range plans {
@@ -753,6 +764,14 @@ func (organizer *Organizer) moveWithOperation(ctx context.Context, operationID, 
 	plans, err := organizer.prepareMove(ctx, request.Files)
 	if err != nil {
 		return ports.FilesystemEffect{}, err
+	}
+	for _, plan := range plans {
+		if plan.alreadySatisfied {
+			continue
+		}
+		if err := requireQuarantineCleanup(); err != nil {
+			return ports.FilesystemEffect{}, fmt.Errorf("%w: move/rename is disabled", err)
+		}
 	}
 	effect := ports.FilesystemEffect{ObservedAt: organizer.now()}
 	for ordinal, plan := range plans {
