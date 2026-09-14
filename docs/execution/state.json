@@ -1326,7 +1326,7 @@
       ]
     },
     "X-05": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -1335,14 +1335,21 @@
         "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a",
         "597e793fa37c4707f066380ecc91b19be5bf19ef X-05 product commit",
         "00fdfcb6e3fc2780b54fe47d724ab0324bae36d9 X-05 handoff commit",
-        "X-05 implementer reports compatibility write probes, race, vet, module matrix, generation, Vacuum, architecture, lint, planning, and guardrail checks passed; G-01 remains explicitly blocked"
+        "X-05 implementer reports compatibility write probes, race, vet, module matrix, generation, Vacuum, architecture, lint, planning, and guardrail checks passed; G-01 remains explicitly blocked",
+        "2fcd872c255757bb61731c298fdf2e9b150b1d20 X-05 independent review round one: changes requested",
+        "e08cde9 integrated X-05 review receipt",
+        "X-05 correction required before downstream write adapters: bind fixtures to executable checks or keep protocol-model capabilities blocked; fix Sonarr HTTP read-back; normalize qBittorrent delete route."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "2fcd872c255757bb61731c298fdf2e9b150b1d20",
+        "findings": [
+          "P1: local httptest handlers were recorded as disposable upstream evidence; bind every fixture to executable checks or explicitly mark protocol-model evidence and keep the capability blocked.",
+          "P1: partial Sonarr reconciliation used an invalid Radarr-shaped response and handler-local state instead of a supported HTTP read-back; derive per-file outcomes from decoded Sonarr episode evidence.",
+          "P2: qBittorrent research named /torrents/remove while the fixture/test used /torrents/delete; use /delete consistently and assert deleteFiles=false."
+        ],
         "round": 1
       },
       "leaseHistory": [
@@ -1376,8 +1383,8 @@
           "generation/API/architecture/planning/guardrails",
           "Linux amd64/arm64 compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/X-05-review-round1.md",
-        "handoffPath": "docs/execution/handoffs/X-05.md",
+        "reviewPath": "docs/execution/handoffs/X-05-review-round2.md",
+        "handoffPath": "docs/execution/handoffs/X-05-correction-round2.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
           "C-00": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
@@ -1386,11 +1393,29 @@
           "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935",
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
           "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
-        }
+        },
+        "correctionRound": 2,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "597e793fa37c4707f066380ecc91b19be5bf19ef",
+        "correctionReviewPath": "docs/execution/handoffs/X-05-review-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending"
       },
       "implementationCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
       "handoffCommit": "00fdfcb6e3fc2780b54fe47d724ab0324bae36d9",
-      "reviewSourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef"
+      "reviewSourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "2fcd872c255757bb61731c298fdf2e9b150b1d20",
+          "status": "changes_requested",
+          "sourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
+          "receipt": "docs/execution/handoffs/X-05-review-round1.md",
+          "integratedCommit": "e08cde9"
+        }
+      ]
     },
     "X-06": {
       "status": "planned",
@@ -2295,7 +2320,7 @@
       ]
     }
   },
-  "nextAction": "D-02 and X-05 are in independent review; await exact receipts before integration.",
+  "nextAction": "X-05 correction round two is assigned to /root/x05_implementer; D-02 remains in independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
