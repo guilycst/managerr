@@ -1504,19 +1504,19 @@
         "Round-two review closed equal/nested/symlink root alias checks but found P1 validate-close-unlink races for delete and move cleanup, P1 cross-device hardlink witness mutation before source deletion, and P2 guard-construction cleanup leak. Correction round three is required before integration.",
         "ffc11d8f4acf6267a763c060bac701004b805dbe F-05 correction round three product commit isolates quarantine cleanup, uses independent byte-copy destination guards, and rolls back partial guard setup.",
         "ba03c61e0298a5ec9499945be5e5cc0eca3fcd1a F-05 correction round three handoff records deterministic mutation/retry tests and focused/race/vet/root/cross-build/planning/architecture/guardrail checks.",
-        "F-05 correction round three review dispatch will use /root/x05_reviewer against source ffc11d8f4acf6267a763c060bac701004b805dbe."
+        "F-05 correction round three review dispatch will use /root/x05_reviewer against source ffc11d8f4acf6267a763c060bac701004b805dbe.",
+        "7235e042302702abb3aeebd92ffb15dbd28577b1 F-05 correction round three independent review requested changes against source ffc11d8f4acf6267a763c060bac701004b805dbe.",
+        "Round-three review closed independent byte-copy destination protection and partial guard rollback. One P1 remains: nested mode-0700 quarantine cleanup still validates, closes, and then name-unlinks, allowing same-UID replacement exchange during delete and move cleanup. Correction round four is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
+        "commit": "7235e042302702abb3aeebd92ffb15dbd28577b1",
         "findings": [
-          "P1: validation handle closes before pathname unlink, allowing replacement deletion during Linux delete and move cleanup",
-          "P1: hardlink destination witness mutates with destination before source deletion, allowing corrupt-only result",
-          "P2: later guard-construction failure leaks earlier guard and blocks same-operation retry"
+          "P1: quarantine cleanup loses inode binding before unlinkat, allowing replacement deletion during delete and move cleanup"
         ],
-        "round": 2
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1556,24 +1556,22 @@
           "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
           "174ff5db3ff393af02b10db24e7a9ef70b76a56f"
         ],
-        "correctionRound": 3,
+        "correctionRound": 4,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
-        "correctionImplementationCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
-        "correctionHandoffCommit": "ba03c61e0298a5ec9499945be5e5cc0eca3fcd1a",
-        "reviewCommit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
-        "correctionReviewPath": "docs/execution/handoffs/F-05-review-round3.md",
+        "correctionBaseSha": "ffc11d8f4acf6267a763c060bac701004b805dbe",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "reviewCommit": "7235e042302702abb3aeebd92ffb15dbd28577b1",
+        "correctionReviewPath": "docs/execution/handoffs/F-05-review-round4.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": "097540bd1708c278dc120ee2c23bc4d927c50005",
-        "correctionProductCommits": [
-          "ffc11d8f4acf6267a763c060bac701004b805dbe"
-        ],
-        "correctionStatus": "review_dispatched",
-        "correctionReviewSourceCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
+        "correctionDispatchCommit": null,
+        "correctionProductCommits": [],
+        "correctionStatus": "queued",
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "errored",
@@ -1599,6 +1597,14 @@
           "status": "changes_requested",
           "sourceCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
           "receipt": "docs/execution/handoffs/F-05-review-round2.md"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "7235e042302702abb3aeebd92ffb15dbd28577b1",
+          "status": "changes_requested",
+          "sourceCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
+          "receipt": "docs/execution/handoffs/F-05-review-round3.md"
         }
       ]
     },
@@ -3354,7 +3360,7 @@
       ]
     }
   },
-  "nextAction": "F-03 is approved and complete. F-05 correction round three review is dispatched to /root/x05_reviewer against ffc11d8f; W-02 correction remains queued behind F-05.",
+  "nextAction": "F-05 correction round four is queued to /root/x05_implementer for inode-bound quarantine cleanup; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
