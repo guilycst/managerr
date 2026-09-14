@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "F-02"
+    "F-02",
+    "F-05"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -1341,12 +1342,57 @@
       ]
     },
     "F-05": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "fe1c3eddc22a7026f20d4d9e808822f6ede35aa6",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from fe1c3eddc22a7026f20d4d9e808822f6ede35aa6 after F-04 approval at 2621343dcd3b80c259f5cec808dadb7bfbb0434d with receipt integration ac3a8899be4bdc39bbba95c7e0db85e23e31c9a3",
+        "F-05 owns internal/filesystem/organize/ and implements same-filesystem no-replace move/rename, scoped permanent delete, and explicit cross-device composition without broadening linked-client scope."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 0
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "fe1c3eddc22a7026f20d4d9e808822f6ede35aa6",
+        "ownedPaths": [
+          "internal/filesystem/organize/"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-21",
+          "A-23",
+          "A-24",
+          "A-59",
+          "same-filesystem no-replace move and rename",
+          "scoped permanent delete with identity checks",
+          "explicit cross-device copy/verify/delete composition with no silent fallback",
+          "linked-client scope remains explicit",
+          "GOWORK=off focused tests/race/vet/mod-verify",
+          "generation/API/Vacuum/architecture/planning/lint/guardrails",
+          "Linux amd64/arm64 CGO-free compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/F-05-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/F-05.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "F-04": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
+          "F-04-review": "82fc97440da4de1a2ba31039e5de31d4433a496c",
+          "F-04-integration": "ac3a8899be4bdc39bbba95c7e0db85e23e31c9a3"
+        },
+        "implementationCommit": null,
+        "handoffCommit": null,
+        "reviewSourceCommit": null
+      }
     },
     "X-01": {
       "status": "done",
@@ -3014,7 +3060,7 @@
       ]
     }
   },
-  "nextAction": "F-04 is complete and reviewed. Dispatch F-05 filesystem organize actions after recording its state checkpoint; F-02 correction round three review remains pending.",
+  "nextAction": "F-05 filesystem organize actions are dispatched to /root/x05_implementer from fe1c3edd; F-02 correction round three review remains pending with /root/d02_reviewer.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
