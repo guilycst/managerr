@@ -713,7 +713,7 @@
       }
     },
     "D-02": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d02_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -727,14 +727,19 @@
         "D-02 correction required: support projected Secret symlink targets safely and reject symlinked generated key directories without escaping data-dir.",
         "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5 D-02 correction round two product",
         "93420af525440b8ad81df31af1b22f9276d89fb2 D-02 correction round two handoff",
-        "D-02 correction focused tests, race, vet, mod verify, generation, architecture, planning, Linux amd64/arm64 compile passed; shared full checks await X-05 formatting."
+        "D-02 correction focused tests, race, vet, mod verify, generation, architecture, planning, Linux amd64/arm64 compile passed; shared full checks await X-05 formatting.",
+        "412e014d02be2807f34f3762f7f21500f3560562 D-02 independent review round two: changes requested",
+        "449f67d028f3e7351a841a72bc3aaf5539137ba3 integrated D-02 review round two receipt",
+        "D-02 correction required: bind explicit key regular-file validation and bounded read to one opened descriptor; preserve projected Secret compatibility and no fallback."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d02_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "412e014d02be2807f34f3762f7f21500f3560562",
+        "findings": [
+          "P1: readKeyFile validates a path with os.Stat, then reopens it through readBoundedFile without validating the opened descriptor; a swapped FIFO could block and a different object could be read. Open once, f.Stat the descriptor, require a bounded regular file, then read from that same descriptor."
+        ],
         "round": 2
       },
       "leaseHistory": [
@@ -764,20 +769,20 @@
           "generation/API/architecture/planning/guardrails",
           "Linux amd64/arm64 compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/D-02-review-round2.md",
-        "handoffPath": "docs/execution/handoffs/D-02-correction-round2.md",
+        "reviewPath": "docs/execution/handoffs/D-02-review-round3.md",
+        "handoffPath": "docs/execution/handoffs/D-02-correction-round3.md",
         "nextReviewer": "/root/d02_reviewer",
         "dependencyCommits": {
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/d02_implementer",
-        "correctionBaseSha": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
-        "correctionReviewPath": "docs/execution/handoffs/D-02-review-round1.md",
+        "correctionBaseSha": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
+        "correctionReviewPath": "docs/execution/handoffs/D-02-review-round2.md",
         "correctionReviewer": "/root/d02_reviewer",
-        "correctionImplementationCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
-        "correctionHandoffCommit": "93420af525440b8ad81df31af1b22f9276d89fb2",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending",
         "reviewIntegrationCommit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf"
       },
       "implementationCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
@@ -792,6 +797,15 @@
           "sourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
           "receipt": "docs/execution/handoffs/D-02-review-round1.md",
           "integratedCommit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/d02_reviewer",
+          "commit": "412e014d02be2807f34f3762f7f21500f3560562",
+          "status": "changes_requested",
+          "sourceCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
+          "receipt": "docs/execution/handoffs/D-02-review-round2.md",
+          "integratedCommit": "449f67d028f3e7351a841a72bc3aaf5539137ba3"
         }
       ]
     },
@@ -2344,7 +2358,7 @@
       ]
     }
   },
-  "nextAction": "D-02 correction round two and X-05 correction round two are in independent review; await exact receipts before integration.",
+  "nextAction": "D-02 correction round three is assigned for descriptor-safe key reads; X-05 correction round two remains in independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
