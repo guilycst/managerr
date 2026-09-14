@@ -1112,7 +1112,8 @@
         "F-04 implements exact-plan copy and hardlink placement with exclusive staging, sync, atomic no-replace publication and per-file effect journaling through frozen ports.",
         "1733a0998e86bf4c71250fab11e17b41857bbc85 F-04 product follow-up commit with final directory recheck and safety bounds",
         "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5 F-04 product handoff with checks and outstanding native-environment limits",
-        "821d01a133981ca147e04838ee1a9cc230149e61 F-04 independent review round one changes requested"
+        "821d01a133981ca147e04838ee1a9cc230149e61 F-04 independent review round one changes requested",
+        "29b4a48e38632c9056db08e9f525e40309ab73d8 F-04 correction round one dispatch checkpoint"
       ],
       "review": {
         "status": "changes_requested",
@@ -1173,7 +1174,9 @@
         "correctionReviewPath": "docs/execution/handoffs/F-04-review-round2.md",
         "correctionHandoffPath": "docs/execution/handoffs/F-04-correction-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionReviewCommit": "821d01a133981ca147e04838ee1a9cc230149e61"
+        "correctionReviewCommit": "821d01a133981ca147e04838ee1a9cc230149e61",
+        "correctionDispatchCommit": "29b4a48e38632c9056db08e9f525e40309ab73d8",
+        "correctionCheckout": "shared main"
       },
       "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
       "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
