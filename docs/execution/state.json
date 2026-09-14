@@ -1470,7 +1470,8 @@
         "f202aacafd24320cd45335064f97409d72b4c3ab F-05 correction round two product commit hardens Linux object-bound move/delete and cross-device destination protection.",
         "58ffe6ae5bb50f7693164a28a3749d8c21e65411 F-05 correction round two regression test commit covers directory copy protection and cleans destination guard state.",
         "e4d289f079a475a2b9fef1d84ee6946bd0b02c76 F-05 correction round two handoff records final product tree, focused/race/vet/root/module/cross-build and guardrail checks.",
-        "F-05 correction review dispatch is recorded against final product tree 58ffe6ae5bb50f7693164a28a3749d8c21e65411 and handoff e4d289f079a475a2b9fef1d84ee6946bd0b02c76."
+        "F-05 correction review dispatch is recorded against final product tree 58ffe6ae5bb50f7693164a28a3749d8c21e65411 and handoff e4d289f079a475a2b9fef1d84ee6946bd0b02c76.",
+        "F-05 review rerouted from /root/d02_reviewer to /root/x05_reviewer after two pre-receipt platform-filter errors; no product files changed."
       ],
       "review": {
         "status": "changes_requested",
@@ -1510,7 +1511,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/F-05-review-round1.md",
         "handoffPath": "docs/execution/handoffs/F-05.md",
-        "nextReviewer": "/root/d02_reviewer",
+        "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
           "F-04": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
           "F-04-review": "82fc97440da4de1a2ba31039e5de31d4433a496c",
@@ -1530,7 +1531,7 @@
         "correctionHandoffCommit": "e4d289f079a475a2b9fef1d84ee6946bd0b02c76",
         "reviewCommit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
         "correctionReviewPath": "docs/execution/handoffs/F-05-review-round2.md",
-        "correctionReviewer": "/root/d02_reviewer",
+        "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
@@ -1540,8 +1541,16 @@
           "f202aacafd24320cd45335064f97409d72b4c3ab",
           "58ffe6ae5bb50f7693164a28a3749d8c21e65411"
         ],
-        "correctionStatus": "review_dispatched",
-        "correctionReviewSourceCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411"
+        "correctionStatus": "review_rerouted_pending_reviewer_capacity",
+        "correctionReviewSourceCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
+        "reviewerReroute": {
+          "previousReviewer": "/root/d02_reviewer",
+          "status": "errored",
+          "reason": "two review turns ended before a receipt because the platform content filter blocked the request; no product or receipt files were changed",
+          "newReviewer": "/root/x05_reviewer",
+          "dispatchedAfterSha": "7e8d9d8daf1d48cd3c9f80623c316e356efc6e43",
+          "pendingUntil": "F-03 correction review completes"
+        }
       },
       "reviewHistory": [
         {
@@ -3306,7 +3315,7 @@
       ]
     }
   },
-  "nextAction": "Independent review is dispatched for F-03 correction (source ebdf5112) to /root/x05_reviewer and F-05 correction (source 58ffe6ae) to /root/d02_reviewer; W-02 correction remains queued behind these safety lanes.",
+  "nextAction": "F-03 correction review remains active with /root/x05_reviewer; F-05 correction review is rerouted to the same independent reviewer after F-03 receipt; W-02 correction remains queued.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
