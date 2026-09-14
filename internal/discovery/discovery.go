@@ -818,7 +818,7 @@ func subtitleGroupStem(stem string) string {
 		if separator < 0 || separator == len(stem)-1 {
 			break
 		}
-		tail := strings.ToLower(stem[separator+1:])
+		tail := strings.Trim(strings.ToLower(stem[separator+1:]), "[]()")
 		if tail != "forced" && tail != "sdh" && tail != "hi" && len(tail) != 2 && !(len(tail) == 3 && isASCIIWord(tail)) {
 			break
 		}
@@ -1028,9 +1028,6 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 			candidates = append(candidates, video)
 		}
 	}
-	if len(candidates) == 0 && len(videoPaths) == 1 {
-		candidates = append(candidates, videoPaths[0])
-	}
 	forced := containsToken(base, "forced")
 	hearingImpaired := containsToken(base, "sdh") || containsToken(base, "hi") || containsToken(base, "hearing impaired")
 	language := subtitleLanguage(base, candidates)
@@ -1104,9 +1101,24 @@ func normalizeStem(value string) string {
 }
 
 func containsToken(value, token string) bool {
-	value = strings.ToLower(value)
-	token = strings.ToLower(token)
-	return strings.Contains(" "+strings.NewReplacer(".", " ", "_", " ", "-", " ").Replace(value)+" ", " "+token+" ")
+	valueTokens := subtitleTokens(value)
+	tokenTokens := subtitleTokens(token)
+	if len(tokenTokens) == 0 || len(valueTokens) < len(tokenTokens) {
+		return false
+	}
+	for start := 0; start <= len(valueTokens)-len(tokenTokens); start++ {
+		matched := true
+		for offset, expected := range tokenTokens {
+			if valueTokens[start+offset] != expected {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func correlateClient(rootID domain.ConfigID, groupPath string, files []domain.FileManifestEntry, items []downloadSourceItem, now time.Time) ([]domain.Provenance, ClientCompletionObservation) {

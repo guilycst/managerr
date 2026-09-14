@@ -519,6 +519,8 @@ func TestSubtitleLanguageComesOnlyFromMatchedVideoSuffix(t *testing.T) {
 	}{
 		{name: "short title and forced", subtitle: "Up.forced.en.srt", video: "Up.mkv", language: "en", forced: true},
 		{name: "short title and SDH", subtitle: "The.Movie.sdh.pt.srt", video: "The.Movie.mkv", language: "pt", hearingImpaired: true},
+		{name: "bracketed forced", subtitle: "Up.[forced].en.srt", video: "Up.mkv", language: "en", forced: true},
+		{name: "parenthesized SDH", subtitle: "Up.(sdh).pt.srt", video: "Up.mkv", language: "pt", hearingImpaired: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -533,22 +535,36 @@ func TestSubtitleLanguageComesOnlyFromMatchedVideoSuffix(t *testing.T) {
 		t.Fatalf("ambiguous subtitle relationship yielded language metadata: %+v", ambiguous)
 	}
 	fallback := subtitleFor("captions.en.srt", []string{"Up.mkv"})
-	if fallback.Language != "" {
-		t.Fatalf("unmatched subtitle fallback yielded language metadata: %+v", fallback)
+	if fallback.Language != "" || len(fallback.VideoPaths) != 0 || fallback.Confidence != ConfidenceUnresolved || fallback.Reason != "subtitle has no matching video" {
+		t.Fatalf("unmatched subtitle was silently paired: %+v", fallback)
+	}
+	_, unmatchedSubtitles, unmatchedCompanions, _ := classifyFiles([]domain.FileManifestEntry{
+		fixtureFile(testRoot, "Up.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie"),
+		fixtureFile(testRoot, "captions.en.srt", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "subtitle"),
+	})
+	if len(unmatchedSubtitles) != 1 || len(unmatchedCompanions) != 1 || unmatchedCompanions[0].Kind != CompanionUnmatchedSubtitle || len(unmatchedCompanions[0].VideoPaths) != 0 {
+		t.Fatalf("unmatched subtitle was not retained as an explicit companion: subtitles=%+v companions=%+v", unmatchedSubtitles, unmatchedCompanions)
 	}
 
-	idx, subtitles, companions, _ := classifyFiles([]domain.FileManifestEntry{
+	videos, subtitles, companions, _ := classifyFiles([]domain.FileManifestEntry{
 		fixtureFile(testRoot, "The.Movie.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie"),
 		fixtureFile(testRoot, "The.Movie.sdh.pt.idx", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "idx"),
 		fixtureFile(testRoot, "The.Movie.sdh.pt.sub", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "sub"),
 	})
-	if len(idx) != 1 || len(subtitles) != 2 || len(companions) != 0 {
-		t.Fatalf("IDX/SUB fixture was not retained as a paired subtitle set: videos=%+v subtitles=%+v companions=%+v", idx, subtitles, companions)
+	if len(videos) != 1 || len(subtitles) != 2 || len(companions) != 0 {
+		t.Fatalf("IDX/SUB fixture was not retained as a paired subtitle set: videos=%+v subtitles=%+v companions=%+v", videos, subtitles, companions)
 	}
 	for _, subtitle := range subtitles {
 		if subtitle.Language != "pt" || !subtitle.HearingImpaired || subtitle.PairID != "The.Movie.sdh.pt" || subtitle.Confidence != ConfidenceExact {
 			t.Fatalf("IDX/SUB metadata was not preserved: %+v", subtitle)
 		}
+	}
+	groups := groupEntries([]domain.FileManifestEntry{
+		fixtureFile(testRoot, "Up.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie"),
+		fixtureFile(testRoot, "Up.[forced].en.srt", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "subtitle"),
+	}, fixtureCoverage(testRoot, testRuntime, domain.CompletenessComplete), nil, nil, false, nil, nil, DefaultOptions(), time.Date(2026, 9, 14, 23, 30, 0, 0, time.UTC))
+	if len(groups) != 1 || len(groups[0].Subtitles) != 1 || !groups[0].Subtitles[0].Forced || groups[0].Subtitles[0].Language != "en" {
+		t.Fatalf("bracketed subtitle label split or lost metadata: %+v", groups)
 	}
 }
 
