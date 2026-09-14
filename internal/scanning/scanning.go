@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/guilycst/mastarr/internal/domain"
 )
@@ -119,8 +120,8 @@ func (schedule RootSchedule) Validate(minimumInterval time.Duration) error {
 	if !schedule.ID.Valid() {
 		return fmt.Errorf("%w: root has invalid id", ErrInvalidSnapshot)
 	}
-	if strings.TrimSpace(schedule.Revision) != "" && len(schedule.Revision) > maxConfigRevisionBytes {
-		return fmt.Errorf("%w: root revision is too long", ErrInvalidSnapshot)
+	if err := validateConfigRevision(schedule.Revision); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidSnapshot, err)
 	}
 	if schedule.Enabled {
 		if schedule.Interval <= 0 {
@@ -145,11 +146,30 @@ type RootState struct {
 	NextScheduledAt      *time.Time
 	ActiveScanID         domain.RuntimeID
 	FollowUpPending      bool
+	FollowUpTrigger      TriggerKind
 	LastScanID           domain.RuntimeID
 	LastCoverage         *domain.Coverage
 	LastCompleteScanID   domain.RuntimeID
 	LastCompleteCoverage *domain.Coverage
 	RetiredAt            *time.Time
+}
+
+func validateConfigRevision(revision string) error {
+	if strings.TrimSpace(revision) == "" {
+		return errors.New("root revision is required")
+	}
+	if revision != strings.TrimSpace(revision) {
+		return errors.New("root revision must be trimmed")
+	}
+	if len(revision) > maxConfigRevisionBytes {
+		return fmt.Errorf("root revision is too long")
+	}
+	for _, character := range revision {
+		if unicode.IsControl(character) {
+			return errors.New("root revision contains a control character")
+		}
+	}
+	return nil
 }
 
 // ScanRecord is the durable state of one scan. Cursor and source coverage are
@@ -287,6 +307,13 @@ func (snapshot Snapshot) Validate(minimumInterval time.Duration) error {
 		if root.LastCompleteScanID != "" && !root.LastCompleteScanID.Valid() {
 			return fmt.Errorf("%w: root %q has invalid complete scan id", ErrInvalidSnapshot, root.Schedule.ID)
 		}
+		if root.FollowUpPending {
+			if root.FollowUpTrigger != "" && !followUpTriggerValid(root.FollowUpTrigger) {
+				return fmt.Errorf("%w: root %q has invalid follow-up trigger", ErrInvalidSnapshot, root.Schedule.ID)
+			}
+		} else if root.FollowUpTrigger != "" {
+			return fmt.Errorf("%w: root %q has follow-up trigger without pending work", ErrInvalidSnapshot, root.Schedule.ID)
+		}
 		if root.Retired {
 			if root.Schedule.Enabled {
 				return fmt.Errorf("%w: retired root %q cannot remain enabled", ErrInvalidSnapshot, root.Schedule.ID)
@@ -343,12 +370,25 @@ func (snapshot Snapshot) Validate(minimumInterval time.Duration) error {
 	return nil
 }
 
+func followUpTriggerValid(trigger TriggerKind) bool {
+	return trigger == TriggerScheduled || trigger == TriggerManual
+}
+
 func (record ScanRecord) validate() error {
 	if !record.ID.Valid() {
 		return errors.New("scan has invalid id")
 	}
 	if !record.RootID.Valid() {
 		return errors.New("scan has invalid root id")
+	}
+	// Empty revisions are retained only for legacy history. Start converts any
+	// legacy non-terminal record to stale terminal history before it can run or
+	// publish evidence, while every newly admitted record inherits a validated
+	// non-empty root revision.
+	if record.ConfigRevision != "" {
+		if err := validateConfigRevision(record.ConfigRevision); err != nil {
+			return fmt.Errorf("scan configuration revision: %w", err)
+		}
 	}
 	if !record.Trigger.Valid() {
 		return errors.New("scan has invalid trigger")
@@ -650,6 +690,7 @@ type TriggerResult struct {
 	Scan            ScanRecord
 	Coalesced       bool
 	FollowUpPending bool
+	FollowUpTrigger TriggerKind
 }
 
 // Scheduler owns one in-process admission loop. State mutations are serialized
@@ -954,7 +995,7 @@ func (scheduler *Scheduler) ConfigureRoots(ctx context.Context, schedules []Root
 							}
 							finalizeStale(active, now, scheduler.options.MaxErrorDetail)
 							updateRootAfterTerminal(&root, *active)
-							root.FollowUpPending = false
+							clearFollowUp(&root)
 							fresh := newScanRecord(schedule, TriggerScheduled, now)
 							snapshot.Scans = append(snapshot.Scans, fresh)
 							root.ActiveScanID = fresh.ID
@@ -1083,9 +1124,10 @@ func (scheduler *Scheduler) Trigger(ctx context.Context, rootID domain.ConfigID)
 				active.NextAttemptAt = cloneTime(&now)
 				result.Coalesced = true
 			} else {
-				root.FollowUpPending = true
+				retainFollowUp(root, TriggerManual)
 			}
 			result.FollowUpPending = root.FollowUpPending
+			result.FollowUpTrigger = root.FollowUpTrigger
 			result.Scan = cloneScanRecord(*active)
 			return nil
 		}
@@ -1137,14 +1179,14 @@ func (scheduler *Scheduler) Cancel(ctx context.Context, scanID domain.RuntimeID)
 			if rootIndex >= 0 {
 				root := &snapshot.Roots[rootIndex]
 				updateRootAfterTerminal(root, *scan)
-				root.FollowUpPending = false
+				clearFollowUp(root)
 			}
 		} else if scan.State == StateWaiting {
 			finalizeCancelled(scan, now, scheduler.options.MaxErrorDetail)
 			if rootIndex >= 0 {
 				root := &snapshot.Roots[rootIndex]
 				updateRootAfterTerminal(root, *scan)
-				root.FollowUpPending = false
+				clearFollowUp(root)
 			}
 		}
 		return nil
@@ -1197,7 +1239,7 @@ func (scheduler *Scheduler) Tick(ctx context.Context) error {
 				if root.Schedule.Enabled && !root.Retired && due(root.NextScheduledAt, now) {
 					// A scheduled trigger that arrives while any scan is
 					// active shares the bounded follow-up with manual triggers.
-					root.FollowUpPending = true
+					retainFollowUp(root, TriggerScheduled)
 					root.NextScheduledAt = advanceScheduledAt(root.NextScheduledAt, now, root.Schedule.Interval)
 				}
 				if active.State == StateWaiting && due(active.NextAttemptAt, now) {
@@ -1246,6 +1288,24 @@ func (scheduler *Scheduler) Tick(ctx context.Context) error {
 
 func due(at *time.Time, now time.Time) bool {
 	return at == nil || !at.After(now)
+}
+
+func retainFollowUp(root *RootState, trigger TriggerKind) {
+	if root == nil || !followUpTriggerValid(trigger) {
+		return
+	}
+	if !root.FollowUpPending || root.FollowUpTrigger == "" || trigger == TriggerManual {
+		root.FollowUpTrigger = trigger
+	}
+	root.FollowUpPending = true
+}
+
+func clearFollowUp(root *RootState) {
+	if root == nil {
+		return
+	}
+	root.FollowUpPending = false
+	root.FollowUpTrigger = ""
 }
 
 func advanceScheduledAt(at *time.Time, now time.Time, interval time.Duration) *time.Time {
@@ -1372,14 +1432,14 @@ func enqueueCurrentRevision(snapshot *Snapshot, root *RootState, now time.Time) 
 	}
 	if root.Retired {
 		root.ActiveScanID = ""
-		root.FollowUpPending = false
+		clearFollowUp(root)
 		root.NextScheduledAt = nil
 		return ScanRecord{}
 	}
 	fresh := newScanRecord(root.Schedule, TriggerScheduled, now)
 	snapshot.Scans = append(snapshot.Scans, fresh)
 	root.ActiveScanID = fresh.ID
-	root.FollowUpPending = false
+	clearFollowUp(root)
 	if root.Schedule.Enabled && !root.Retired {
 		root.NextScheduledAt = timePointer(now.Add(root.Schedule.Interval))
 	} else {
@@ -1392,6 +1452,13 @@ func (scheduler *Scheduler) recoverSnapshot(snapshot *Snapshot, now time.Time) b
 	changed := false
 	for rootIndex := range snapshot.Roots {
 		root := &snapshot.Roots[rootIndex]
+		if root.FollowUpPending && root.FollowUpTrigger == "" {
+			// Snapshots written before trigger provenance was added have only the
+			// coalesced bit. Preserve their historical manual behavior while
+			// making the provenance explicit before any new follow-up is admitted.
+			root.FollowUpTrigger = TriggerManual
+			changed = true
+		}
 		if root.LastScanID != "" {
 			lastIndex := scanIndex(snapshot.Scans, root.LastScanID)
 			if lastIndex < 0 || snapshot.Scans[lastIndex].ConfigRevision != root.Schedule.Revision {
@@ -1422,7 +1489,7 @@ func (scheduler *Scheduler) recoverSnapshot(snapshot *Snapshot, now time.Time) b
 			finalizeStale(scan, now, scheduler.options.MaxErrorDetail)
 			invalidateRootEvidence(root)
 			updateRootAfterTerminal(root, *scan)
-			root.FollowUpPending = false
+			clearFollowUp(root)
 			enqueueCurrentRevision(snapshot, root, now)
 			changed = true
 			continue
@@ -1433,7 +1500,7 @@ func (scheduler *Scheduler) recoverSnapshot(snapshot *Snapshot, now time.Time) b
 		if scan.CancellationRequestedAt != nil {
 			finalizeCancelled(scan, now, scheduler.options.MaxErrorDetail)
 			updateRootAfterTerminal(root, *scan)
-			root.FollowUpPending = false
+			clearFollowUp(root)
 			changed = true
 			continue
 		}
@@ -1536,7 +1603,7 @@ func (scheduler *Scheduler) startOne() bool {
 		return false
 	}
 	candidate := cloneSnapshot(scheduler.state)
-	selected := selectQueuedScan(candidate)
+	selected := selectQueuedScan(candidate, scheduler.running)
 	if selected < 0 {
 		scheduler.mu.Unlock()
 		return false
@@ -1551,7 +1618,7 @@ func (scheduler *Scheduler) startOne() bool {
 		if rootIndex >= 0 {
 			root := &candidate.Roots[rootIndex]
 			updateRootAfterTerminal(root, *scan)
-			root.FollowUpPending = false
+			clearFollowUp(root)
 		}
 		published := withVersion(candidate, scheduler.state.Version+1)
 		scheduler.mu.Unlock()
@@ -1562,6 +1629,13 @@ func (scheduler *Scheduler) startOne() bool {
 		scheduler.state = published
 		scheduler.mu.Unlock()
 		return true
+	}
+	if runningRoot(candidate, scheduler.running, scan.RootID) {
+		// Durable replacement may be queued before the old runner observes
+		// cancellation. Keep root ownership until that runner exits, even when
+		// another global runner slot is available.
+		scheduler.mu.Unlock()
+		return false
 	}
 	if scan.ConfigRevision != candidate.Roots[rootIndex].Schedule.Revision {
 		// A queued cursor from an older root revision is never dispatched.
@@ -1588,7 +1662,7 @@ func (scheduler *Scheduler) startOne() bool {
 		finalizeCancelled(scan, now, scheduler.options.MaxErrorDetail)
 		root := &candidate.Roots[rootIndex]
 		updateRootAfterTerminal(root, *scan)
-		root.FollowUpPending = false
+		clearFollowUp(root)
 		published := withVersion(candidate, scheduler.state.Version+1)
 		scheduler.mu.Unlock()
 		if err := scheduler.store.Save(context.Background(), published); err != nil {
@@ -1654,7 +1728,7 @@ func withVersion(snapshot Snapshot, version uint64) Snapshot {
 	return snapshot
 }
 
-func selectQueuedScan(snapshot Snapshot) int {
+func selectQueuedScan(snapshot Snapshot, running map[domain.RuntimeID]context.CancelFunc) int {
 	indices := make([]int, 0)
 	for index, scan := range snapshot.Scans {
 		if scan.State == StateQueued {
@@ -1668,10 +1742,26 @@ func selectQueuedScan(snapshot Snapshot) int {
 		}
 		return a.CreatedAt.Before(b.CreatedAt)
 	})
-	if len(indices) == 0 {
-		return -1
+	for _, index := range indices {
+		if runningRoot(snapshot, running, snapshot.Scans[index].RootID) {
+			// A replacement for a root with an in-flight cancelled runner must
+			// wait for that runner to exit, but unrelated roots may still use
+			// available global capacity.
+			continue
+		}
+		return index
 	}
-	return indices[0]
+	return -1
+}
+
+func runningRoot(snapshot Snapshot, running map[domain.RuntimeID]context.CancelFunc, rootID domain.ConfigID) bool {
+	for scanID := range running {
+		index := scanIndex(snapshot.Scans, scanID)
+		if index >= 0 && snapshot.Scans[index].RootID == rootID {
+			return true
+		}
+	}
+	return false
 }
 
 func (scheduler *Scheduler) execute(ctx context.Context, cancel context.CancelFunc, root RootSchedule, scan ScanRecord) {
@@ -1774,7 +1864,7 @@ func (scheduler *Scheduler) finish(scanID domain.RuntimeID, outcome ScanResult, 
 			finalizeStale(scan, now, scheduler.options.MaxErrorDetail)
 			invalidateRootEvidence(root)
 			updateRootAfterTerminal(root, *scan)
-			root.FollowUpPending = false
+			clearFollowUp(root)
 			enqueueCurrentRevision(snapshot, root, now)
 			shouldSignal = true
 			return nil
@@ -1845,13 +1935,17 @@ func (scheduler *Scheduler) finish(scanID domain.RuntimeID, outcome ScanResult, 
 		if scan.State.Terminal() {
 			updateRootAfterTerminal(root, *scan)
 			if root.FollowUpPending && !root.Retired && scan.State != StateCancelled {
-				followUp := newScanRecord(root.Schedule, TriggerManual, now)
+				trigger := root.FollowUpTrigger
+				if !followUpTriggerValid(trigger) {
+					trigger = TriggerManual
+				}
+				followUp := newScanRecord(root.Schedule, trigger, now)
 				snapshot.Scans = append(snapshot.Scans, followUp)
 				root.ActiveScanID = followUp.ID
-				root.FollowUpPending = false
+				clearFollowUp(root)
 				shouldSignal = true
 			} else {
-				root.FollowUpPending = false
+				clearFollowUp(root)
 			}
 		}
 		return nil
