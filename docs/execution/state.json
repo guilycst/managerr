@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "W-01"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -2303,12 +2305,59 @@
       "review": null
     },
     "W-01": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/d02_implementer",
+      "baseSha": "8c7e62d5e9ead37c93053dd83bbae01ea7af04bf",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 8c7e62d5e9ead37c93053dd83bbae01ea7af04bf after approved dependencies F-03, X-12, X-13, X-03, and X-04.",
+        "W-01 owns internal/reconciliation/ and internal/planning/ and implements per-instance evidence aggregation, bounded exact manifests, semantic desired predicates, conflicts, and immutable revisions bound to meaningful config/source identity."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 0
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "8c7e62d5e9ead37c93053dd83bbae01ea7af04bf",
+        "ownedPaths": [
+          "internal/reconciliation/",
+          "internal/planning/"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-08",
+          "A-09",
+          "A-10",
+          "A-11",
+          "A-15",
+          "A-19",
+          "per-instance tracking evidence without universal tracked boolean",
+          "bounded exact manifests and semantic desired predicates",
+          "conflict detection and immutable revisions bound to config/source identity",
+          "GOWORK=off focused tests/race/vet/mod-verify",
+          "generation/API/Vacuum/architecture/planning/lint/guardrails",
+          "Linux amd64/arm64 CGO-free compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/W-01-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/W-01.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "F-03": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
+          "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
+          "X-13": "f54ec97c70d75a58099b92e7ee8350220599d009",
+          "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935",
+          "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b"
+        },
+        "reviewer": "/root/x05_reviewer"
+      }
     },
     "W-02": {
       "status": "done",
@@ -3471,7 +3520,7 @@
       ]
     }
   },
-  "nextAction": "F-03 and W-02 are approved and complete. F-05 is review-approved but capability-blocked for pending filesystem mutation until a reviewed inode-bound removal primitive exists. The next eligible implementation lane is W-01 reconciliation/planning.",
+  "nextAction": "W-01 is dispatched to /root/d02_implementer for tracking aggregation and immutable planning; /root/x05_reviewer will independently review the handoff. F-05 remains capability-blocked; F-03 and W-02 are complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
