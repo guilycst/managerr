@@ -890,6 +890,51 @@ func TestSchedulerRecoveryRejectsMismatchedRevisionCursor(t *testing.T) {
 	}
 }
 
+func TestSchedulerRecoveryTerminalizesLegacyUnboundScan(t *testing.T) {
+	clock := newTestClock()
+	oldID := domain.RuntimeID("00000000-0000-4000-8000-000000000002")
+	now := clock.Now()
+	store, err := NewMemoryStoreWithSnapshot(Snapshot{
+		Roots: []RootState{{
+			Schedule:     RootSchedule{ID: testRootA, Revision: "rev-2", Interval: time.Minute},
+			ActiveScanID: oldID,
+		}},
+		Scans: []ScanRecord{{
+			ID: oldID, RootID: testRootA, Trigger: TriggerManual, State: StateRunning,
+			CreatedAt: now, UpdatedAt: now, Coverage: unknownCoverage(testRootA, now, "legacy"),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newScriptedRunner(func(_ context.Context, root RootSchedule, checkpoint ScanCheckpoint, _ ProgressFunc) (ScanResult, error) {
+		if root.Revision != "rev-2" || checkpoint.ConfigRevision != "rev-2" || checkpoint.Cursor != "" || checkpoint.ObservedCount != 0 {
+			return ScanResult{}, fmt.Errorf("legacy scan resumed with an invalid binding: root=%+v checkpoint=%+v", root, checkpoint)
+		}
+		return ScanResult{Coverage: completeCoverage(testRootA, clock.Now()), SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())}}, nil
+	})
+	scheduler := newTestScheduler(t, store, runner, clock)
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	freshCall := <-runner.starts
+	legacy, ok := scheduler.Scan(oldID)
+	if !ok || legacy.State != StateCancelled || legacy.ErrorCode != "stale_config_revision" {
+		t.Fatalf("legacy scan was not terminalized as stale history: %+v", legacy)
+	}
+	if freshCall.checkpoint.ScanID == oldID || freshCall.root.Revision != "rev-2" {
+		t.Fatalf("recovery dispatched the wrong scan: %+v", freshCall)
+	}
+	fresh, ok := scheduler.Scan(freshCall.checkpoint.ScanID)
+	if !ok || fresh.ConfigRevision != "rev-2" || fresh.Trigger != TriggerScheduled {
+		t.Fatalf("fresh current-revision scan was not admitted: %+v", fresh)
+	}
+	waitFor(t, func() bool {
+		completed, ok := scheduler.Scan(freshCall.checkpoint.ScanID)
+		return ok && completed.State.Terminal()
+	})
+}
+
 func TestSchedulerRejectsEmptyOrNonCanonicalConfigRevision(t *testing.T) {
 	clock := newTestClock()
 	scheduler := newTestScheduler(t, NewMemoryStore(), newScriptedRunner(), clock)
