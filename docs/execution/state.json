@@ -1385,7 +1385,7 @@
         "2e98db6bc5f0fbe1c7db3ecb2ef76bdb7c0ed3f integrated X-05 review round two receipt",
         "X-05 correction required: independently pin zero-speed/stalledUP and HTTP 202 fixture values; use Sonarr downloadFolderImported history enum.",
         "165f22c2d81c4123d2ab31cf00d7613cdba87054 X-05 correction round three product",
-        "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8 X-05 correction round three handoff",
+        "949b07d032f5d7bd36055388ffac17fe1be84007 X-05 correction round three handoff",
         "X-05 correction independently pins stalledUP/upspeed=0 and HTTP 202, uses native downloadFolderImported enum, and preserves protocol-model/runtime capability blocks; focused/module/guardrail checks passed."
       ],
       "review": {
@@ -1444,11 +1444,11 @@
         "correctionReviewPath": "docs/execution/handoffs/X-05-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionImplementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
-        "correctionHandoffCommit": "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8",
+        "correctionHandoffCommit": "949b07d032f5d7bd36055388ffac17fe1be84007",
         "reviewIntegrationCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
       },
       "implementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
-      "handoffCommit": "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8",
+      "handoffCommit": "949b07d032f5d7bd36055388ffac17fe1be84007",
       "reviewSourceCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
       "reviewHistory": [
         {
