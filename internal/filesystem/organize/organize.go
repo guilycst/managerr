@@ -78,6 +78,10 @@ type Options struct {
 	// Production callers cannot install them.
 	beforeMovePublication   func()
 	beforeDeletePublication func()
+	// afterDestinationGuardVerification is package-private so synthetic tests
+	// can mutate the visible destination after its final pre-delete read-back.
+	// Production callers cannot install it.
+	afterDestinationGuardVerification func()
 }
 
 // CrossDeviceMoveRequest is deliberately distinct from FilesystemMoveRequest
@@ -266,12 +270,17 @@ func (organizer *Organizer) CopyVerifyDeleteWithOperation(ctx context.Context, o
 		return copyEffect, &UncertainError{OperationID: operationID, Ordinal: 0, Cause: fmt.Errorf("%w: copied destination cannot be reconciled: %v", ErrReconciliationNeeded, err)}
 	}
 	guards := make(map[string]*destinationGuard, len(pending))
+	createdGuards := make([]*destinationGuard, 0, len(pending))
 	for ordinal, mapping := range pending {
 		guard, guardErr := organizer.createDestinationGuard(ctx, operationID, ordinal, mapping)
 		if guardErr != nil {
+			if cleanupErr := cleanupDestinationGuards(createdGuards); cleanupErr != nil {
+				return copyEffect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination protection: %v; cleanup: %v", ErrReconciliationNeeded, guardErr, cleanupErr)}
+			}
 			return copyEffect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination protection: %v", ErrReconciliationNeeded, guardErr)}
 		}
 		guards[fileMapKey(mapping)] = guard
+		createdGuards = append(createdGuards, guard)
 	}
 	deleteFiles := make([]domain.FileManifestEntry, 0, len(pending))
 	for _, mapping := range pending {
@@ -423,6 +432,16 @@ type destinationGuard struct {
 	cleaned   bool
 }
 
+func cleanupDestinationGuards(guards []*destinationGuard) error {
+	var firstErr error
+	for _, guard := range guards {
+		if err := guard.cleanup(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func fileMapKey(mapping ports.FileMap) string {
 	return mapping.Source.RootID.String() + "\x00" + mapping.Source.RelativePath
 }
@@ -453,9 +472,13 @@ func (organizer *Organizer) createDestinationGuard(ctx context.Context, operatio
 		return nil, err
 	}
 	guard := &destinationGuard{organizer: organizer, mapping: mapping, root: root, name: name, directory: directory}
-	if err := cloneGuardEntry(ctx, destination.file, destination.info, mapping.Source, directory, "payload"); err != nil {
+	if err := copyGuardEntry(ctx, destination.file, destination.info, mapping.Source, directory, "payload", organizer.copyBufferSize(), organizer.syncDirectory); err != nil {
 		_ = guard.cleanup()
 		return nil, fmt.Errorf("snapshot destination: %w", err)
+	}
+	if err := organizer.syncDirectory(directory); err != nil {
+		_ = guard.cleanup()
+		return nil, fmt.Errorf("sync destination protection: %w", err)
 	}
 	return guard, nil
 }
@@ -512,7 +535,7 @@ func (guard *destinationGuard) restore(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open guard payload: %w", err)
 	}
-	if err := restoreGuardEntry(ctx, payload.file, payload.info, guard.mapping.Source, parent, name); err != nil {
+	if err := copyGuardEntry(ctx, payload.file, payload.info, guard.mapping.Source, parent, name, guard.organizer.copyBufferSize(), guard.organizer.syncDirectory); err != nil {
 		payload.close()
 		return fmt.Errorf("restore destination: %w", err)
 	}
@@ -546,13 +569,26 @@ func (guard *destinationGuard) cleanup() error {
 	return nil
 }
 
-func cloneGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, entry domain.FileManifestEntry, destinationParent *os.File, destinationName string) error {
+func copyGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, entry domain.FileManifestEntry, destinationParent *os.File, destinationName string, bufferSize int, syncFn func(*os.File) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if entry.Type != domain.ManifestDirectory {
-		if err := linkDescriptorNoReplace(source, destinationParent, destinationName); err != nil {
+		destination, err := createFileNoReplace(destinationParent, destinationName, sourceInfo.Mode().Perm())
+		if err != nil {
 			return err
+		}
+		if err := copyGuardFile(ctx, source, sourceInfo, destination, entry, bufferSize); err != nil {
+			_ = destination.Close()
+			return err
+		}
+		if err := destination.Close(); err != nil {
+			return err
+		}
+		if syncFn != nil {
+			if err := syncFn(destinationParent); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -570,41 +606,66 @@ func cloneGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInf
 		if childErr != nil {
 			return childErr
 		}
-		cloneErr := cloneGuardEntry(ctx, childSource.file, childSource.info, child, destination.file, childName)
+		cloneErr := copyGuardEntry(ctx, childSource.file, childSource.info, child, destination.file, childName, bufferSize, syncFn)
 		childSource.close()
 		if cloneErr != nil {
 			return cloneErr
 		}
 	}
+	if syncFn != nil {
+		if err := syncFn(destination.file); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func restoreGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, entry domain.FileManifestEntry, destinationParent *os.File, destinationName string) error {
-	if err := ctx.Err(); err != nil {
-		return err
+func copyGuardFile(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, destination *os.File, entry domain.FileManifestEntry, bufferSize int) error {
+	if bufferSize <= 0 {
+		bufferSize = placement.DefaultBufferSize
 	}
-	if entry.Type != domain.ManifestDirectory {
-		return linkDescriptorNoReplace(source, destinationParent, destinationName)
+	if _, err := source.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind guard source: %w", err)
 	}
-	if err := makeDirectoryNoReplace(destinationParent, destinationName, sourceInfo.Mode().Perm()); err != nil {
-		return err
+	hasher := sha256.New()
+	buffer := make([]byte, bufferSize)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		read, readErr := source.Read(buffer)
+		if read > 0 {
+			if _, err := hasher.Write(buffer[:read]); err != nil {
+				return err
+			}
+			written, err := destination.Write(buffer[:read])
+			if err != nil {
+				return fmt.Errorf("write destination protection: %w", err)
+			}
+			if written != read {
+				return io.ErrShortWrite
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return fmt.Errorf("read destination protection source: %w", readErr)
+		}
 	}
-	destination, err := openChild(destinationParent, destinationName)
+	if err := destination.Sync(); err != nil {
+		return fmt.Errorf("sync destination protection file: %w", err)
+	}
+	after, err := source.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("stat destination protection source: %w", err)
 	}
-	defer destination.close()
-	for _, child := range entry.Children {
-		childName := path.Base(child.RelativePath)
-		childSource, childErr := openChild(source, childName)
-		if childErr != nil {
-			return childErr
-		}
-		restoreErr := restoreGuardEntry(ctx, childSource.file, childSource.info, child, destination.file, childName)
-		childSource.close()
-		if restoreErr != nil {
-			return restoreErr
-		}
+	if !sameObject(sourceInfo, after) || after.Size() != entry.Size {
+		return ErrReconciliationNeeded
+	}
+	actual := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+	if normalizeDigestValue(actual) != normalizeDigestValue(entry.Digest) {
+		return ErrReconciliationNeeded
 	}
 	return nil
 }
@@ -877,6 +938,9 @@ func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, o
 	if guard != nil {
 		if err := guard.verify(ctx); err != nil {
 			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination changed before source removal: %v", ErrReconciliationNeeded, err)}
+		}
+		if organizer.opts.afterDestinationGuardVerification != nil {
+			organizer.opts.afterDestinationGuardVerification()
 		}
 	}
 	current, currentErr := organizer.openEntry(entry)

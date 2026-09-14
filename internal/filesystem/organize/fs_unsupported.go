@@ -32,3 +32,11 @@ func createPrivateDirectory(string, string) (*os.File, error) {
 func makeDirectoryNoReplace(*os.File, string, os.FileMode) error {
 	return fmt.Errorf("%w: descriptor-bound organize directory creation is unavailable on this platform", ErrUnsupported)
 }
+
+func createPrivateDirectoryAt(*os.File, string) (*os.File, error) {
+	return nil, fmt.Errorf("%w: private organize directory is unavailable on this platform", ErrUnsupported)
+}
+
+func createFileNoReplace(*os.File, string, os.FileMode) (*os.File, error) {
+	return nil, fmt.Errorf("%w: descriptor-bound organize file creation is unavailable on this platform", ErrUnsupported)
+}

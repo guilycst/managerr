@@ -49,21 +49,31 @@ func removeEntry(parent *os.File, name string, directory bool) error {
 // quarantine. renameat2 has name-based source semantics, so the source name
 // is never sent directly to the destination. A raced replacement is first
 // quarantined, rejected by identity validation, then restored without replace.
-// Regular files use AT_EMPTY_PATH for descriptor-bound destination linking;
-// directories use the validated private entry with no-replace rename because
-// Linux does not expose a descriptor-bound directory rename primitive.
+// The quarantine payload is kept below a mode-0700 directory, so cleanup is
+// never issued against a media-root pathname that another media process can
+// exchange. Regular files use AT_EMPTY_PATH for descriptor-bound destination
+// linking; directories use the validated private entry with no-replace rename
+// because Linux does not expose a descriptor-bound directory rename primitive.
 func moveOwned(ctx context.Context, operationID string, ordinal int, source *nodeHandle, destinationParent *os.File, destinationName string, mapping ports.FileMap) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	quarantineName := privateEntryName("move", operationID, ordinal, mapping.Source.RelativePath)
-	if existing, err := openChild(source.parent, quarantineName); err == nil {
-		existing.close()
-		return fmt.Errorf("%w: move quarantine already exists", ErrDestinationExists)
-	} else if !isNotExist(err) {
-		return fmt.Errorf("%w: inspect move quarantine: %v", ErrReconciliationNeeded, err)
+	quarantineDirectory, err := createPrivateDirectoryAt(source.parent, quarantineName)
+	if err != nil {
+		return fmt.Errorf("%w: create move quarantine: %v", ErrReconciliationNeeded, err)
 	}
-	if _, err := renameNoReplace(source.parent, source.name, source.parent, quarantineName); err != nil {
+	quarantineDirectoryInfo, infoErr := quarantineDirectory.Stat()
+	if infoErr != nil {
+		_ = quarantineDirectory.Close()
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: inspect move quarantine: %v", ErrReconciliationNeeded, infoErr)}
+	}
+	const quarantinePayload = "payload"
+	if _, err := renameNoReplace(source.parent, source.name, quarantineDirectory, quarantinePayload); err != nil {
+		_ = quarantineDirectory.Close()
+		if cleanupErr := removePrivateDirectory(source.parent, quarantineName, quarantineDirectoryInfo); cleanupErr != nil {
+			return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine move failed: %v; quarantine cleanup: %v", ErrReconciliationNeeded, err, cleanupErr)}
+		}
 		if isNotExist(err) {
 			return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: source disappeared before quarantine", ErrReconciliationNeeded)}
 		}
@@ -76,8 +86,9 @@ func moveOwned(ctx context.Context, operationID string, ordinal int, source *nod
 		return fmt.Errorf("%w: quarantine move source: %v", ErrPublicationUnknown, err)
 	}
 
-	quarantine, err := openChild(source.parent, quarantineName)
+	quarantine, err := openChild(quarantineDirectory, quarantinePayload)
 	if err != nil {
+		_ = quarantineDirectory.Close()
 		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: open quarantined source: %v", ErrReconciliationNeeded, err)}
 	}
 	approved := sameObject(source.info, quarantine.info)
@@ -86,50 +97,60 @@ func moveOwned(ctx context.Context, operationID string, ordinal int, source *nod
 	}
 	if !approved {
 		quarantine.close()
-		return restoreQuarantine(source.parent, quarantineName, source.name, operationID, ordinal, ErrSourceChanged)
+		return restoreQuarantine(source.parent, quarantineDirectory, quarantineName, quarantinePayload, source.name, quarantineDirectoryInfo, operationID, ordinal, ErrSourceChanged)
 	}
 	if err := ctx.Err(); err != nil {
 		quarantine.close()
-		return restoreQuarantine(source.parent, quarantineName, source.name, operationID, ordinal, err)
+		return restoreQuarantine(source.parent, quarantineDirectory, quarantineName, quarantinePayload, source.name, quarantineDirectoryInfo, operationID, ordinal, err)
 	}
 
 	if mapping.Source.Type == domain.ManifestDirectory {
-		published, publishErr := renameNoReplace(source.parent, quarantineName, destinationParent, destinationName)
+		published, publishErr := renameNoReplace(quarantineDirectory, quarantinePayload, destinationParent, destinationName)
 		quarantine.close()
 		if publishErr != nil {
 			if published {
+				_ = quarantineDirectory.Close()
 				return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: directory move returned after publication: %v", ErrPublicationUnknown, publishErr)}
 			}
 			if isExist(publishErr) {
-				return restoreQuarantine(source.parent, quarantineName, source.name, operationID, ordinal, ErrDestinationExists)
+				return restoreQuarantine(source.parent, quarantineDirectory, quarantineName, quarantinePayload, source.name, quarantineDirectoryInfo, operationID, ordinal, ErrDestinationExists)
 			}
+			_ = quarantineDirectory.Close()
 			return fmt.Errorf("%w: move directory quarantine: %v", ErrPublicationUnknown, publishErr)
+		}
+		if closeErr := quarantineDirectory.Close(); closeErr != nil {
+			return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: close move quarantine: %v", ErrPublicationUnknown, closeErr)}
+		}
+		if cleanupErr := removePrivateDirectory(source.parent, quarantineName, quarantineDirectoryInfo); cleanupErr != nil {
+			return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove move quarantine: %v", ErrPublicationUnknown, cleanupErr)}
 		}
 		return nil
 	}
 	if err := linkDescriptorNoReplace(quarantine.file, destinationParent, destinationName); err != nil {
 		quarantine.close()
 		if isExist(err) {
-			return restoreQuarantine(source.parent, quarantineName, source.name, operationID, ordinal, ErrDestinationExists)
+			return restoreQuarantine(source.parent, quarantineDirectory, quarantineName, quarantinePayload, source.name, quarantineDirectoryInfo, operationID, ordinal, ErrDestinationExists)
 		}
 		return fmt.Errorf("%w: descriptor-bound move publication: %v", ErrPublicationUnknown, err)
 	}
 	// Keep the approved descriptor open through publication. Before removing
-	// its quarantine name, ensure that name still refers to that same inode;
-	// if it does not, leave it for reconciliation rather than unlinking a
-	// replacement object.
+	// its private quarantine name, ensure that name still refers to that same
+	// inode. The private directory is mode-0700 and therefore cannot be
+	// exchanged by a process that merely has access to the media root.
 	quarantineInfo := quarantine.info
 	quarantine.close()
-	if current, currentErr := openChild(source.parent, quarantineName); currentErr == nil {
-		owned := sameObject(quarantineInfo, current.info)
-		current.close()
-		if !owned {
-			return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: move quarantine was replaced after publication", ErrReconciliationNeeded)}
-		}
-	} else {
-		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: move quarantine disappeared after publication: %v", ErrReconciliationNeeded, currentErr)}
+	if err := removeOwnedQuarantine(operationID, ordinal, quarantineDirectory, quarantinePayload, quarantineInfo); err != nil {
+		_ = quarantineDirectory.Close()
+		return err
 	}
-	if err := removeEntry(source.parent, quarantineName, false); err != nil {
+	if err := quarantineDirectory.Sync(); err != nil {
+		_ = quarantineDirectory.Close()
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: sync move quarantine: %v", ErrPublicationUnknown, err)}
+	}
+	if err := quarantineDirectory.Close(); err != nil {
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: close move quarantine: %v", ErrPublicationUnknown, err)}
+	}
+	if err := removePrivateDirectory(source.parent, quarantineName, quarantineDirectoryInfo); err != nil {
 		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove move quarantine: %v", ErrPublicationUnknown, err)}
 	}
 	return nil
@@ -144,13 +165,21 @@ func deleteOwnedNode(ctx context.Context, operationID string, ordinal int, paren
 		return nil, err
 	}
 	quarantineName := privateEntryName("delete", operationID, ordinal, entry.RelativePath)
-	if existing, err := openChild(parent, quarantineName); err == nil {
-		existing.close()
-		return nil, fmt.Errorf("%w: delete quarantine already exists", ErrDestinationExists)
-	} else if !isNotExist(err) {
-		return nil, fmt.Errorf("%w: inspect delete quarantine: %v", ErrReconciliationNeeded, err)
+	quarantineDirectory, err := createPrivateDirectoryAt(parent, quarantineName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: create delete quarantine: %v", ErrReconciliationNeeded, err)
 	}
-	if _, err := renameNoReplace(parent, name, parent, quarantineName); err != nil {
+	quarantineDirectoryInfo, infoErr := quarantineDirectory.Stat()
+	if infoErr != nil {
+		_ = quarantineDirectory.Close()
+		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: inspect delete quarantine: %v", ErrReconciliationNeeded, infoErr)}
+	}
+	const quarantinePayload = "payload"
+	if _, err := renameNoReplace(parent, name, quarantineDirectory, quarantinePayload); err != nil {
+		_ = quarantineDirectory.Close()
+		if cleanupErr := removePrivateDirectory(parent, quarantineName, quarantineDirectoryInfo); cleanupErr != nil {
+			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine delete failed: %v; quarantine cleanup: %v", ErrReconciliationNeeded, err, cleanupErr)}
+		}
 		if isNotExist(err) {
 			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: selected source disappeared before quarantine", ErrReconciliationNeeded)}
 		}
@@ -160,19 +189,31 @@ func deleteOwnedNode(ctx context.Context, operationID string, ordinal int, paren
 		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine delete source: %v", ErrDeleteUnknown, err)}
 	}
 
-	quarantine, err := openChild(parent, quarantineName)
+	quarantine, err := openChild(quarantineDirectory, quarantinePayload)
 	if err != nil {
+		_ = quarantineDirectory.Close()
 		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: open quarantined delete target: %v", ErrReconciliationNeeded, err)}
 	}
 	if !sameObjectFromManifest(quarantine.info, entry) || validateManifestNode(quarantine.file, quarantine.info, entry) != nil {
 		quarantine.close()
-		return nil, restoreQuarantine(parent, quarantineName, name, operationID, ordinal, ErrSourceChanged)
+		return nil, restoreQuarantine(parent, quarantineDirectory, quarantineName, quarantinePayload, name, quarantineDirectoryInfo, operationID, ordinal, ErrSourceChanged)
 	}
 	if entry.Type != domain.ManifestDirectory {
 		approvedInfo := quarantine.info
 		quarantine.close()
-		if err := removeOwnedQuarantine(parent, quarantineName, approvedInfo); err != nil {
+		if err := removeOwnedQuarantine(operationID, ordinal, quarantineDirectory, quarantinePayload, approvedInfo); err != nil {
+			_ = quarantineDirectory.Close()
 			return nil, err
+		}
+		if err := quarantineDirectory.Sync(); err != nil {
+			_ = quarantineDirectory.Close()
+			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: sync delete quarantine: %v", ErrPublicationUnknown, err)}
+		}
+		if err := quarantineDirectory.Close(); err != nil {
+			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: close delete quarantine: %v", ErrPublicationUnknown, err)}
+		}
+		if err := removePrivateDirectory(parent, quarantineName, quarantineDirectoryInfo); err != nil {
+			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove delete quarantine: %v", ErrDeleteUnknown, err)}
 		}
 		return []domain.FileManifestEntry{entry}, nil
 	}
@@ -184,24 +225,35 @@ func deleteOwnedNode(ctx context.Context, operationID string, ordinal int, paren
 		deleted = append(deleted, childDeleted...)
 		if childErr != nil {
 			quarantine.close()
-			return deleted, childErr
+			return deleted, restoreQuarantine(parent, quarantineDirectory, quarantineName, quarantinePayload, name, quarantineDirectoryInfo, operationID, ordinal, childErr)
 		}
 		if err := syncDirectory(quarantine.file); err != nil {
 			quarantine.close()
-			return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: child directory sync: %v", ErrPublicationUnknown, err)}
+			return deleted, restoreQuarantine(parent, quarantineDirectory, quarantineName, quarantinePayload, name, quarantineDirectoryInfo, operationID, ordinal, fmt.Errorf("%w: child directory sync: %v", ErrPublicationUnknown, err))
 		}
 	}
 	remaining, err := listDirectoryNames(quarantine.file)
 	approvedInfo := quarantine.info
 	quarantine.close()
 	if err != nil {
-		return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: directory scope read-back failed: %v", ErrReconciliationNeeded, err)}
+		return deleted, restoreQuarantine(parent, quarantineDirectory, quarantineName, quarantinePayload, name, quarantineDirectoryInfo, operationID, ordinal, fmt.Errorf("%w: directory scope read-back failed: %v", ErrReconciliationNeeded, err))
 	}
 	if len(remaining) != 0 {
-		return deleted, fmt.Errorf("%w: directory %q gained an unselected child", ErrSourceChanged, entry.RelativePath)
+		return deleted, restoreQuarantine(parent, quarantineDirectory, quarantineName, quarantinePayload, name, quarantineDirectoryInfo, operationID, ordinal, fmt.Errorf("%w: directory %q gained an unselected child", ErrSourceChanged, entry.RelativePath))
 	}
-	if err := removeOwnedQuarantine(parent, quarantineName, approvedInfo); err != nil {
+	if err := removeOwnedQuarantine(operationID, ordinal, quarantineDirectory, quarantinePayload, approvedInfo); err != nil {
+		_ = quarantineDirectory.Close()
 		return deleted, err
+	}
+	if err := quarantineDirectory.Sync(); err != nil {
+		_ = quarantineDirectory.Close()
+		return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: sync delete quarantine: %v", ErrPublicationUnknown, err)}
+	}
+	if err := quarantineDirectory.Close(); err != nil {
+		return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: close delete quarantine: %v", ErrPublicationUnknown, err)}
+	}
+	if err := removePrivateDirectory(parent, quarantineName, quarantineDirectoryInfo); err != nil {
+		return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove delete quarantine: %v", ErrDeleteUnknown, err)}
 	}
 	return append(deleted, entry), nil
 }
@@ -210,25 +262,56 @@ func sameObjectFromManifest(info fs.FileInfo, entry domain.FileManifestEntry) bo
 	return info != nil && info.Size() == entry.Size && info.Mode().IsRegular() == (entry.Type != domain.ManifestDirectory)
 }
 
-func restoreQuarantine(parent *os.File, quarantineName, sourceName, operationID string, ordinal int, cause error) error {
-	if _, err := renameNoReplace(parent, quarantineName, parent, sourceName); err != nil {
+func restoreQuarantine(parent, quarantineDirectory *os.File, quarantineName, payloadName, sourceName string, quarantineDirectoryInfo fs.FileInfo, operationID string, ordinal int, cause error) error {
+	if _, err := renameNoReplace(quarantineDirectory, payloadName, parent, sourceName); err != nil {
+		_ = quarantineDirectory.Close()
 		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine restore failed: %v (original cause: %v)", ErrReconciliationNeeded, err, cause)}
+	}
+	if err := syncDirectory(parent); err != nil {
+		_ = quarantineDirectory.Close()
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine restore parent sync failed: %v (original cause: %v)", ErrReconciliationNeeded, err, cause)}
+	}
+	if err := quarantineDirectory.Sync(); err != nil {
+		_ = quarantineDirectory.Close()
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine restore sync failed: %v (original cause: %v)", ErrReconciliationNeeded, err, cause)}
+	}
+	if err := quarantineDirectory.Close(); err != nil {
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine restore close failed: %v (original cause: %v)", ErrReconciliationNeeded, err, cause)}
+	}
+	if err := removePrivateDirectory(parent, quarantineName, quarantineDirectoryInfo); err != nil {
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine cleanup failed: %v (original cause: %v)", ErrReconciliationNeeded, err, cause)}
 	}
 	return fmt.Errorf("%w: %v", cause, ErrSourceChanged)
 }
 
-func removeOwnedQuarantine(parent *os.File, name string, approved fs.FileInfo) error {
+func removePrivateDirectory(parent *os.File, name string, approved fs.FileInfo) error {
 	current, err := openChild(parent, name)
 	if err != nil {
-		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: quarantine disappeared before removal: %v", ErrReconciliationNeeded, err)}
+		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: private quarantine disappeared before removal: %v", ErrReconciliationNeeded, err)}
+	}
+	owned := sameObject(approved, current.info) && current.info.IsDir()
+	current.close()
+	if !owned {
+		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: private quarantine was replaced before removal", ErrReconciliationNeeded)}
+	}
+	if err := removeEntry(parent, name, true); err != nil {
+		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: remove private quarantine: %v", ErrDeleteUnknown, err)}
+	}
+	return nil
+}
+
+func removeOwnedQuarantine(operationID string, ordinal int, parent *os.File, name string, approved fs.FileInfo) error {
+	current, err := openChild(parent, name)
+	if err != nil {
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine payload disappeared before removal: %v", ErrReconciliationNeeded, err)}
 	}
 	owned := sameObject(approved, current.info)
 	current.close()
 	if !owned {
-		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: quarantine was replaced before removal", ErrReconciliationNeeded)}
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: quarantine payload was replaced before removal", ErrReconciliationNeeded)}
 	}
 	if err := removeEntry(parent, name, approved.IsDir()); err != nil {
-		return &UncertainError{OperationID: "quarantine", Ordinal: 0, Cause: fmt.Errorf("%w: remove quarantine: %v", ErrDeleteUnknown, err)}
+		return &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove quarantine payload: %v", ErrDeleteUnknown, err)}
 	}
 	return nil
 }
@@ -250,13 +333,7 @@ func createPrivateDirectory(rootPath, name string) (*os.File, error) {
 		return nil, err
 	}
 	defer root.Close()
-	if err := unix.Mkdirat(int(root.Fd()), name, 0o700); err != nil {
-		if errors.Is(err, unix.EEXIST) {
-			return nil, fmt.Errorf("%w: private directory already exists", ErrDestinationExists)
-		}
-		return nil, classifyOrganizeError(err)
-	}
-	directory, err := openDirectoryChild(root, name)
+	directory, err := createPrivateDirectoryAt(root, name)
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +342,47 @@ func createPrivateDirectory(rootPath, name string) (*os.File, error) {
 		return nil, fmt.Errorf("%w: sync private directory parent: %v", ErrPublicationUnknown, err)
 	}
 	return directory, nil
+}
+
+// createPrivateDirectoryAt creates a mode-0700 namespace below a retained
+// directory descriptor. Move/delete quarantines use this instead of placing
+// the payload pathname directly beside user media, so a process that can only
+// access the media root cannot exchange the final cleanup entry.
+func createPrivateDirectoryAt(parent *os.File, name string) (*os.File, error) {
+	if !safeComponent(name) {
+		return nil, ErrPathEscape
+	}
+	if err := unix.Mkdirat(int(parent.Fd()), name, 0o700); err != nil {
+		if errors.Is(err, unix.EEXIST) {
+			return nil, fmt.Errorf("%w: private directory already exists", ErrDestinationExists)
+		}
+		return nil, classifyOrganizeError(err)
+	}
+	directory, err := openDirectoryChild(parent, name)
+	if err != nil {
+		return nil, err
+	}
+	return directory, nil
+}
+
+func createFileNoReplace(parent *os.File, name string, mode os.FileMode) (*os.File, error) {
+	if !safeComponent(name) {
+		return nil, ErrPathEscape
+	}
+	flags := unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	fd, err := unix.Openat(int(parent.Fd()), name, flags, uint32(mode.Perm()))
+	if err != nil {
+		if errors.Is(err, unix.EEXIST) {
+			return nil, fmt.Errorf("%w: file already exists", ErrDestinationExists)
+		}
+		return nil, classifyOrganizeError(err)
+	}
+	file := os.NewFile(uintptr(fd), name)
+	if file == nil {
+		_ = unix.Close(fd)
+		return nil, errors.New("create file: invalid descriptor")
+	}
+	return file, nil
 }
 
 func makeDirectoryNoReplace(parent *os.File, name string, mode os.FileMode) error {

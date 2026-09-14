@@ -431,6 +431,98 @@ func TestCopyVerifyDeletePreservesDirectorySourceWhenDestinationDisappearsAtDele
 	assertMissing(t, destinationPath)
 }
 
+func TestCopyVerifyDeleteRetainsIndependentProtectionAfterDestinationMutation(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
+	writeSynthetic(t, sourcePath, "approved movie")
+	entry := manifestFor(t, downloads, sourceRoot, "movie.mkv", domain.ManifestFile)
+	if sameFilesystem(t, sourcePath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	called := false
+	operationID := "cross-device-destination-mutation"
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{afterDestinationGuardVerification: func() {
+		called = true
+		file, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_TRUNC, 0o640)
+		if err != nil {
+			t.Fatalf("open destination for in-place mutation: %v", err)
+		}
+		if _, err := file.WriteString("rejected movie"); err != nil {
+			_ = file.Close()
+			t.Fatalf("mutate destination: %v", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			t.Fatalf("sync destination mutation: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close destination mutation: %v", err)
+		}
+	}})
+	_, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), operationID, CrossDeviceMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Movies/movie.mkv"},
+	}}})
+	if !called {
+		t.Fatal("destination mutation seam was not called")
+	}
+	if !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("error = %v, want reconciliation required", err)
+	}
+	assertSynthetic(t, destinationPath, "rejected movie")
+	guardPath := filepath.Join(destinationRoot, privateEntryName("copy-guard", operationID, 0, "Movies/movie.mkv"), "payload")
+	assertSynthetic(t, guardPath, "approved movie")
+}
+
+func TestCopyVerifyDeleteRetainsIndependentDirectoryProtectionAfterMutation(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	sourceDir := filepath.Join(sourceRoot, "pack")
+	sourcePath := filepath.Join(sourceDir, "episode.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Shows", "Example", "episode.mkv")
+	mustMkdir(t, sourceDir)
+	writeSynthetic(t, sourcePath, "approved episode")
+	child := manifestFor(t, downloads, sourceRoot, "pack/episode.mkv", domain.ManifestFile)
+	entry := directoryManifest(t, downloads, sourceRoot, "pack", []domain.FileManifestEntry{child})
+	if sameFilesystem(t, sourcePath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	operationID := "cross-device-directory-mutation"
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{afterDestinationGuardVerification: func() {
+		file, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_TRUNC, 0o640)
+		if err != nil {
+			t.Fatalf("open destination episode for in-place mutation: %v", err)
+		}
+		if _, err := file.WriteString("rejected episode"); err != nil {
+			_ = file.Close()
+			t.Fatalf("mutate destination episode: %v", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			t.Fatalf("sync destination episode mutation: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close destination episode mutation: %v", err)
+		}
+	}})
+	_, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), operationID, CrossDeviceMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Shows/Example"},
+	}}})
+	if !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("error = %v, want reconciliation required", err)
+	}
+	assertSynthetic(t, destinationPath, "rejected episode")
+	guardPath := filepath.Join(destinationRoot, privateEntryName("copy-guard", operationID, 0, "Shows/Example"), "payload", "episode.mkv")
+	assertSynthetic(t, guardPath, "approved episode")
+}
+
 func TestCopyVerifyDeleteDirectoryCompletesAndCleansProtection(t *testing.T) {
 	requireOrganizeWrites(t)
 	sourceRoot := canonicalTempDir(t)
@@ -464,6 +556,50 @@ func TestCopyVerifyDeleteDirectoryCompletesAndCleansProtection(t *testing.T) {
 			t.Fatalf("destination protection leaked %q", candidate.Name())
 		}
 	}
+}
+
+func TestCopyVerifyDeleteCleansEarlierGuardsOnLaterFailure(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	firstPath := filepath.Join(sourceRoot, "first.mkv")
+	secondPath := filepath.Join(sourceRoot, "second.mkv")
+	writeSynthetic(t, firstPath, "first approved")
+	writeSynthetic(t, secondPath, "second approved")
+	first := manifestFor(t, downloads, sourceRoot, "first.mkv", domain.ManifestFile)
+	second := manifestFor(t, downloads, sourceRoot, "second.mkv", domain.ManifestFile)
+	if sameFilesystem(t, firstPath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	operationID := "cross-device-guard-retry"
+	secondCollision := filepath.Join(destinationRoot, privateEntryName("copy-guard", operationID, 1, "Movies/second.mkv"))
+	if err := os.Mkdir(secondCollision, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{})
+	request := CrossDeviceMoveRequest{Files: []ports.FileMap{
+		{Source: first, Destination: domain.FileTarget{RootID: library, RelativePath: "Movies/first.mkv"}},
+		{Source: second, Destination: domain.FileTarget{RootID: library, RelativePath: "Movies/second.mkv"}},
+	}}
+	if _, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), operationID, request); !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("first operation error = %v, want reconciliation required", err)
+	}
+	assertSynthetic(t, firstPath, "first approved")
+	assertSynthetic(t, secondPath, "second approved")
+	firstGuard := filepath.Join(destinationRoot, privateEntryName("copy-guard", operationID, 0, "Movies/first.mkv"))
+	assertMissing(t, firstGuard)
+	if err := os.Remove(secondCollision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), operationID, request); err != nil {
+		t.Fatal(err)
+	}
+	assertMissing(t, firstPath)
+	assertMissing(t, secondPath)
+	assertSynthetic(t, filepath.Join(destinationRoot, "Movies", "first.mkv"), "first approved")
+	assertSynthetic(t, filepath.Join(destinationRoot, "Movies", "second.mkv"), "second approved")
 }
 
 func TestNewRejectsConflictingPhysicalRootAliases(t *testing.T) {
