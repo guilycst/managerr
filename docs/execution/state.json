@@ -1225,7 +1225,8 @@
       "integratedSha": null,
       "evidence": [
         "dispatched from 123df00da9c83c67ccab9b3a2b4c51cfbcf55f35 after F-02 approval at 1a44ea97962f40820b042320970dc2f5d1571206 with review integration 90b17d326350a3da4fac31fce3dd9139127e120c",
-        "F-03 owns internal/scanning/ and implements durable per-root scheduling, manual coalescing, bounded concurrency/cancellation, restart progress, and complete/partial/unknown coverage without false absence."
+        "F-03 owns internal/scanning/ and implements durable per-root scheduling, manual coalescing, bounded concurrency/cancellation, restart progress, and complete/partial/unknown coverage without false absence.",
+        "50e5a3a32e2acf975e3c489e4c75839a0d73a87e F-03 product commit for durable scan scheduler and coverage; focused synthetic suite passed."
       ],
       "review": {
         "status": "pending",
@@ -1265,9 +1266,12 @@
           "F-02-review": "637b199c29c7e71d17981fccbcc5a03be9e99b6b",
           "F-02-integration": "90b17d326350a3da4fac31fce3dd9139127e120c"
         },
-        "implementationCommit": null,
+        "implementationCommit": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
         "handoffCommit": null,
-        "reviewSourceCommit": null
+        "reviewSourceCommit": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
+        "productCommits": [
+          "50e5a3a32e2acf975e3c489e4c75839a0d73a87e"
+        ]
       }
     },
     "F-04": {
@@ -2191,7 +2195,8 @@
       "integratedSha": null,
       "evidence": [
         "dispatched from 16ad883172e4ebac45ea6f67309bc111708fa405 after D-01 approval at 8098e2b552737e5e18848d27b665991fddce18bf and C-03 approval at 8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
-        "W-02 owns internal/execution/ and implements durable action claiming, ordered attempt journaling, observe-before-write, uncertainty reconciliation, persisted backoff/deadlines, and cancellation dispatch boundaries without a generic DAG or duplicate outbox."
+        "W-02 owns internal/execution/ and implements durable action claiming, ordered attempt journaling, observe-before-write, uncertainty reconciliation, persisted backoff/deadlines, and cancellation dispatch boundaries without a generic DAG or duplicate outbox.",
+        "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031 W-02 product commit for durable action executor and cancellation; focused synthetic suite passed."
       ],
       "review": {
         "status": "pending",
@@ -2236,9 +2241,12 @@
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "implementationCommit": null,
+        "implementationCommit": "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031",
         "handoffCommit": null,
-        "reviewSourceCommit": null
+        "reviewSourceCommit": "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031",
+        "productCommits": [
+          "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031"
+        ]
       }
     },
     "W-03": {
@@ -3217,7 +3225,7 @@
       ]
     }
   },
-  "nextAction": "F-05 correction is queued for the x05 implementer after W-02 ownership is released; F-03 and W-02 remain active, with F-03 review reserved to d02_reviewer.",
+  "nextAction": "F-03 and W-02 products are complete pending separate handoff receipts; F-05 correction remains queued after W-02 ownership is released.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
