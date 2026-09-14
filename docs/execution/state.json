@@ -713,7 +713,7 @@
       }
     },
     "D-02": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d02_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -724,18 +724,18 @@
         "47b1dfa D-02 handoff commit",
         "D-02 implementer reports focused credential, race, vet, mod verify, generation, architecture, lint, planning, and Linux amd64/arm64 checks passed; full CI-equivalent waits for concurrent X-05 fixture completion",
         "ad6a2bc7d8e6944a5001cbadf39287af746e64cf D-02 independent review round one: changes requested",
-        "D-02 correction required: support projected Secret symlink targets safely and reject symlinked generated key directories without escaping data-dir."
+        "D-02 correction required: support projected Secret symlink targets safely and reject symlinked generated key directories without escaping data-dir.",
+        "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5 D-02 correction round two product",
+        "93420af525440b8ad81df31af1b22f9276d89fb2 D-02 correction round two handoff",
+        "D-02 correction focused tests, race, vet, mod verify, generation, architecture, planning, Linux amd64/arm64 compile passed; shared full checks await X-05 formatting."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/d02_reviewer",
-        "commit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf",
-        "findings": [
-          "P1: explicit key-file paths reject Kubernetes projected Secret symlinks; follow a configured symlink only when the resolved target is a bounded regular file, with directory/FIFO rejection tests.",
-          "P1: generated-key creation follows a symlinked data-dir/keys directory and can create credentials.key outside the configured data directory; reject symlinked/non-directory keys before chmod or publication and prove no external mutation."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "leaseHistory": [
         {
@@ -776,12 +776,13 @@
         "correctionBaseSha": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
         "correctionReviewPath": "docs/execution/handoffs/D-02-review-round1.md",
         "correctionReviewer": "/root/d02_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending"
+        "correctionImplementationCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
+        "correctionHandoffCommit": "93420af525440b8ad81df31af1b22f9276d89fb2",
+        "reviewIntegrationCommit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf"
       },
-      "implementationCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
-      "handoffCommit": "47b1dfa",
-      "reviewSourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
+      "implementationCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
+      "handoffCommit": "93420af525440b8ad81df31af1b22f9276d89fb2",
+      "reviewSourceCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
       "reviewHistory": [
         {
           "round": 1,
@@ -790,7 +791,7 @@
           "status": "changes_requested",
           "sourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
           "receipt": "docs/execution/handoffs/D-02-review-round1.md",
-          "integratedCommit": "ad6a2bc"
+          "integratedCommit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf"
         }
       ]
     },
@@ -1349,7 +1350,7 @@
       ]
     },
     "X-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -1361,19 +1362,18 @@
         "X-05 implementer reports compatibility write probes, race, vet, module matrix, generation, Vacuum, architecture, lint, planning, and guardrail checks passed; G-01 remains explicitly blocked",
         "2fcd872c255757bb61731c298fdf2e9b150b1d20 X-05 independent review round one: changes requested",
         "e08cde9 integrated X-05 review receipt",
-        "X-05 correction required before downstream write adapters: bind fixtures to executable checks or keep protocol-model capabilities blocked; fix Sonarr HTTP read-back; normalize qBittorrent delete route."
+        "X-05 correction required before downstream write adapters: bind fixtures to executable checks or keep protocol-model capabilities blocked; fix Sonarr HTTP read-back; normalize qBittorrent delete route.",
+        "ca85b60f4c4bf9dd4dcf130e5075ef163316d513 X-05 correction round two product",
+        "5587ab87827d848d6de1b36391d54476f1beed3e X-05 correction round two handoff",
+        "X-05 correction binds every fixture to executable probes, uses decoded Sonarr HTTP read-back, normalizes qBittorrent /delete with deleteFiles=false, and explicitly keeps runtime write capabilities blocked; focused/module/guardrail checks passed."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/x05_reviewer",
-        "commit": "2fcd872c255757bb61731c298fdf2e9b150b1d20",
-        "findings": [
-          "P1: local httptest handlers were recorded as disposable upstream evidence; bind every fixture to executable checks or explicitly mark protocol-model evidence and keep the capability blocked.",
-          "P1: partial Sonarr reconciliation used an invalid Radarr-shaped response and handler-local state instead of a supported HTTP read-back; derive per-file outcomes from decoded Sonarr episode evidence.",
-          "P2: qBittorrent research named /torrents/remove while the fixture/test used /torrents/delete; use /delete consistently and assert deleteFiles=false."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "leaseHistory": [
         {
@@ -1422,12 +1422,13 @@
         "correctionBaseSha": "597e793fa37c4707f066380ecc91b19be5bf19ef",
         "correctionReviewPath": "docs/execution/handoffs/X-05-review-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending"
+        "correctionImplementationCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
+        "correctionHandoffCommit": "5587ab87827d848d6de1b36391d54476f1beed3e",
+        "reviewIntegrationCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
       },
-      "implementationCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
-      "handoffCommit": "00fdfcb6e3fc2780b54fe47d724ab0324bae36d9",
-      "reviewSourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
+      "implementationCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
+      "handoffCommit": "5587ab87827d848d6de1b36391d54476f1beed3e",
+      "reviewSourceCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
       "reviewHistory": [
         {
           "round": 1,
@@ -1436,7 +1437,7 @@
           "status": "changes_requested",
           "sourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
           "receipt": "docs/execution/handoffs/X-05-review-round1.md",
-          "integratedCommit": "e08cde9"
+          "integratedCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
         }
       ]
     },
@@ -2343,7 +2344,7 @@
       ]
     }
   },
-  "nextAction": "D-02 correction round two and X-05 correction round two are assigned; reviewers recheck after exact product and handoff receipts.",
+  "nextAction": "D-02 correction round two and X-05 correction round two are in independent review; await exact receipts before integration.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
