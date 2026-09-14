@@ -1483,20 +1483,21 @@
         "e4d289f079a475a2b9fef1d84ee6946bd0b02c76 F-05 correction round two handoff records final product tree, focused/race/vet/root/module/cross-build and guardrail checks.",
         "F-05 correction review dispatch is recorded against final product tree 58ffe6ae5bb50f7693164a28a3749d8c21e65411 and handoff e4d289f079a475a2b9fef1d84ee6946bd0b02c76.",
         "F-05 review rerouted from /root/d02_reviewer to /root/x05_reviewer after two pre-receipt platform-filter errors; no product files changed.",
-        "F-05 correction review dispatch to /root/x05_reviewer is recorded against source 58ffe6ae5bb50f7693164a28a3749d8c21e65411."
+        "F-05 correction review dispatch to /root/x05_reviewer is recorded against source 58ffe6ae5bb50f7693164a28a3749d8c21e65411.",
+        "ae52758ef328bbd3f8fa6ab8acf84243b9115835 F-05 correction round two independent review requested changes against source 58ffe6ae5bb50f7693164a28a3749d8c21e65411.",
+        "Round-two review closed equal/nested/symlink root alias checks but found P1 validate-close-unlink races for delete and move cleanup, P1 cross-device hardlink witness mutation before source deletion, and P2 guard-construction cleanup leak. Correction round three is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
+        "commit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
         "findings": [
-          "P1: pathname-bound Linux move/delete can act on replacement objects after identity validation",
-          "P1: cross-device copy/verify/delete can lose both copies at the delete boundary",
-          "P2: conflicting physical root aliases with different mutability are accepted",
-          "P2: handoff review source names superseded product SHA"
+          "P1: validation handle closes before pathname unlink, allowing replacement deletion during Linux delete and move cleanup",
+          "P1: hardlink destination witness mutates with destination before source deletion, allowing corrupt-only result",
+          "P2: later guard-construction failure leaks earlier guard and blocks same-operation retry"
         ],
-        "round": 1
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1536,25 +1537,22 @@
           "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
           "174ff5db3ff393af02b10db24e7a9ef70b76a56f"
         ],
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
-        "correctionImplementationCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
-        "correctionHandoffCommit": "e4d289f079a475a2b9fef1d84ee6946bd0b02c76",
-        "reviewCommit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
-        "correctionReviewPath": "docs/execution/handoffs/F-05-review-round2.md",
+        "correctionBaseSha": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "reviewCommit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
+        "correctionReviewPath": "docs/execution/handoffs/F-05-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": "6094d583312ac7f8796d0e4dd539490c8196d227",
-        "correctionProductCommits": [
-          "f202aacafd24320cd45335064f97409d72b4c3ab",
-          "58ffe6ae5bb50f7693164a28a3749d8c21e65411"
-        ],
-        "correctionStatus": "review_dispatched",
-        "correctionReviewSourceCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
+        "correctionDispatchCommit": null,
+        "correctionProductCommits": [],
+        "correctionStatus": "queued",
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "errored",
@@ -1572,6 +1570,14 @@
           "status": "changes_requested",
           "sourceCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
           "receipt": "docs/execution/handoffs/F-05-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
+          "status": "changes_requested",
+          "sourceCommit": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
+          "receipt": "docs/execution/handoffs/F-05-review-round2.md"
         }
       ]
     },
@@ -3327,7 +3333,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction round two is active under /root/d02_implementer; F-05 correction review is dispatched to /root/x05_reviewer against 58ffe6ae; W-02 correction remains queued.",
+  "nextAction": "F-03 correction round two remains active under /root/d02_implementer; F-05 correction round three is queued to /root/x05_implementer for destructive-race, witness-integrity, and guard-cleanup fixes; W-02 correction remains queued.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
