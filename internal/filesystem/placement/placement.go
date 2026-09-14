@@ -1213,7 +1213,7 @@ func (p *Placer) ensureDestinationDirectory(target domain.FileTarget) ([]created
 		return makeCreatedDirectories(target.RootID, created), err
 	}
 	if err := p.syncDirectoryPath(root.Path, target.RelativePath); err != nil {
-		return makeCreatedDirectories(target.RootID, created), err
+		return makeCreatedDirectories(target.RootID, created), fmt.Errorf("%w: sync destination directory %q: %w", ErrPublicationUnknown, target.RelativePath, err)
 	}
 	return makeCreatedDirectories(target.RootID, created), nil
 }
