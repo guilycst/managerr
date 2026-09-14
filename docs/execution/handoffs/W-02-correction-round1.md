@@ -6,7 +6,7 @@
 - Owner: `/root/x05_implementer`; independent reviewer: `/root/x05_reviewer`.
 - Base product: `a4b152e20f8f82d53ba6d3c901737804357cc807`.
 - Prior review receipt: `e65de463ef8258aac5bf02a2a97e7a5e3a36ac34`.
-- Product checkpoint: `8a5574ddb0154b50812dca2ad632acd343e803a6`.
+- Product checkpoint: `f56908a19b775dc5218d485a61ffcf0faebb5ace`.
 - Shared checkout: `main`; coordinator owns `docs/execution/state.json` and
   integration. This lane changed only `internal/execution/` and this handoff.
 
@@ -24,7 +24,11 @@ Reservation keys are canonicalized, include parent/descendant path overlap,
 and are persisted in the action outcome while the action is running,
 reconciling, or awaiting review. SQL and memory journals inspect those keys
 atomically across workers and process restart. Terminal success, safe retry,
-dependency wait, and explicit terminal cancellation clear them.
+dependency wait, and explicit terminal cancellation clear them. A worker that
+loses its lease releases only its process-local reservation map; durable
+reservation metadata remains authoritative until the recovered action is
+reconciled, so a stale process cannot strand a later action after another
+worker resolves the original one.
 
 Effect evidence is identity-bound by target kind, target ID, effect kind, and
 ordinal. Duplicate identities, changed identities, extra targets, and omitted
@@ -50,9 +54,9 @@ call.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| `GOWORK=off go test ./internal/execution -count=1 -timeout=90s` | Passed | Product checkpoint `8a5574d`; synthetic memory and SQLite fixtures |
+| `GOWORK=off go test ./internal/execution -count=1 -timeout=90s` | Passed | Product checkpoint `f56908a`; synthetic memory and SQLite fixtures |
 | `GOWORK=off go test ./internal/execution -race -count=1 -timeout=120s` | Passed | Concurrent cancellation, reservations, and SQL stale-worker fixture |
-| `GOWORK=off go vet ./internal/execution` | Passed | Product checkpoint `8a5574d` |
+| `GOWORK=off go vet ./internal/execution` | Passed | Product checkpoint `f56908a` |
 | SQL stale lease recovery | Passed | `TestSQLStaleWorkerCannotFinalizeRecoveredLease` |
 | SQL partial read-back and reconciliation identity | Passed | `TestSQLReadBackRejectsPartialEffectSet`, `TestSQLReconciliationRejectsChangedEffectIdentity` |
 | durable cancellation context | Passed | `TestDurableCancelCancelsInFlightHandler` |
@@ -73,7 +77,7 @@ write. The downstream workflow and approval transaction lanes remain separate.
 ## Resume
 
 - Independent review should use product checkpoint
-  `8a5574ddb0154b50812dca2ad632acd343e803a6` and this handoff commit.
+  `f56908a19b775dc5218d485a61ffcf0faebb5ace` and this handoff commit.
 - Coordinator records both exact SHAs in `docs/execution/state.json`.
 - Do not integrate claimed workflow handlers until the independent review
   confirms stale-generation fencing, reservation persistence, strict effect
