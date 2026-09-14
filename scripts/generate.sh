@@ -186,10 +186,18 @@ generate_oapi \
   "$repo_dir/ui/internal/api/generated/client.gen.go" \
   "$repo_dir/api/openapi.yaml"
 
+# The standalone qBittorrent module keeps raw generated transport under its
+# module-internal package. Keep a short fallback while that migration lands so
+# an older checkout can still regenerate its published path.
+qbittorrent_generated_output="$repo_dir/clients/qbittorrent/generated/client.gen.go"
+if [ -f "$repo_dir/clients/qbittorrent/internal/generated/client.gen.go" ]; then
+  qbittorrent_generated_output="$repo_dir/clients/qbittorrent/internal/generated/client.gen.go"
+fi
+
 generate_oapi \
   "$tmp_dir/qbittorrent-oapi-codegen.yaml" \
   "$repo_dir/clients/qbittorrent/oapi-codegen.yaml" \
-  "$repo_dir/clients/qbittorrent/generated/client.gen.go" \
+  "$qbittorrent_generated_output" \
   "$repo_dir/clients/qbittorrent/openapi.yaml"
 
 generate_nzbget() {
