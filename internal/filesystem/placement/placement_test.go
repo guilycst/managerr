@@ -1,6 +1,7 @@
 package placement
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,6 +34,7 @@ func (journal *recordingJournal) Append(_ context.Context, effect FileEffect) er
 }
 
 func TestCopyPublishesExactDigestAndRecordsEachFile(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -90,6 +92,7 @@ func TestCopyPublishesExactDigestAndRecordsEachFile(t *testing.T) {
 }
 
 func TestCopyRejectsChangedSourceBeforeAnyPublication(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -115,6 +118,7 @@ func TestCopyRejectsChangedSourceBeforeAnyPublication(t *testing.T) {
 }
 
 func TestCopyChecksAllDestinationCollisionsBeforePublication(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -149,6 +153,7 @@ func TestCopyChecksAllDestinationCollisionsBeforePublication(t *testing.T) {
 }
 
 func TestCopyUsesExclusiveStagingWithoutOverwritingExistingStage(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -178,6 +183,7 @@ func TestCopyUsesExclusiveStagingWithoutOverwritingExistingStage(t *testing.T) {
 }
 
 func TestCopyDirectoryUsesOnlyExactManifestChildren(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -218,6 +224,7 @@ func TestCopyDirectoryUsesOnlyExactManifestChildren(t *testing.T) {
 }
 
 func TestCopyRechecksDirectoryChildrenAfterPublication(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -255,6 +262,7 @@ func TestCopyRechecksDirectoryChildrenAfterPublication(t *testing.T) {
 }
 
 func TestHardlinkProvesObjectIdentityAndNeverCopies(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -309,7 +317,253 @@ func TestHardlinkProvesObjectIdentityAndNeverCopies(t *testing.T) {
 	}
 }
 
+func TestReconcileHardlinkRequiresApprovedSourceIdentity(t *testing.T) {
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+	if err := os.WriteFile(sourcePath, []byte("approved bytes"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{})
+	request := ports.FilesystemHardlinkRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Series/episode.mkv"},
+	}}}
+	if err := os.MkdirAll(filepath.Join(destinationRoot, "Series"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(sourcePath, filepath.Join(destinationRoot, "Series", "episode.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	valid, err := placer.ReconcileHardlink(context.Background(), "approved-hardlink", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valid.Outcome != domain.OutcomeAlreadySatisfied || len(valid.Affected) != 1 {
+		t.Fatalf("valid hardlink reconciliation = %#v", valid)
+	}
+
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("replaced bytes"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(destinationRoot, "Series", "episode.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(sourcePath, filepath.Join(destinationRoot, "Series", "episode.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := placer.ReconcileHardlink(context.Background(), "replacement-hardlink", request)
+	if !errors.Is(err, ErrSourceChanged) || !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("replacement source reconciliation = effect %#v error %v, want unresolved source change", replacement, err)
+	}
+	if len(replacement.Affected) != 0 {
+		t.Fatalf("replacement source was accepted = %#v", replacement)
+	}
+}
+
+func TestCopyCleanupPreservesReplacementStage(t *testing.T) {
+	requirePlacementWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "large.mkv")
+	content := bytes.Repeat([]byte("x"), 8<<20)
+	if err := os.WriteFile(sourcePath, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "large.mkv", domain.ManifestFile)
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{BufferSize: 1})
+	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/large.mkv"},
+	}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		effect ports.FilesystemEffect
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		effect, err := placer.CopyWithOperation(ctx, "cleanup-race", request)
+		done <- result{effect: effect, err: err}
+	}()
+	stagePath := filepath.Join(destinationRoot, "Movies", stageName(DefaultStagePrefix, "cleanup-race", 0))
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for {
+		if _, err := os.Stat(stagePath); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("timed out waiting for staging path")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err := os.Remove(stagePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagePath, []byte("another actor"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case outcome := <-done:
+		if !errors.Is(outcome.err, context.Canceled) {
+			t.Fatalf("copy after stage substitution = effect %#v error %v, want cancellation", outcome.effect, outcome.err)
+		}
+	case <-deadline.C:
+		t.Fatal("timed out waiting for canceled copy")
+	}
+	assertFileBytes(t, stagePath, "another actor")
+	if _, err := os.Stat(filepath.Join(destinationRoot, "Movies", "large.mkv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination after stage substitution = %v, want absent", err)
+	}
+}
+
+func TestCopyPreservesStageReplacementBetweenCheckAndCleanup(t *testing.T) {
+	requirePlacementWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
+	if err := os.WriteFile(sourcePath, []byte("movie"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "movie.mkv", domain.ManifestFile)
+	stagePath := filepath.Join(destinationRoot, "Movies", stageName(DefaultStagePrefix, "check-cleanup-race", 0))
+	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+		beforeStagePublication: func(*os.File, string) {
+			if err := os.Remove(stagePath); err != nil {
+				t.Fatalf("replace stage: remove original: %v", err)
+			}
+			if err := os.WriteFile(stagePath, []byte("another actor"), 0o600); err != nil {
+				t.Fatalf("replace stage: create replacement: %v", err)
+			}
+			if err := os.WriteFile(destinationPath, []byte("existing destination"), 0o640); err != nil {
+				t.Fatalf("create destination collision: %v", err)
+			}
+		},
+	})
+	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/movie.mkv"},
+	}}}
+	if _, err := placer.CopyWithOperation(context.Background(), "check-cleanup-race", request); !errors.Is(err, ErrStageChanged) {
+		t.Fatalf("stage replacement after ownership check = %v, want stage changed", err)
+	}
+	assertFileBytes(t, stagePath, "another actor")
+	assertFileBytes(t, destinationPath, "existing destination")
+}
+
+func TestCopyAndHardlinkSyncCreatedDirectoryParents(t *testing.T) {
+	requirePlacementWrites(t)
+	t.Run("copy nested", func(t *testing.T) {
+		sourceRoot := canonicalTempDir(t)
+		destinationRoot := canonicalTempDir(t)
+		rootID := mustConfigID(t, "downloads")
+		libraryID := mustConfigID(t, "library")
+		sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+		if err := os.WriteFile(sourcePath, []byte("copy"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+		var synced []string
+		placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+			SyncDirectory: func(directory *os.File) error {
+				synced = append(synced, directory.Name())
+				return nil
+			},
+		})
+		request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+			Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/Season/episode.mkv"},
+		}}}
+		if _, err := placer.CopyWithOperation(context.Background(), "copy-sync", request); err != nil {
+			t.Fatal(err)
+		}
+		if len(synced) != 3 || synced[1] != "Movies" || synced[2] != "Season" {
+			t.Fatalf("directory sync order = %#v, want containing root, Movies, Season", synced)
+		}
+	})
+
+	t.Run("hardlink nested", func(t *testing.T) {
+		sourceRoot := canonicalTempDir(t)
+		destinationRoot := canonicalTempDir(t)
+		rootID := mustConfigID(t, "downloads")
+		libraryID := mustConfigID(t, "library")
+		sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+		if err := os.WriteFile(sourcePath, []byte("hardlink"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+		var synced []string
+		placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+			SyncDirectory: func(directory *os.File) error {
+				synced = append(synced, directory.Name())
+				return nil
+			},
+		})
+		request := ports.FilesystemHardlinkRequest{Files: []ports.FileMap{{
+			Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Series/Season/episode.mkv"},
+		}}}
+		if _, err := placer.HardlinkWithOperation(context.Background(), "hardlink-sync", request); err != nil {
+			t.Fatal(err)
+		}
+		if len(synced) != 3 || synced[1] != "Series" || synced[2] != "Season" {
+			t.Fatalf("directory sync order = %#v, want containing root, Series, Season", synced)
+		}
+	})
+}
+
+func TestCopyDirectorySyncFailureIsUncertainBeforeFilePublication(t *testing.T) {
+	requirePlacementWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+	if err := os.WriteFile(sourcePath, []byte("sync failure"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+	syncFailure := errors.New("synthetic parent sync failure")
+	var calls int
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+		SyncDirectory: func(*os.File) error {
+			calls++
+			if calls == 2 {
+				return syncFailure
+			}
+			return nil
+		},
+	})
+	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/Season/episode.mkv"},
+	}}}
+	effect, err := placer.CopyWithOperation(context.Background(), "sync-failure", request)
+	if !errors.Is(err, syncFailure) || !errors.Is(err, ErrPublicationUnknown) {
+		t.Fatalf("sync failure = effect %#v error %v, want uncertain parent sync", effect, err)
+	}
+	if calls != 2 {
+		t.Fatalf("sync calls = %d, want failure on second containing-parent sync", calls)
+	}
+	if _, err := os.Stat(filepath.Join(destinationRoot, "Movies", "Season", "episode.mkv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination after sync failure = %v, want absent", err)
+	}
+}
+
 func TestJournalFailureLeavesPublishedCopyForReadOnlyReconciliation(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	rootID := mustConfigID(t, "downloads")
@@ -346,6 +600,7 @@ func TestJournalFailureLeavesPublishedCopyForReadOnlyReconciliation(t *testing.T
 }
 
 func TestPlacementRejectsTraversalSymlinkAndCancellation(t *testing.T) {
+	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
 	outside := canonicalTempDir(t)
@@ -391,6 +646,13 @@ func mustPlacer(t *testing.T, roots []Root, options Options) *Placer {
 		t.Fatal(err)
 	}
 	return placer
+}
+
+func requirePlacementWrites(t *testing.T) {
+	t.Helper()
+	if !placementWritesSupported {
+		t.Skip("descriptor-bound placement writes are unavailable on this platform")
+	}
 }
 
 func canonicalTempDir(t *testing.T) string {

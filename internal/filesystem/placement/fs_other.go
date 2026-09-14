@@ -72,12 +72,12 @@ func openExistingParent(rootPath, relative string) (*os.File, string, error) {
 	return parent, path.Base(relative), nil
 }
 
-func ensureDirectoryPath(rootPath, relative string) (*os.File, error) {
-	directory, _, err := ensureDirectoryPathWithCreated(rootPath, relative)
+func ensureDirectoryPath(rootPath, relative string, syncFn func(*os.File) error) (*os.File, error) {
+	directory, _, err := ensureDirectoryPathWithCreated(rootPath, relative, syncFn)
 	return directory, err
 }
 
-func ensureDirectoryPathWithCreated(rootPath, relative string) (*os.File, []string, error) {
+func ensureDirectoryPathWithCreated(rootPath, relative string, syncFn func(*os.File) error) (*os.File, []string, error) {
 	if err := checkNoSymlinkComponents(rootPath); err != nil {
 		return nil, nil, err
 	}
@@ -93,6 +93,7 @@ func ensureDirectoryPathWithCreated(rootPath, relative string) (*os.File, []stri
 		} else {
 			prefix = path.Join(prefix, component)
 		}
+		parentPath := current
 		current = filepath.Join(current, filepath.FromSlash(component))
 		if err := checkNoSymlinkComponents(current); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, created, err
@@ -109,6 +110,20 @@ func ensureDirectoryPathWithCreated(rootPath, relative string) (*os.File, []stri
 			}
 			if createdHere {
 				created = append(created, prefix)
+				if syncFn != nil {
+					parent, err := os.Open(parentPath)
+					if err != nil {
+						return nil, created, fmt.Errorf("%w: open containing directory before creating %q: %w", ErrPublicationUnknown, prefix, err)
+					}
+					syncErr := syncFn(parent)
+					closeErr := parent.Close()
+					if syncErr != nil {
+						return nil, created, fmt.Errorf("%w: sync containing directory before creating %q: %w", ErrPublicationUnknown, prefix, syncErr)
+					}
+					if closeErr != nil {
+						return nil, created, fmt.Errorf("%w: close containing directory after creating %q: %w", ErrPublicationUnknown, prefix, closeErr)
+					}
+				}
 			}
 			info, statErr = os.Lstat(current)
 		}
@@ -181,16 +196,30 @@ func createExclusiveChild(parent *os.File, name string) (*os.File, error) {
 	return file, nil
 }
 
-func publishNoReplace(parent *os.File, stageName, destinationName string) (bool, error) {
+func publishNoReplace(stage, parent *os.File, stageName, destinationName string) (bool, error) {
+	// Writes are disabled on this target, but retain the descriptor-bound
+	// staging contract for any future target-specific implementation.
 	stage := filepath.Join(parent.Name(), filepath.FromSlash(stageName))
 	destination := filepath.Join(parent.Name(), filepath.FromSlash(destinationName))
 	if err := os.Link(stage, destination); err != nil {
 		return false, classifyPlacementError(err)
 	}
-	if err := os.Remove(stage); err != nil {
-		return true, classifyPlacementError(err)
-	}
 	return true, nil
+}
+
+func verifyOwnedChild(parent *os.File, name string, expected fs.FileInfo) error {
+	if expected == nil {
+		return fmt.Errorf("%w: missing staging identity", ErrStageChanged)
+	}
+	actual, info, err := openExistingChild(parent, name)
+	if err != nil {
+		return fmt.Errorf("%w: staging path %q is unavailable: %v", ErrStageChanged, name, err)
+	}
+	actual.Close()
+	if !sameObject(expected, info) {
+		return fmt.Errorf("%w: staging path %q names another object", ErrStageChanged, name)
+	}
+	return nil
 }
 
 func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *os.File, destinationName string) (bool, error) {
@@ -200,10 +229,6 @@ func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *
 		return false, classifyPlacementError(err)
 	}
 	return true, nil
-}
-
-func removeChild(parent *os.File, name string) error {
-	return classifyPlacementError(os.Remove(filepath.Join(parent.Name(), filepath.FromSlash(name))))
 }
 
 func removeEmptyDirectory(rootPath, relative string) error {

@@ -48,6 +48,7 @@ var (
 	ErrSourceChanged        = errors.New("filesystem source changed after approval")
 	ErrDestinationConflict  = errors.New("filesystem destination conflicts with approved content")
 	ErrDestinationExists    = errors.New("filesystem destination appeared during publication")
+	ErrStageChanged         = errors.New("filesystem staging object changed before cleanup")
 	ErrReconciliationNeeded = errors.New("filesystem effect requires read-only reconciliation")
 	ErrPublicationUnknown   = errors.New("filesystem publication durability is unknown")
 	ErrJournalUnknown       = errors.New("filesystem effect journal durability is unknown")
@@ -76,10 +77,15 @@ type Root struct {
 // Options bounds one placer. A journal is optional so the filesystem adapter
 // remains independent from storage and can be tested with a small fake.
 type Options struct {
-	BufferSize  int
-	StagePrefix string
-	Journal     EffectJournal
-	Clock       func() time.Time
+	BufferSize    int
+	StagePrefix   string
+	Journal       EffectJournal
+	Clock         func() time.Time
+	SyncDirectory func(*os.File) error
+
+	// beforeStagePublication is a package-private fault-injection seam used by
+	// synthetic race tests. Production callers cannot install a callback.
+	beforeStagePublication func(*os.File, string)
 }
 
 // FileEffect is the optional durable-journal projection. It keeps the exact
@@ -628,13 +634,20 @@ func (p *Placer) copyOne(ctx context.Context, operationID string, ordinal int, p
 	if err != nil {
 		return fileResult{}, fmt.Errorf("create exclusive staging file: %w", err)
 	}
+	stageInfo, err := stage.Stat()
+	if err != nil {
+		_ = stage.Close()
+		return fileResult{}, fmt.Errorf("inspect exclusive staging file: %w", err)
+	}
 	stageClosed := false
 	cleanupStage := func() {
 		if !stageClosed {
 			_ = stage.Close()
 			stageClosed = true
 		}
-		_ = removeChild(parent, stageName)
+		// A stage pathname may have been replaced after creation. There is no
+		// portable inode-conditional unlink primitive, so leave the stage for
+		// the durable janitor rather than unlinking a mutable pathname here.
 	}
 
 	digest, copyErr := copyAndDigest(ctx, source.file, source.info, stage, plan.source, p.opts.BufferSize)
@@ -646,29 +659,30 @@ func (p *Placer) copyOne(ctx context.Context, operationID string, ordinal int, p
 		cleanupStage()
 		return fileResult{}, fmt.Errorf("sync staging file: %w", err)
 	}
-	if err := stage.Close(); err != nil {
-		stageClosed = true
-		_ = removeChild(parent, stageName)
-		return fileResult{}, fmt.Errorf("close staging file: %w", err)
-	}
-	stageClosed = true
 	if err := p.verifySourcePath(plan.source, source.info); err != nil {
-		_ = removeChild(parent, stageName)
+		cleanupStage()
 		return fileResult{}, err
 	}
 	if err := compareDigest(digest, plan.source.Digest); err != nil {
-		_ = removeChild(parent, stageName)
+		cleanupStage()
 		return fileResult{}, fmt.Errorf("%w: source file %q content differs", ErrSourceChanged, plan.source.RelativePath)
 	}
 	if err := ctx.Err(); err != nil {
-		_ = removeChild(parent, stageName)
+		cleanupStage()
 		return fileResult{}, err
 	}
+	if err := verifyOwnedChild(parent, stageName, stageInfo); err != nil {
+		cleanupStage()
+		return fileResult{}, err
+	}
+	if p.opts.beforeStagePublication != nil {
+		p.opts.beforeStagePublication(parent, stageName)
+	}
 
-	published, publishErr := publishNoReplace(parent, stageName, name)
+	published, publishErr := publishNoReplace(stage, parent, stageName, name)
 	if publishErr != nil {
 		if !published {
-			_ = removeChild(parent, stageName)
+			cleanupStage()
 			if isExist(publishErr) {
 				if existing, info, inspectErr := openExistingChild(parent, name); inspectErr == nil {
 					defer existing.Close()
@@ -687,7 +701,12 @@ func (p *Placer) copyOne(ctx context.Context, operationID string, ordinal int, p
 		// failure leaves a visible final object. Preserve it and reconcile.
 		return fileResult{publication: true}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: %v", ErrPublicationUnknown, publishErr)}
 	}
-	if err := syncDirectory(parent); err != nil {
+	if err := stage.Close(); err != nil {
+		stageClosed = true
+		return fileResult{publication: true}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: close staging file after publication: %v", ErrPublicationUnknown, err)}
+	}
+	stageClosed = true
+	if err := p.syncDirectory(parent); err != nil {
 		return fileResult{publication: true}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination directory sync failed: %v", ErrPublicationUnknown, err)}
 	}
 	if err := p.verifyPublishedCopy(plan, parent, name, context.WithoutCancel(ctx)); err != nil {
@@ -759,7 +778,7 @@ func (p *Placer) hardlinkOne(ctx context.Context, operationID string, ordinal in
 		}
 		return fileResult{publication: true}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: %v", ErrPublicationUnknown, publishErr)}
 	}
-	if err := syncDirectory(parent); err != nil {
+	if err := p.syncDirectory(parent); err != nil {
 		return fileResult{publication: true}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination directory sync failed: %v", ErrPublicationUnknown, err)}
 	}
 	verified, info, verifyErr := openExistingChild(parent, name)
@@ -930,6 +949,14 @@ func (p *Placer) reconcilePlans(ctx context.Context, operationID string, mode Tr
 			if sourceErr != nil {
 				return effect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: source read-back failed: %v", ErrReconciliationNeeded, sourceErr)}
 			}
+			if sourceErr := validateSourceManifest(plan.source, source.info); sourceErr != nil {
+				source.close()
+				return effect, &UncertainError{
+					OperationID: operationID,
+					Ordinal:     ordinal,
+					Cause:       fmt.Errorf("%w: %w", ErrReconciliationNeeded, sourceErr),
+				}
+			}
 		}
 		parent, name, parentErr := p.openExistingDestinationParent(plan.destination)
 		if parentErr != nil {
@@ -1030,7 +1057,7 @@ func (p *Placer) openDestinationParentWith(target domain.FileTarget, create bool
 	}
 	var parent *os.File
 	if create {
-		parent, err = ensureDirectoryPath(root.Path, parentRelative)
+		parent, err = ensureDirectoryPath(root.Path, parentRelative, p.syncDirectory)
 	} else {
 		parent, err = openExistingDirectory(root.Path, parentRelative)
 	}
@@ -1178,17 +1205,33 @@ func (p *Placer) ensureDestinationDirectory(target domain.FileTarget) ([]created
 	if err != nil {
 		return nil, err
 	}
-	directory, created, err := ensureDirectoryPathWithCreated(root.Path, target.RelativePath)
+	directory, created, err := ensureDirectoryPathWithCreated(root.Path, target.RelativePath, p.syncDirectory)
 	if directory != nil {
 		directory.Close()
 	}
 	if err != nil {
 		return makeCreatedDirectories(target.RootID, created), err
 	}
-	if err := syncDirectoryPath(root.Path, target.RelativePath); err != nil {
+	if err := p.syncDirectoryPath(root.Path, target.RelativePath); err != nil {
 		return makeCreatedDirectories(target.RootID, created), err
 	}
 	return makeCreatedDirectories(target.RootID, created), nil
+}
+
+func (p *Placer) syncDirectory(directory *os.File) error {
+	if p.opts.SyncDirectory != nil {
+		return p.opts.SyncDirectory(directory)
+	}
+	return syncDirectory(directory)
+}
+
+func (p *Placer) syncDirectoryPath(rootPath, relative string) error {
+	directory, err := openExistingDirectory(rootPath, relative)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return p.syncDirectory(directory)
 }
 
 func makeCreatedDirectories(rootID domain.ConfigID, paths []string) []createdDirectory {
@@ -1298,6 +1341,16 @@ func normalizeDigest(value string) string {
 
 func fileChanged(before, after fs.FileInfo) bool {
 	return fileIdentity(before) != fileIdentity(after) || before.Mode() != after.Mode() || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime())
+}
+
+func validateSourceManifest(entry domain.FileManifestEntry, info fs.FileInfo) error {
+	if info.IsDir() || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: source %q is not a regular file", ErrSourceChanged, entry.RelativePath)
+	}
+	if fileIdentity(info) != entry.FileIdentity || info.Size() != entry.Size {
+		return fmt.Errorf("%w: source %q identity, size or mode differs", ErrSourceChanged, entry.RelativePath)
+	}
+	return nil
 }
 
 func relativeParts(relative string) []string {

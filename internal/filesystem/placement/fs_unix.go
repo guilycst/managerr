@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	placementOpenReadOnly    = unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK
-	placementWritesSupported = true
+	placementOpenReadOnly = unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK
 )
 
 func openExistingTargetWithParent(rootPath, relative string) (*os.File, *os.File, string, fs.FileInfo, error) {
@@ -65,12 +64,12 @@ func openExistingParent(rootPath, relative string) (*os.File, string, error) {
 	return parent, path.Base(relative), nil
 }
 
-func ensureDirectoryPath(rootPath, relative string) (*os.File, error) {
-	directory, _, err := ensureDirectoryPathWithCreated(rootPath, relative)
+func ensureDirectoryPath(rootPath, relative string, syncFn func(*os.File) error) (*os.File, error) {
+	directory, _, err := ensureDirectoryPathWithCreated(rootPath, relative, syncFn)
 	return directory, err
 }
 
-func ensureDirectoryPathWithCreated(rootPath, relative string) (*os.File, []string, error) {
+func ensureDirectoryPathWithCreated(rootPath, relative string, syncFn func(*os.File) error) (*os.File, []string, error) {
 	root, err := openRootDirectory(rootPath)
 	if err != nil {
 		return nil, nil, err
@@ -102,6 +101,12 @@ func ensureDirectoryPathWithCreated(rootPath, relative string) (*os.File, []stri
 			}
 			if createdHere {
 				created = append(created, prefix)
+				if syncFn != nil {
+					if err := syncFn(current); err != nil {
+						current.Close()
+						return nil, created, fmt.Errorf("%w: sync containing directory before creating %q: %w", ErrPublicationUnknown, prefix, err)
+					}
+				}
 			}
 		} else if statErr != nil {
 			current.Close()
@@ -244,14 +249,29 @@ func createExclusiveChild(parent *os.File, name string) (*os.File, error) {
 	return file, nil
 }
 
-func publishNoReplace(parent *os.File, stageName, destinationName string) (bool, error) {
-	if err := unix.Linkat(int(parent.Fd()), stageName, int(parent.Fd()), destinationName, 0); err != nil {
+func publishNoReplace(stage, parent *os.File, stageName, destinationName string) (bool, error) {
+	// The destination is linked from the open staging inode. The caller keeps
+	// the staging pathname for the janitor because unlinking by name cannot be
+	// made conditional on inode identity.
+	if err := linkStageNoReplace(stage, parent, stageName, destinationName); err != nil {
 		return false, classifyPlacementError(err)
 	}
-	if err := unix.Unlinkat(int(parent.Fd()), stageName, 0); err != nil {
-		return true, classifyPlacementError(err)
-	}
 	return true, nil
+}
+
+func verifyOwnedChild(parent *os.File, name string, expected fs.FileInfo) error {
+	if expected == nil {
+		return fmt.Errorf("%w: missing staging identity", ErrStageChanged)
+	}
+	actual, info, err := openExistingChild(parent, name)
+	if err != nil {
+		return fmt.Errorf("%w: staging path %q is unavailable: %v", ErrStageChanged, name, err)
+	}
+	actual.Close()
+	if !sameObject(expected, info) {
+		return fmt.Errorf("%w: staging path %q names another object", ErrStageChanged, name)
+	}
+	return nil
 }
 
 func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *os.File, destinationName string) (bool, error) {
@@ -259,10 +279,6 @@ func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *
 		return false, classifyPlacementError(err)
 	}
 	return true, nil
-}
-
-func removeChild(parent *os.File, name string) error {
-	return classifyPlacementError(unix.Unlinkat(int(parent.Fd()), name, 0))
 }
 
 func removeEmptyDirectory(rootPath, relative string) error {
