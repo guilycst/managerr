@@ -1233,18 +1233,21 @@
         "Review found P1 mixed scheduled/manual trigger coalescing and P1 missing ConfigRevision enforcement across reconfiguration/restart. The reported storage timeout was not reproduced in isolated race checks. Correction is required before integration.",
         "ebdf5112c5be852fc992f337d47e4e0589f52b94 F-03 correction round one product commit closes mixed scheduled/manual follow-up coalescing and ConfigRevision fencing findings.",
         "a84853ac3bf25886aadc69c625ad7b10f9327801 F-03 correction round one handoff records deterministic regression tests and focused/race/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; unrelated internal/storage timeout remains recorded as a separate blocker.",
-        "F-03 correction review dispatch is recorded against final product tree ebdf5112c5be852fc992f337d47e4e0589f52b94 and handoff a84853ac3bf25886aadc69c625ad7b10f9327801."
+        "F-03 correction review dispatch is recorded against final product tree ebdf5112c5be852fc992f337d47e4e0589f52b94 and handoff a84853ac3bf25886aadc69c625ad7b10f9327801.",
+        "884a505a4820d475c16a1e034fd8680367ebf9d7 F-03 correction round two independent review requested changes against source ebdf5112c5be852fc992f337d47e4e0589f52b94.",
+        "Round-two review closed the original mixed-trigger/deadline/revision findings but found P1 empty ConfigRevision acceptance, P1 overlapping old and fresh same-root runners after reconfiguration with MaxConcurrent>1, and P2 scheduled follow-up TriggerManual attribution. Correction round two is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
-        "reviewer": "/root/d02_reviewer",
-        "commit": "f73e7fd38eb78672a015c8d5a1186019038b0082",
+        "reviewer": "/root/x05_reviewer",
+        "commit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
         "findings": [
-          "P1: scheduled/manual overlap can create extra follow-up scans or drop an accepted follow-up at deadline",
-          "P1: stale ConfigRevision can promote obsolete coverage or resume an old cursor after root reconfiguration"
+          "P1: empty or blank ConfigRevision is accepted and disables fencing",
+          "P1: fresh same-root runner can start before cancelled old revision runner exits when MaxConcurrent > 1",
+          "P2: scheduled-only coalesced follow-up is persisted as TriggerManual"
         ],
-        "round": 1
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1282,21 +1285,21 @@
         "productCommits": [
           "50e5a3a32e2acf975e3c489e4c75839a0d73a87e"
         ],
-        "reviewCommit": "f73e7fd38eb78672a015c8d5a1186019038b0082",
-        "correctionRound": 1,
+        "reviewCommit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
+        "correctionRound": 2,
         "correctionOwner": "/root/d02_implementer",
-        "correctionBaseSha": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
-        "correctionDispatchCommit": "2291c416d1dd4f04f45a3fac5979c61d21566dec",
-        "correctionReviewPath": "docs/execution/handoffs/F-03-review-round2.md",
+        "correctionBaseSha": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
+        "correctionDispatchCommit": null,
+        "correctionReviewPath": "docs/execution/handoffs/F-03-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
-        "correctionHandoffCommit": "a84853ac3bf25886aadc69c625ad7b10f9327801",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
         "correctionProductCommits": [
           "ebdf5112c5be852fc992f337d47e4e0589f52b94"
         ],
-        "correctionStatus": "review_dispatched",
-        "correctionReviewSourceCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94"
+        "correctionStatus": "queued",
+        "correctionReviewSourceCommit": null
       },
       "reviewHistory": [
         {
@@ -1306,6 +1309,14 @@
           "status": "changes_requested",
           "sourceCommit": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
           "receipt": "docs/execution/handoffs/F-03-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
+          "status": "changes_requested",
+          "sourceCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
+          "receipt": "docs/execution/handoffs/F-03-review-round2.md"
         }
       ]
     },
@@ -3315,7 +3326,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction review remains active with /root/x05_reviewer; F-05 correction review is rerouted to the same independent reviewer after F-03 receipt; W-02 correction remains queued.",
+  "nextAction": "F-03 correction round two is queued to /root/d02_implementer for empty revision validation, same-root runner fencing, and scheduled trigger attribution; F-05 review is rerouted to /root/x05_reviewer; W-02 correction remains queued.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
