@@ -1158,6 +1158,143 @@ func TestDispatchBarrierIntentSurvivesMarkerWriteOutage(t *testing.T) {
 	}
 }
 
+func TestDispatchBarrierActionMarkerSurvivesIntentWriteOutage(t *testing.T) {
+	journal, action := newMemoryAction("barrier-intent-outage", domain.ActionFSCopy, domain.ActionQueued)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	effect := executionEffect("copy", "payload.bin")
+	oldHandler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
+			if call == 1 {
+				return Observation{State: ObserveNeedsAction, Effects: []Effect{effect}}, nil
+			}
+			return Observation{State: ObserveSatisfied, Effects: []Effect{effect}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			close(started)
+			<-release
+			return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+		},
+	}
+	old, err := New(journal, Options{WorkerID: "intent-outage-old-worker", Now: executionClock(), LeaseDuration: time.Second, CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.RegisterHandler(oldHandler); err != nil {
+		t.Fatal(err)
+	}
+	oldDone := make(chan Result, 1)
+	go func() { oldDone <- old.RunAction(context.Background(), action.ID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old dispatch did not start")
+	}
+	if _, err := journal.RecoverExpired(context.Background(), "2026-09-14T12:00:02Z"); err != nil {
+		t.Fatal(err)
+	}
+	journal.blockDispatchBarrierIntentWrites(true)
+	close(release)
+	select {
+	case result := <-oldDone:
+		if !errors.Is(result.Err, ErrLeaseLost) {
+			t.Fatalf("old worker result during intent outage = %+v, want lease loss", result)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("old worker did not return during intent outage")
+	}
+	// The action marker is the durable fallback while every attempt-level
+	// intent write fails. Wait for the initial call and all 32 process-local
+	// retries to exercise that fault before restoring the prerequisite write.
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	for journal.dispatchBarrierIntentWriteAttempts() < 33 {
+		select {
+		case <-deadline.C:
+			t.Fatalf("intent write attempts = %d, want the initial write plus all bounded retries", journal.dispatchBarrierIntentWriteAttempts())
+		case <-time.After(time.Millisecond):
+		}
+	}
+	// Ensure the bounded producer retry has exited before the fresh scheduler
+	// is allowed to claim the action. The exact action marker and running
+	// attempt remain the only durable state during the outage.
+	attemptsBeforeRetryWait := mustAttempts(t, journal, action.ID)
+	if len(attemptsBeforeRetryWait) < 2 {
+		t.Fatalf("attempts before retry wait = %+v, want dispatch attempt", attemptsBeforeRetryWait)
+	}
+	retryKey := action.ID + "\x00" + attemptsBeforeRetryWait[1].ID
+	retryDeadline := time.NewTimer(3 * time.Second)
+	defer retryDeadline.Stop()
+	for {
+		old.barrierMu.Lock()
+		_, retryActive := old.barrierRetry[retryKey]
+		old.barrierMu.Unlock()
+		if !retryActive {
+			break
+		}
+		select {
+		case <-retryDeadline.C:
+			t.Fatal("bounded barrier retry remained active after all intent failures")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	current := mustAction(t, journal, action.ID)
+	if current.State != domain.ActionReconciling {
+		t.Fatalf("action during intent outage = %+v, want reconciling", current)
+	}
+	returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome)
+	if !returned || returnedAttemptID != "barrier-intent-outage:attempt:2:dispatch" {
+		t.Fatalf("action marker during intent outage = %q/%t, want exact durable dispatch marker", returnedAttemptID, returned)
+	}
+	attempts := mustAttempts(t, journal, action.ID)
+	if len(attempts) < 2 || attempts[1].State != domain.AttemptRunning {
+		t.Fatalf("attempts during intent outage = %+v, want running dispatch barrier", attempts)
+	}
+	if intentAttemptID, hasIntent := dispatchBarrierRetryIntentAttempt(attempts[1].Evidence); hasIntent {
+		t.Fatalf("attempt intent during injected outage = %q, want no attempt-level marker", intentAttemptID)
+	}
+	if got := mustEffects(t, journal, action.ID); len(got) != 1 || got[0].State != EffectPending {
+		t.Fatalf("effects during intent outage = %+v, want pending effect behind live barrier", got)
+	}
+
+	journal.blockDispatchBarrierIntentWrites(false)
+	freshHandler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
+			return ReconcileResult{SafeToRetry: true, Effects: []Effect{effect}}, nil
+		},
+	}
+	fresh, err := New(journal, Options{WorkerID: "intent-outage-fresh-worker", Now: func() time.Time { return executionTime().Add(20 * time.Second) }, LeaseDuration: time.Minute, CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.RegisterHandler(freshHandler); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := fresh.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Results) != 1 {
+		t.Fatalf("fresh scheduler batch after intent recovery = %+v, want one result", batch)
+	}
+	result := batch.Results[0]
+	if result.Err != nil || result.State != domain.ActionQueued {
+		t.Fatalf("fresh worker after intent recovery = %+v, want queued safe retry", result)
+	}
+	if freshHandler.reconcileCalls() != 1 || freshHandler.dispatchCalls() != 0 {
+		t.Fatalf("fresh worker calls after intent recovery = reconcile %d dispatch %d, want one/zero", freshHandler.reconcileCalls(), freshHandler.dispatchCalls())
+	}
+	finalAttempts := mustAttempts(t, journal, action.ID)
+	if len(finalAttempts) < 3 || finalAttempts[1].State != domain.AttemptReconciling {
+		t.Fatalf("attempts after intent recovery = %+v, want barrier reconciled before fresh read-only attempt", finalAttempts)
+	}
+	if final := mustAction(t, journal, action.ID); final.UnresolvedCount != 0 {
+		t.Fatalf("action after intent recovery = %+v, want zero unresolved effects", final)
+	}
+}
+
 func TestUnresolvedReservationPersistsAcrossExecutorRestart(t *testing.T) {
 	journal, first := newMemoryAction("reservation-persistent-first", domain.ActionFSCopy, domain.ActionQueued)
 	_, second := newMemoryActionOnJournal(journal, "reservation-persistent-second", domain.ActionFSCopy, domain.ActionQueued)
@@ -1660,7 +1797,7 @@ func mustRunOnce(t *testing.T, executor *Executor) BatchResult {
 }
 
 func newMemoryAction(id string, kind domain.ActionKind, state domain.ActionState) (*memoryJournal, Action) {
-	journal := &memoryJournal{actions: make(map[string]Action), plans: make(map[string]Plan), attempts: make(map[string][]Attempt), effects: make(map[string][]Effect), failureMu: &sync.Mutex{}, markerWrite: &markerWriteFault{}}
+	journal := &memoryJournal{actions: make(map[string]Action), plans: make(map[string]Plan), attempts: make(map[string][]Attempt), effects: make(map[string][]Effect), failureMu: &sync.Mutex{}, markerWrite: &markerWriteFault{}, barrierIntentWrite: &barrierIntentWriteFault{}}
 	return newMemoryActionOnJournal(journal, id, kind, state)
 }
 
@@ -1799,23 +1936,30 @@ func (handler *scriptedHandler) eventsSnapshot() []string {
 }
 
 type memoryJournal struct {
-	mu                sync.Mutex
-	actions           map[string]Action
-	plans             map[string]Plan
-	attempts          map[string][]Attempt
-	effects           map[string][]Effect
-	transactionCount  int
-	revision          uint64
-	baseRevision      uint64
-	failCreateEffect  bool
-	failUpdateAttempt *int
-	failBarrierUpdate *int
-	renewalCount      int
-	failureMu         *sync.Mutex
-	markerWrite       *markerWriteFault
+	mu                 sync.Mutex
+	actions            map[string]Action
+	plans              map[string]Plan
+	attempts           map[string][]Attempt
+	effects            map[string][]Effect
+	transactionCount   int
+	revision           uint64
+	baseRevision       uint64
+	failCreateEffect   bool
+	failUpdateAttempt  *int
+	failBarrierUpdate  *int
+	renewalCount       int
+	failureMu          *sync.Mutex
+	markerWrite        *markerWriteFault
+	barrierIntentWrite *barrierIntentWriteFault
 }
 
 type markerWriteFault struct {
+	mu       sync.Mutex
+	blocked  bool
+	attempts int
+}
+
+type barrierIntentWriteFault struct {
 	mu       sync.Mutex
 	blocked  bool
 	attempts int
@@ -1895,6 +2039,24 @@ func (journal *memoryJournal) dispatchBarrierMarkerWriteAttempts() int {
 	journal.markerWrite.mu.Lock()
 	defer journal.markerWrite.mu.Unlock()
 	return journal.markerWrite.attempts
+}
+
+func (journal *memoryJournal) blockDispatchBarrierIntentWrites(block bool) {
+	if journal.barrierIntentWrite == nil {
+		journal.barrierIntentWrite = &barrierIntentWriteFault{}
+	}
+	journal.barrierIntentWrite.mu.Lock()
+	journal.barrierIntentWrite.blocked = block
+	journal.barrierIntentWrite.mu.Unlock()
+}
+
+func (journal *memoryJournal) dispatchBarrierIntentWriteAttempts() int {
+	if journal.barrierIntentWrite == nil {
+		return 0
+	}
+	journal.barrierIntentWrite.mu.Lock()
+	defer journal.barrierIntentWrite.mu.Unlock()
+	return journal.barrierIntentWrite.attempts
 }
 
 func (journal *memoryJournal) GetAction(_ context.Context, id string) (Action, error) {
@@ -2179,6 +2341,17 @@ func (journal *memoryJournal) UpdateAttempt(_ context.Context, attempt Attempt) 
 	if err := attempt.validate(); err != nil {
 		return Attempt{}, err
 	}
+	if intentWrite := journal.barrierIntentWrite; intentWrite != nil {
+		if _, isBarrierIntent := dispatchBarrierRetryIntentAttempt(attempt.Evidence); isBarrierIntent {
+			intentWrite.mu.Lock()
+			intentWrite.attempts++
+			blocked := intentWrite.blocked
+			intentWrite.mu.Unlock()
+			if blocked {
+				return Attempt{}, errors.New("injected dispatch barrier intent journal failure")
+			}
+		}
+	}
 	if journal.failureMu != nil {
 		journal.failureMu.Lock()
 		if journal.failUpdateAttempt != nil && *journal.failUpdateAttempt > 0 {
@@ -2399,7 +2572,7 @@ func (journal *memoryJournal) Reserve(_ context.Context, actionID string, keys [
 }
 
 func (journal *memoryJournal) cloneLocked() *memoryJournal {
-	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects)), revision: journal.revision, baseRevision: journal.revision, failCreateEffect: journal.failCreateEffect, failUpdateAttempt: journal.failUpdateAttempt, failBarrierUpdate: journal.failBarrierUpdate, renewalCount: journal.renewalCount, failureMu: journal.failureMu, markerWrite: journal.markerWrite}
+	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects)), revision: journal.revision, baseRevision: journal.revision, failCreateEffect: journal.failCreateEffect, failUpdateAttempt: journal.failUpdateAttempt, failBarrierUpdate: journal.failBarrierUpdate, renewalCount: journal.renewalCount, failureMu: journal.failureMu, markerWrite: journal.markerWrite, barrierIntentWrite: journal.barrierIntentWrite}
 	for id, action := range journal.actions {
 		clone.actions[id] = cloneAction(action)
 	}

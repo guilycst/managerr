@@ -1791,16 +1791,17 @@ func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) err
 // is durably released.
 func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID string, preserveClaim bool) error {
 	var err error
+	var intentErr error
 	for retry := 0; retry < 4; retry++ {
-		err = executor.persistDispatchBarrierIntent(actionID, attemptID)
-		if err == nil {
+		intentErr = executor.persistDispatchBarrierIntent(actionID, attemptID)
+		if intentErr == nil {
 			break
 		}
 		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
 			return nil
 		}
-		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
-			return err
+		if !errors.Is(intentErr, ErrLeaseLost) || retry == 3 {
+			break
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -1816,6 +1817,19 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 			return err
 		}
 		time.Sleep(time.Millisecond)
+	}
+	if err != nil {
+		return err
+	}
+	// The action-level returned marker is a second durable recovery path. Keep
+	// the exact dispatch attempt running when its earlier evidence write was
+	// unavailable; a later executor can discover this marker and retry the
+	// evidence/barrier transition after the journal recovers.
+	if intentErr != nil {
+		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+			return nil
+		}
+		return intentErr
 	}
 	journalCtx, cancel := executor.journalContext(context.Background())
 	defer cancel()
@@ -1984,8 +1998,10 @@ func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string
 		// may be retried by that worker (or by the background retry), but a
 		// background path must still clear a stale/fresh claim after the handler
 		// return is known.
-		if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome); returned && returnedAttemptID == attemptID && preserveClaim && current.CancellationRequestedAt == "" {
-			return nil
+		if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome); returned && returnedAttemptID == attemptID {
+			if current.State != domain.ActionRunning || (preserveClaim && current.CancellationRequestedAt == "") {
+				return nil
+			}
 		}
 		outcome, err := outcomeWithDispatchBarrierReturned(current.Outcome, attemptID)
 		if err != nil {
