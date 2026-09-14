@@ -1423,15 +1423,22 @@
         "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35 F-05 product commit for organize actions; GOWORK=off go test ./internal/filesystem/organize passed.",
         "01d72c89f308f50999662f67ad0114406a1a6f13 F-05 handoff commit; root, nested module, generation, Vacuum, lint, architecture, planning and cross-platform checks passed; awaiting independent review.",
         "174ff5db3ff393af02b10db24e7a9ef70b76a56f F-05 post-handoff audit correction rechecks copied-file identity/size after hashing and final directory child names.",
-        "2166486018bcc1512dcaa813104c507fe2f9dbbe F-05 handoff amendment records the audit correction; focused and Linux race checks passed; review source is updated."
+        "2166486018bcc1512dcaa813104c507fe2f9dbbe F-05 handoff amendment records the audit correction; focused and Linux race checks passed; review source is updated.",
+        "0951caf99f1814349b3d5dcc02db6d1b4fb06026 F-05 independent review round one requested changes against source 174ff5db3ff393af02b10db24e7a9ef70b76a56f.",
+        "Review found P1 pathname races in Linux move/delete, P1 destination-loss data loss in cross-device composition, P2 conflicting physical root aliases, and stale handoff review identity. Correction is required before integration."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
-        "round": 0
+        "commit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
+        "findings": [
+          "P1: pathname-bound Linux move/delete can act on replacement objects after identity validation",
+          "P1: cross-device copy/verify/delete can lose both copies at the delete boundary",
+          "P2: conflicting physical root aliases with different mutability are accepted",
+          "P2: handoff review source names superseded product SHA"
+        ],
+        "round": 1
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1471,12 +1478,29 @@
           "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
           "174ff5db3ff393af02b10db24e7a9ef70b76a56f"
         ],
-        "correctionRound": 1,
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
-        "correctionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
-        "correctionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe"
-      }
+        "correctionBaseSha": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "reviewCommit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
+        "correctionReviewPath": "docs/execution/handoffs/F-05-review-round2.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionCheckout": "shared main",
+        "priorCorrectionRound": 1,
+        "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+        "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe"
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "0951caf99f1814349b3d5dcc02db6d1b4fb06026",
+          "status": "changes_requested",
+          "sourceCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+          "receipt": "docs/execution/handoffs/F-05-review-round1.md"
+        }
+      ]
     },
     "X-01": {
       "status": "done",
@@ -3193,7 +3217,7 @@
       ]
     }
   },
-  "nextAction": "F-03 scan scheduler, F-05 organize review, and W-02 durable executor are active under separate ownership; await product/handoff commits and independent receipts.",
+  "nextAction": "F-05 correction is queued for the x05 implementer after W-02 ownership is released; F-03 and W-02 remain active, with F-03 review reserved to d02_reviewer.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
