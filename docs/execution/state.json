@@ -1065,17 +1065,21 @@
         "F-02 correction round two queued for suffix-only subtitle language parsing with short title-word regressions.",
         "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294 F-02 correction round two product",
         "d32ef292d7c55dd0406ff99874fce37d0c5e3736 F-02 correction round two handoff",
-        "F-02 correction round two suffix-only subtitle language parsing and short-title regressions passed all requested checks."
+        "F-02 correction round two suffix-only subtitle language parsing and short-title regressions passed all requested checks.",
+        "e451a682bc1c7457a489d8328b3b76d0755ae993 F-02 independent review round three changes requested",
+        "1fcb5de docs(discovery): integrate F-02 suffix review receipt",
+        "F-02 round-three review confirms suffix language fix and retains two A-11 subtitle pairing/label blockers."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "ffe5b8a96634f0e4605977f20e82454949f13d03",
+        "commit": "e451a682bc1c7457a489d8328b3b76d0755ae993",
+        "round": 3,
         "findings": [
-          "P1/A-11: subtitle language extraction scans the full basename left-to-right and records short title words such as up/the instead of suffix languages en/pt; exact pairing confidence makes the wrong language appear resolved."
-        ],
-        "round": 2
+          "P1/A-11: a sole unrelated subtitle such as captions.en.srt is silently exact-paired to Up.mkv by the single-video fallback and omitted from unmatched companions.",
+          "P1/A-11: bracketed [forced] and (sdh) labels are lost during subtitle token normalization, so the structured flags remain false."
+        ]
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1100,8 +1104,8 @@
           "generation/API/architecture/planning/guardrails",
           "Linux amd64/arm64 CGO-free compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/F-02-review-round3.md",
-        "handoffPath": "docs/execution/handoffs/F-02-correction-round2.md",
+        "reviewPath": "docs/execution/handoffs/F-02-review-round4.md",
+        "handoffPath": "docs/execution/handoffs/F-02-correction-round3.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
           "D-03": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
@@ -1114,13 +1118,13 @@
         "reviewer": "/root/d02_reviewer",
         "reviewCommit": "30bca5041495eed51ea150b809332403d5c17eb3",
         "reviewIntegrationCommit": "28b1510afb8c43a131679d6ac9855807e3e530a8",
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/d02_implementer",
-        "correctionBaseSha": "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
-        "correctionDispatchCommit": "fe9096d4f73e61ea63176995f9193f45894c39e6",
+        "correctionBaseSha": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+        "correctionDispatchCommit": "1fcb5de55b88024096dd17ccbbaa42624f6575b8",
         "correctionCheckout": "shared main",
-        "correctionReviewPath": "docs/execution/handoffs/F-02-review-round3.md",
-        "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round2.md",
+        "correctionReviewPath": "docs/execution/handoffs/F-02-review-round4.md",
+        "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionImplementationCommit": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
         "correctionHandoffCommit": "d32ef292d7c55dd0406ff99874fce37d0c5e3736",
@@ -1135,7 +1139,7 @@
           "reason": "parallelize independent correction reviews while preserving one receipt path per lane",
           "newReviewer": "/root/x05_reviewer"
         },
-        "correctionReviewCommit": "ffe5b8a96634f0e4605977f20e82454949f13d03"
+        "correctionReviewCommit": "e451a682bc1c7457a489d8328b3b76d0755ae993"
       },
       "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
       "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
@@ -1158,6 +1162,15 @@
           "sourceCommit": "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
           "receipt": "docs/execution/handoffs/F-02-review-round2.md",
           "integratedCommit": "fe9096d4f73e61ea63176995f9193f45894c39e6"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "e451a682bc1c7457a489d8328b3b76d0755ae993",
+          "status": "changes_requested",
+          "sourceCommit": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+          "receipt": "docs/execution/handoffs/F-02-review-round3.md",
+          "integratedCommit": "1fcb5de55b88024096dd17ccbbaa42624f6575b8"
         }
       ],
       "productCommits": [
@@ -2972,7 +2985,7 @@
       ]
     }
   },
-  "nextAction": "F-02 correction round two product and handoff are recorded; await independent review of dcd3b8c before integration. F-04 correction round two is active with /root/x05_implementer.",
+  "nextAction": "F-02 correction round three is queued for strict subtitle/video pairing and bracketed flags; F-04 correction round two remains active in placement. Await exact product and handoff commits before review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
