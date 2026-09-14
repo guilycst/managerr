@@ -232,12 +232,10 @@ func TestManagerAPIETagAndManagedCredentialLifecycle(t *testing.T) {
 	var changes []RevisionChange
 	var changesMu sync.Mutex
 	manager, err := New(Options{
-		Now:               func() time.Time { return testStartup },
-		CredentialManager: crypt,
-		CredentialStore:   store,
-		IdentityVerifier: func(_ context.Context, _ domain.Connection) (IdentityVerification, error) {
-			return IdentityVerified, nil
-		},
+		Now:                       func() time.Time { return testStartup },
+		CredentialManager:         crypt,
+		CredentialStore:           store,
+		CandidateIdentityVerifier: verifiedCandidateIdentity,
 		Invalidator: func(_ context.Context, change RevisionChange) error {
 			changesMu.Lock()
 			defer changesMu.Unlock()
@@ -344,7 +342,7 @@ func TestManagedCredentialStoreCommitThenErrorUsesReadBackAndQuarantinesUnknownS
 	}
 	store := newFaultCredentialStore()
 	store.replaceMode = replaceCommitThenError
-	manager, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store, IdentityVerifier: verifiedIdentity})
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store, CandidateIdentityVerifier: verifiedCandidateIdentity})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +392,136 @@ func TestManagedCredentialStoreCommitThenErrorUsesReadBackAndQuarantinesUnknownS
 		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("retry-key")}},
 	}); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Fatalf("orphan retry error = %v", err)
+	}
+}
+
+func TestPendingManagedCredentialIsUnreadableDuringReplacement(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x35}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFaultCredentialStore()
+	manager, err := New(Options{
+		Now:                       func() time.Time { return testStartup },
+		CredentialManager:         crypt,
+		CredentialStore:           store,
+		CandidateIdentityVerifier: verifiedCandidateIdentity,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-pending", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("initial-key")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	store.replaceEntered = entered
+	store.replaceRelease = release
+	updateDone := make(chan error, 1)
+	go func() {
+		_, updateErr := manager.UpdateConnection(context.Background(), connection.ID, connection.Revision, ConnectionPatch{
+			Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("pending-key")}},
+		})
+		updateDone <- updateErr
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("credential replacement did not reach the blocking store")
+	}
+	if _, err := manager.ResolveCredential(context.Background(), connection.ID, "apiKey"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("pending credential resolve error = %v", err)
+	}
+	if _, err := manager.CredentialMetadata(context.Background(), connection.ID, "apiKey"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("pending credential metadata error = %v", err)
+	}
+	close(release)
+	select {
+	case err := <-updateDone:
+		if err != nil {
+			t.Fatalf("completed credential update = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("credential replacement did not complete")
+	}
+}
+
+func TestRejectedCredentialCASRemainsQuarantinedAfterRestart(t *testing.T) {
+	key := bytes.Repeat([]byte{0x36}, 32)
+	crypt, err := credentials.NewManager(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFaultCredentialStore()
+	var manager *Manager
+	var mutateOnce sync.Once
+	manager, err = New(Options{
+		Now:               func() time.Time { return testStartup },
+		CredentialManager: crypt,
+		CredentialStore:   store,
+		CandidateIdentityVerifier: func(_ context.Context, connection domain.Connection, read CandidateCredentialReader) (IdentityVerification, error) {
+			value, readErr := read("apiKey")
+			if readErr != nil {
+				return IdentityUnknown, readErr
+			}
+			if string(value) != "rejected-after-restart" {
+				zero(value)
+				return IdentityFailed, errors.New("candidate credential was not supplied")
+			}
+			zero(value)
+			mutateOnce.Do(func() {
+				_, _ = manager.CreateStorageRoot(context.Background(), StorageRootSpec{
+					ID: "cas-race-root", Label: "CAS race", Purpose: domain.StorageLibrary, Path: "/media/cas-race",
+				})
+			})
+			return IdentityVerified, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-restart", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("initial-before-cas")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := APIState{
+		Connections:             []domain.Connection{connection},
+		ManagedCredentialFields: map[domain.ConfigID][]string{connection.ID: {"apiKey"}},
+	}
+	if _, err := manager.UpdateConnection(context.Background(), connection.ID, connection.Revision, ConnectionPatch{
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("rejected-after-restart")}},
+	}); !errors.Is(err, ErrRevisionMismatch) {
+		t.Fatalf("CAS-racing credential update error = %v", err)
+	}
+	manager.Close()
+
+	crypt2, err := credentials.NewManager(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager2, err := New(Options{
+		Now:               func() time.Time { return testStartup },
+		APIState:          state,
+		CredentialManager: crypt2,
+		CredentialStore:   store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager2.Close()
+	if _, err := manager2.ResolveCredential(context.Background(), connection.ID, "apiKey"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("restart quarantined credential resolve error = %v", err)
+	}
+	if _, err := manager2.CredentialMetadata(context.Background(), connection.ID, "apiKey"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("restart quarantined credential metadata error = %v", err)
 	}
 }
 
@@ -505,9 +633,6 @@ connections:
 		t.Fatal(err)
 	}
 	firstManager.Close()
-	if err := writeTestFile(secretPath, []byte("restart-second")); err != nil {
-		t.Fatal(err)
-	}
 	secondManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
 	if err != nil {
 		t.Fatal(err)
@@ -517,8 +642,24 @@ connections:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if firstSnapshot.Source.Revision == secondSnapshot.Source.Revision || firstSnapshot.Connections[0].Revision == secondSnapshot.Connections[0].Revision {
-		t.Fatal("restart did not advance opaque static credential revision")
+	if firstSnapshot.Source.Revision != secondSnapshot.Source.Revision || firstSnapshot.Connections[0].Revision != secondSnapshot.Connections[0].Revision {
+		t.Fatal("unchanged static credential changed revision across restart")
+	}
+	secondManager.Close()
+	if err := writeTestFile(secretPath, []byte("restart-second")); err != nil {
+		t.Fatal(err)
+	}
+	thirdManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer thirdManager.Close()
+	thirdSnapshot, err := thirdManager.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSnapshot.Source.Revision == thirdSnapshot.Source.Revision || firstSnapshot.Connections[0].Revision == thirdSnapshot.Connections[0].Revision {
+		t.Fatal("changed static credential did not advance opaque revision")
 	}
 }
 
@@ -550,9 +691,50 @@ func TestMappingSourcePrefixRequiresAbsoluteRemoteNamespace(t *testing.T) {
 			t.Errorf("source prefix %q error = %v", value, err)
 		}
 	}
-	for _, value := range []string{"/downloads", "C:/downloads", "Z:/"} {
-		if _, err := cleanSourcePrefix(value); err != nil {
-			t.Errorf("absolute source prefix %q error = %v", value, err)
+	if _, err := cleanSourcePrefix("/downloads"); err != nil {
+		t.Errorf("absolute source prefix error = %v", err)
+	}
+	for _, value := range []string{"C:/downloads", "c:/downloads", "Z:/"} {
+		if _, err := cleanSourcePrefix(value); err == nil {
+			t.Errorf("Windows source prefix %q was accepted", value)
+		}
+	}
+}
+
+func TestQBTAndNZBMappingPrefixesUsePOSIXNamespaceContract(t *testing.T) {
+	manager, err := New(Options{Now: func() time.Time { return testStartup }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	for _, item := range []struct {
+		kind domain.ConnectionKind
+		id   domain.ConfigID
+	}{
+		{kind: domain.ConnectionQBittorrent, id: "qbt-main"},
+		{kind: domain.ConnectionNZBGet, id: "nzbget-main"},
+	} {
+		connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+			ID: item.id, Kind: item.kind, Label: string(item.kind), Endpoint: "http://upstream.invalid:8080",
+		})
+		if err != nil {
+			t.Fatalf("%s connection = %v", item.kind, err)
+		}
+		root, err := manager.CreateStorageRoot(context.Background(), StorageRootSpec{
+			ID: item.id + "-root", Label: string(item.kind), Purpose: domain.StorageDownload, Path: "/media/" + string(item.kind),
+		})
+		if err != nil {
+			t.Fatalf("%s root = %v", item.kind, err)
+		}
+		if _, err := manager.CreatePathMapping(context.Background(), PathMappingSpec{
+			ID: item.id + "-mapping", ConnectionID: connection.ID, RootID: root.ID, SourcePrefix: "/downloads",
+		}); err != nil {
+			t.Fatalf("%s POSIX mapping = %v", item.kind, err)
+		}
+		if _, err := manager.CreatePathMapping(context.Background(), PathMappingSpec{
+			ID: item.id + "-windows-mapping", ConnectionID: connection.ID, RootID: root.ID, SourcePrefix: "C:/downloads",
+		}); !errors.Is(err, ErrMappingInvalid) {
+			t.Fatalf("%s Windows mapping error = %v", item.kind, err)
 		}
 	}
 }
@@ -857,6 +1039,15 @@ func verifiedIdentity(_ context.Context, _ domain.Connection) (IdentityVerificat
 	return IdentityVerified, nil
 }
 
+func verifiedCandidateIdentity(_ context.Context, _ domain.Connection, read CandidateCredentialReader) (IdentityVerification, error) {
+	value, err := read("apiKey")
+	if err != nil {
+		return IdentityUnknown, err
+	}
+	zero(value)
+	return IdentityVerified, nil
+}
+
 type replaceMode uint8
 
 const (
@@ -866,12 +1057,15 @@ const (
 )
 
 type faultCredentialStore struct {
-	mu           sync.Mutex
-	values       map[domain.ConfigID]map[string]credentials.Envelope
-	replaceMode  replaceMode
-	replaceCalls int
-	onLoad       func()
-	onReplace    func()
+	mu             sync.Mutex
+	values         map[domain.ConfigID]map[string]credentials.Envelope
+	replaceMode    replaceMode
+	replaceCalls   int
+	onLoad         func()
+	onReplace      func()
+	replaceEntered chan struct{}
+	replaceRelease <-chan struct{}
+	replaceOnce    sync.Once
 }
 
 func newFaultCredentialStore() *faultCredentialStore {
@@ -896,6 +1090,12 @@ func (store *faultCredentialStore) Replace(ctx context.Context, id domain.Config
 	}
 	if store.onReplace != nil {
 		store.onReplace()
+	}
+	if store.replaceEntered != nil && store.replaceRelease != nil {
+		store.replaceOnce.Do(func() {
+			close(store.replaceEntered)
+			<-store.replaceRelease
+		})
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()

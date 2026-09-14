@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -168,6 +167,19 @@ type IdentityVerifier func(context.Context, domain.Connection) (IdentityVerifica
 // TargetIdentityVerifier is an expressive alias for IdentityVerifier.
 type TargetIdentityVerifier = IdentityVerifier
 
+// CandidateCredentialReader provides an attempt-scoped view of the managed
+// credential candidate to a target identity verifier. Values are decrypted
+// only for the duration of the verifier call and are never included in a
+// domain object, revision, snapshot, or persisted record. A verifier must not
+// retain returned bytes and should zero them after use.
+type CandidateCredentialReader func(field string) ([]byte, error)
+
+// CandidateIdentityVerifier verifies a target using the exact managed
+// credential candidate that is about to be committed. The reader is scoped to
+// one authorization attempt and returns no value for fields outside that
+// candidate set.
+type CandidateIdentityVerifier func(context.Context, domain.Connection, CandidateCredentialReader) (IdentityVerification, error)
+
 // ManagedCredentialStore persists complete encrypted field sets atomically.
 // Implementations normally translate this boundary to the storage/sqlc
 // repository. Plaintext never enters this interface.
@@ -183,6 +195,11 @@ type APIState struct {
 	StorageRoots            []domain.StorageRoot
 	PathMappings            []domain.PathMapping
 	ManagedCredentialFields map[domain.ConfigID][]string
+	// ManagedCredentialDigests binds each active API connection to the
+	// complete encrypted envelope set persisted for it. New revisions carry
+	// the same opaque digest, while this field lets storage adapters migrate
+	// without exposing credential values.
+	ManagedCredentialDigests map[domain.ConfigID]string
 }
 
 // Options controls one configuration manager. YAMLPath and YAML are mutually
@@ -196,13 +213,14 @@ type Options struct {
 	SecretResolver   SecretResolver
 	MaxDocumentBytes int
 
-	APIState          APIState
-	CredentialManager *credentials.Manager
-	CredentialStore   ManagedCredentialStore
-	KeySource         string
-	KeyPath           string
-	Invalidator       InvalidateFunc
-	IdentityVerifier  IdentityVerifier
+	APIState                  APIState
+	CredentialManager         *credentials.Manager
+	CredentialStore           ManagedCredentialStore
+	KeySource                 string
+	KeyPath                   string
+	Invalidator               InvalidateFunc
+	IdentityVerifier          IdentityVerifier
+	CandidateIdentityVerifier CandidateIdentityVerifier
 }
 
 // Policy contains validated YAML policy values not yet represented in the
@@ -252,14 +270,15 @@ type Manager struct {
 	generation           uint64
 	bindingKey           []byte
 
-	policy            Policy
-	snapshot          domain.ConfigurationSnapshot
-	credentialManager *credentials.Manager
-	credentialStore   ManagedCredentialStore
-	keySource         string
-	keyPath           string
-	invalidator       InvalidateFunc
-	identityVerifier  IdentityVerifier
+	policy                    Policy
+	snapshot                  domain.ConfigurationSnapshot
+	credentialManager         *credentials.Manager
+	credentialStore           ManagedCredentialStore
+	keySource                 string
+	keyPath                   string
+	invalidator               InvalidateFunc
+	identityVerifier          IdentityVerifier
+	candidateIdentityVerifier CandidateIdentityVerifier
 }
 
 // New validates and activates API state and optional startup YAML as one
@@ -291,42 +310,40 @@ func New(options Options) (*Manager, error) {
 	if resolver == nil {
 		resolver = NewEnvironmentResolver(options.Environment)
 	}
-	bindingKey, err := newBindingKey()
-	if err != nil {
-		return nil, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
-	}
+	bindingKey := stableBindingKey(documentID, options.CredentialManager)
 
 	manager := &Manager{
-		now:                  now,
-		startupAt:            startupAt,
-		maxDocument:          maxDocument,
-		documentID:           documentID,
-		yamlConfigured:       len(options.YAML) != 0 || options.YAMLPath != "",
-		secretResolver:       resolver,
-		yamlConnections:      make(map[domain.ConfigID]domain.Connection),
-		yamlRoots:            make(map[domain.ConfigID]domain.StorageRoot),
-		yamlMappings:         make(map[domain.ConfigID]domain.PathMapping),
-		apiConnections:       make(map[domain.ConfigID]domain.Connection),
-		apiRoots:             make(map[domain.ConfigID]domain.StorageRoot),
-		apiMappings:          make(map[domain.ConfigID]domain.PathMapping),
-		managedFields:        make(map[domain.ConfigID]map[string]struct{}),
-		managedDigests:       make(map[domain.ConfigID]string),
-		retiredConnections:   make(map[domain.ConfigID]domain.Connection),
-		retiredRoots:         make(map[domain.ConfigID]domain.StorageRoot),
-		retiredMappings:      make(map[domain.ConfigID]domain.PathMapping),
-		staticCredentials:    make(map[CredentialKey][]byte),
-		staticBindings:       make(map[CredentialKey]string),
-		credentialQuarantine: make(map[domain.ConfigID]struct{}),
-		pendingConnections:   make(map[domain.ConfigID]struct{}),
-		generation:           1,
-		bindingKey:           bindingKey,
-		policy:               Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
-		credentialManager:    options.CredentialManager,
-		credentialStore:      options.CredentialStore,
-		keySource:            options.KeySource,
-		keyPath:              options.KeyPath,
-		invalidator:          options.Invalidator,
-		identityVerifier:     options.IdentityVerifier,
+		now:                       now,
+		startupAt:                 startupAt,
+		maxDocument:               maxDocument,
+		documentID:                documentID,
+		yamlConfigured:            len(options.YAML) != 0 || options.YAMLPath != "",
+		secretResolver:            resolver,
+		yamlConnections:           make(map[domain.ConfigID]domain.Connection),
+		yamlRoots:                 make(map[domain.ConfigID]domain.StorageRoot),
+		yamlMappings:              make(map[domain.ConfigID]domain.PathMapping),
+		apiConnections:            make(map[domain.ConfigID]domain.Connection),
+		apiRoots:                  make(map[domain.ConfigID]domain.StorageRoot),
+		apiMappings:               make(map[domain.ConfigID]domain.PathMapping),
+		managedFields:             make(map[domain.ConfigID]map[string]struct{}),
+		managedDigests:            make(map[domain.ConfigID]string),
+		retiredConnections:        make(map[domain.ConfigID]domain.Connection),
+		retiredRoots:              make(map[domain.ConfigID]domain.StorageRoot),
+		retiredMappings:           make(map[domain.ConfigID]domain.PathMapping),
+		staticCredentials:         make(map[CredentialKey][]byte),
+		staticBindings:            make(map[CredentialKey]string),
+		credentialQuarantine:      make(map[domain.ConfigID]struct{}),
+		pendingConnections:        make(map[domain.ConfigID]struct{}),
+		generation:                1,
+		bindingKey:                bindingKey,
+		policy:                    Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
+		credentialManager:         options.CredentialManager,
+		credentialStore:           options.CredentialStore,
+		keySource:                 options.KeySource,
+		keyPath:                   options.KeyPath,
+		invalidator:               options.Invalidator,
+		identityVerifier:          options.IdentityVerifier,
+		candidateIdentityVerifier: options.CandidateIdentityVerifier,
 	}
 	if err := manager.installAPIState(options.APIState); err != nil {
 		return nil, err
@@ -358,6 +375,7 @@ func New(options Options) (*Manager, error) {
 	} else if err := manager.rebuildLocked(); err != nil {
 		return nil, err
 	}
+	manager.reconcileManagedCredentials(context.Background())
 	return manager, nil
 }
 
@@ -408,10 +426,8 @@ func (manager *Manager) Policy(ctx context.Context) (Policy, error) {
 // ParseYAML strictly decodes one complete startup document and resolves every
 // static credential reference before returning a candidate.
 func ParseYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
-	bindingKey, err := newBindingKey()
-	if err != nil {
-		return ParsedYAML{}, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
-	}
+	bindingKey := stableBindingKey(options.DocumentID, nil)
+	defer zero(bindingKey)
 	return parseYAML(data, options, bindingKey)
 }
 
@@ -533,10 +549,11 @@ func LoadYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
 // LoadYAMLFile reads and validates one bounded regular file. It reads the
 // selected descriptor once, so later file changes cannot alter this candidate.
 func LoadYAMLFile(filePath string, options ParseOptions) (ParsedYAML, error) {
-	bindingKey, err := newBindingKey()
-	if err != nil {
-		return ParsedYAML{}, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
+	if strings.TrimSpace(options.DocumentID) == "" {
+		options.DocumentID = filepath.Base(strings.TrimSpace(filePath))
 	}
+	bindingKey := stableBindingKey(options.DocumentID, nil)
+	defer zero(bindingKey)
 	return loadYAMLFile(filePath, options, bindingKey)
 }
 
@@ -681,7 +698,77 @@ func (manager *Manager) installAPIState(state APIState) error {
 			return fmt.Errorf("%w: managed credentials reference unknown API connection", ErrInvalidDocument)
 		}
 	}
+	for id, digest := range state.ManagedCredentialDigests {
+		if !id.Valid() || !validCredentialEnvelopeDigest(digest) {
+			return fmt.Errorf("%w: managed credential digest is invalid", ErrInvalidDocument)
+		}
+		connection, exists := manager.apiConnections[id]
+		if !exists {
+			return fmt.Errorf("%w: managed credential digest references unknown API connection", ErrInvalidDocument)
+		}
+		if embedded := managedDigestFromRevision(connection.Revision); embedded != "" && embedded != digest {
+			return fmt.Errorf("%w: managed credential digest disagrees with connection revision", ErrInvalidDocument)
+		}
+		manager.managedDigests[id] = digest
+	}
+	for id, fields := range manager.managedFields {
+		if _, active := manager.apiConnections[id]; !active || len(fields) == 0 {
+			continue
+		}
+		if _, exists := manager.managedDigests[id]; exists {
+			continue
+		}
+		if digest := managedDigestFromRevision(manager.apiConnections[id].Revision); digest != "" {
+			manager.managedDigests[id] = digest
+		}
+	}
 	return nil
+}
+
+type managedCredentialReconcile struct {
+	id       domain.ConfigID
+	revision string
+	digest   string
+}
+
+// reconcileManagedCredentials makes the persisted encrypted envelope set a
+// prerequisite for exposing an active managed field. A process can terminate
+// after Replace and before the configuration CAS; on restart the old
+// connection revision therefore remains authoritative and any different
+// complete set is quarantined until an explicit repair changes both records.
+// Store I/O is deliberately performed without manager.mu held.
+func (manager *Manager) reconcileManagedCredentials(ctx context.Context) {
+	manager.mu.RLock()
+	store := manager.credentialStore
+	candidates := make([]managedCredentialReconcile, 0, len(manager.managedFields))
+	for id, fields := range manager.managedFields {
+		if len(fields) == 0 {
+			continue
+		}
+		connection, active := manager.apiConnections[id]
+		if !active {
+			continue
+		}
+		candidates = append(candidates, managedCredentialReconcile{id: id, revision: connection.Revision, digest: manager.managedDigests[id]})
+	}
+	manager.mu.RUnlock()
+	if len(candidates) == 0 {
+		return
+	}
+	for _, candidate := range candidates {
+		matched := false
+		if contextError(ctx) == nil && store != nil && candidate.digest != "" {
+			actual, err := store.Load(ctx, candidate.id)
+			matched = err == nil && credentialEnvelopeDigest(actual) == candidate.digest
+		}
+		manager.mu.Lock()
+		current, active := manager.apiConnections[candidate.id]
+		fields, managed := manager.managedFields[candidate.id]
+		if active && managed && len(fields) != 0 && current.Revision == candidate.revision && !matched {
+			manager.credentialQuarantine[candidate.id] = struct{}{}
+		}
+		manager.mu.Unlock()
+	}
 }
 
 func (manager *Manager) activateYAML(ctx context.Context, parsed ParsedYAML) error {
@@ -908,6 +995,10 @@ func (manager *Manager) yamlChangesLocked(newConnections map[domain.ConfigID]dom
 }
 
 func (manager *Manager) runRevisionChanges(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection) error {
+	return manager.runRevisionChangesWithCandidates(ctx, changes, newConnections, nil)
+}
+
+func (manager *Manager) runRevisionChangesWithCandidates(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection, candidateCredentials map[domain.ConfigID]map[string]credentials.Envelope) error {
 	for _, original := range changes {
 		if err := contextError(ctx); err != nil {
 			return err
@@ -920,7 +1011,11 @@ func (manager *Manager) runRevisionChanges(ctx context.Context, changes []Revisi
 				connection = &copyValue
 			}
 		}
-		if err := manager.authorizeRevisionChange(ctx, change, connection); err != nil {
+		var candidate map[string]credentials.Envelope
+		if candidateCredentials != nil {
+			candidate = candidateCredentials[change.ID]
+		}
+		if err := manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, candidate); err != nil {
 			return err
 		}
 	}
@@ -928,14 +1023,26 @@ func (manager *Manager) runRevisionChanges(ctx context.Context, changes []Revisi
 }
 
 func (manager *Manager) authorizeRevisionChange(ctx context.Context, change RevisionChange, connection *domain.Connection) error {
+	return manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, nil)
+}
+
+func (manager *Manager) authorizeRevisionChangeWithCandidate(ctx context.Context, change RevisionChange, connection *domain.Connection, candidate map[string]credentials.Envelope) error {
 	manager.mu.RLock()
 	verifier := manager.identityVerifier
+	candidateVerifier := manager.candidateIdentityVerifier
 	invalidator := manager.invalidator
+	crypt := manager.credentialManager
 	manager.mu.RUnlock()
 	if change.Kind == ResourceConnection && connection != nil && !change.AuthorityChanged && containsAny(change.ChangedFields, "credentials") {
 		status := IdentityUnknown
 		var verifyErr error
-		if verifier != nil {
+		// Managed API credential changes must be checked with the exact
+		// candidate set. The legacy verifier has no way to observe candidate
+		// plaintext, so it is intentionally ignored for this path. YAML static
+		// values remain internal to this package and retain the legacy seam.
+		if candidate != nil && candidateVerifier != nil && crypt != nil {
+			status, verifyErr = manager.verifyCandidateIdentity(ctx, *connection, candidate, crypt, candidateVerifier)
+		} else if candidate == nil && verifier != nil {
 			status, verifyErr = verifier(ctx, *connection)
 		}
 		if verifyErr == nil && status == IdentityVerified {
@@ -950,6 +1057,43 @@ func (manager *Manager) authorizeRevisionChange(ctx context.Context, change Revi
 		return invalidator(ctx, change)
 	}
 	return nil
+}
+
+func (manager *Manager) verifyCandidateIdentity(ctx context.Context, connection domain.Connection, candidate map[string]credentials.Envelope, crypt *credentials.Manager, verifier CandidateIdentityVerifier) (IdentityVerification, error) {
+	if verifier == nil || crypt == nil {
+		return IdentityUnknown, nil
+	}
+	var resolvedMu sync.Mutex
+	resolved := make([][]byte, 0, len(candidate))
+	defer func() {
+		resolvedMu.Lock()
+		deferred := resolved
+		resolved = nil
+		resolvedMu.Unlock()
+		for _, value := range deferred {
+			zero(value)
+		}
+	}()
+	reader := CandidateCredentialReader(func(field string) ([]byte, error) {
+		if validateCredentialField(field) != nil {
+			return nil, ErrCredentialInvalid
+		}
+		envelope, exists := candidate[field]
+		if !exists {
+			return nil, ErrCredentialUnavailable
+		}
+		manager.credentialMu.Lock()
+		value, err := crypt.Open(envelope, connection.ID.String(), field)
+		manager.credentialMu.Unlock()
+		if err != nil {
+			return nil, ErrCredentialUnavailable
+		}
+		resolvedMu.Lock()
+		resolved = append(resolved, value)
+		resolvedMu.Unlock()
+		return value, nil
+	})
+	return verifier(ctx, connection, reader)
 }
 
 func connectionChangedFields(previous, current domain.Connection) ([]string, bool) {
@@ -1229,6 +1373,10 @@ func (manager *Manager) ResolveCredential(ctx context.Context, connectionID doma
 		manager.mu.RUnlock()
 		return nil, ErrCredentialUnavailable
 	}
+	if _, pending := manager.pendingConnections[connectionID]; pending {
+		manager.mu.RUnlock()
+		return nil, ErrCredentialUnavailable
+	}
 	if _, quarantined := manager.credentialQuarantine[connectionID]; quarantined {
 		manager.mu.RUnlock()
 		return nil, ErrCredentialUnavailable
@@ -1248,6 +1396,7 @@ func (manager *Manager) ResolveCredential(ctx context.Context, connectionID doma
 	if err != nil {
 		return nil, ErrCredentialUnavailable
 	}
+	observedDigest := credentialEnvelopeDigest(envelopes)
 	envelope, exists := envelopes[field]
 	if !exists {
 		return nil, ErrCredentialUnavailable
@@ -1256,6 +1405,16 @@ func (manager *Manager) ResolveCredential(ctx context.Context, connectionID doma
 	value, err := crypt.Open(envelope, connectionID.String(), field)
 	manager.credentialMu.Unlock()
 	if err != nil {
+		return nil, ErrCredentialUnavailable
+	}
+	manager.mu.RLock()
+	valid := manager.connectionActiveLocked(connectionID) && manager.credentialFieldActiveLocked(connectionID, field)
+	_, pending := manager.pendingConnections[connectionID]
+	_, quarantined := manager.credentialQuarantine[connectionID]
+	valid = valid && !pending && !quarantined && manager.managedDigests[connectionID] == observedDigest
+	manager.mu.RUnlock()
+	if !valid {
+		zero(value)
 		return nil, ErrCredentialUnavailable
 	}
 	return value, nil
@@ -1278,6 +1437,10 @@ func (manager *Manager) CredentialMetadata(ctx context.Context, connectionID dom
 		manager.mu.RUnlock()
 		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
 	}
+	if _, pending := manager.pendingConnections[connectionID]; pending {
+		manager.mu.RUnlock()
+		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
+	}
 	if _, quarantined := manager.credentialQuarantine[connectionID]; quarantined {
 		manager.mu.RUnlock()
 		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
@@ -1293,6 +1456,16 @@ func (manager *Manager) CredentialMetadata(ctx context.Context, connectionID dom
 	}
 	envelopes, err := store.Load(ctx, connectionID)
 	if err != nil {
+		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
+	}
+	observedDigest := credentialEnvelopeDigest(envelopes)
+	manager.mu.RLock()
+	valid := manager.connectionActiveLocked(connectionID) && manager.credentialFieldActiveLocked(connectionID, field)
+	_, pending := manager.pendingConnections[connectionID]
+	_, quarantined := manager.credentialQuarantine[connectionID]
+	valid = valid && !pending && !quarantined && manager.managedDigests[connectionID] == observedDigest
+	manager.mu.RUnlock()
+	if !valid {
 		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
 	}
 	envelope, exists := envelopes[field]
@@ -1527,7 +1700,11 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 	if err != nil {
 		return domain.Connection{}, err
 	}
-	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, map[domain.ConfigID]domain.Connection{id: updated}); err != nil {
+	var candidateCredentials map[domain.ConfigID]map[string]credentials.Envelope
+	if patch.Credentials != nil {
+		candidateCredentials = map[domain.ConfigID]map[string]credentials.Envelope{id: cloneEnvelopeSet(preparedCredentials)}
+	}
+	if err := manager.runRevisionChangesWithCandidates(ctx, []RevisionChange{change}, map[domain.ConfigID]domain.Connection{id: updated}, candidateCredentials); err != nil {
 		return domain.Connection{}, err
 	}
 	if patch.Credentials != nil {
@@ -2263,13 +2440,26 @@ func digestValue(value any) string {
 	return "sha256:" + hex.EncodeToString(hash[:])
 }
 
-func newBindingKey() ([]byte, error) {
-	key := make([]byte, sha256.Size)
-	if _, err := rand.Read(key); err != nil {
-		zero(key)
-		return nil, err
+// stableBindingKey derives the private HMAC key used for static secret
+// bindings. A persistent credential key fingerprint scopes the binding when
+// one is configured; the document identity is the stable fallback for YAML
+// parsing before credential storage is wired. This keeps identical YAML and
+// resolved bytes stable across restarts while a key rotation or document
+// identity change produces a new binding namespace. The returned key is
+// package-owned and must be zeroed when its owner closes.
+func stableBindingKey(documentID string, crypt *credentials.Manager) []byte {
+	documentID = strings.TrimSpace(documentID)
+	if documentID == "" {
+		documentID = defaultDocumentID
 	}
-	return key, nil
+	scope := "mastarr/static-credential-binding/v2\x00" + documentID
+	if crypt != nil && crypt.Fingerprint() != "" {
+		scope += "\x00credential-key:" + crypt.Fingerprint()
+	} else {
+		scope += "\x00document-only"
+	}
+	key := sha256.Sum256([]byte(scope))
+	return append([]byte(nil), key[:]...)
 }
 
 func opaqueCredentialBinding(key, value []byte) string {
@@ -2319,15 +2509,40 @@ func connectionRevisionForManaged(connection domain.Connection, fields map[strin
 }
 
 func connectionRevisionForManagedValues(connection domain.Connection, managed []string, digest string) string {
-	return digestValue(struct {
-		ID            domain.ConfigID
-		Kind          domain.ConnectionKind
-		Label         string
-		Endpoint      string
-		Credentials   []string
-		Managed       []string
-		ManagedDigest string
-	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials), managed, digest})
+	revision := digestValue(struct {
+		ID          domain.ConfigID
+		Kind        domain.ConnectionKind
+		Label       string
+		Endpoint    string
+		Credentials []string
+		Managed     []string
+	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials), managed})
+	if validCredentialEnvelopeDigest(digest) {
+		return revision + "|managed=" + digest
+	}
+	return revision
+}
+
+func managedDigestFromRevision(revision string) string {
+	const marker = "|managed="
+	index := strings.LastIndex(revision, marker)
+	if index < 0 || index+len(marker) == len(revision) {
+		return ""
+	}
+	digest := revision[index+len(marker):]
+	if !validCredentialEnvelopeDigest(digest) {
+		return ""
+	}
+	return digest
+}
+
+func validCredentialEnvelopeDigest(value string) bool {
+	const prefix = "sha256:"
+	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value[len(prefix):])
+	return err == nil
 }
 
 func rootRevision(root domain.StorageRoot) string {
@@ -2603,7 +2818,11 @@ func cleanSourcePrefix(value string) (string, error) {
 	if value == "" {
 		return "", errors.New("source prefix must be an absolute remote namespace")
 	}
-	if !isAbsoluteRemoteNamespace(value) {
+	// qBittorrent and NZBGet adapters currently expose POSIX remote paths.
+	// Reject drive-letter forms at this boundary until all upstream adapters
+	// share a canonical cross-platform namespace contract. This also prevents
+	// C:/ and c:/ aliases from bypassing ambiguity checks.
+	if !strings.HasPrefix(value, "/") || isWindowsAbsoluteNamespace(value) {
 		return "", errors.New("source prefix must be an absolute remote namespace")
 	}
 	return cleanNamespace(value)
