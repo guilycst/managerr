@@ -1554,7 +1554,7 @@
       "review": null
     },
     "X-07": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/x05_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -1570,14 +1570,19 @@
         "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df X-07 correction round one product commit",
         "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef X-07 correction round one handoff",
         "X-07 correction adds final-content relocation semantics, fail-closed destination vacancy evidence, full payload read-back and operation-specific capability gates.",
-        "Full checks after D-03 dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed."
+        "Full checks after D-03 dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed.",
+        "9c7e35dc3e8accf25b0751a69aa85b5f4ae0cab4 X-07 independent review round two: changes requested",
+        "afd10f721332b63dda6569dbf626580e21d37b33 integrated X-07 review round two receipt",
+        "X-07 correction required: prove final content basename/layout is representable before setLocation; changed basename must be refused with zero native calls unless a separate reviewed rename action is used."
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "9c7e35dc3e8accf25b0751a69aa85b5f4ae0cab4",
+        "findings": [
+          "P1: Relocate must reject an unrepresentable final content basename/layout before any setLocation call; current behavior can move to the old basename and return outcome_unknown after a native write."
+        ],
         "round": 2
       },
       "dispatch": {
@@ -1613,15 +1618,15 @@
         },
         "reviewSourceCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
         "handoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
-        "correctionRound": 1,
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "a51e51945bde229265163707261483fa7edce06a",
-        "correctionReviewPath": "docs/execution/handoffs/X-07-review-round1.md",
+        "correctionBaseSha": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
+        "correctionReviewPath": "docs/execution/handoffs/X-07-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "reviewIntegrationCommit": "feee6445c3195d97728899f522264b61e5cf3f25",
+        "reviewIntegrationCommit": "afd10f721332b63dda6569dbf626580e21d37b33",
         "correctionImplementationCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
         "correctionHandoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
-        "correctionReviewCommit": "2c26b06fe083372432889901f84d98246ab761be"
+        "correctionReviewCommit": "9c7e35dc3e8accf25b0751a69aa85b5f4ae0cab4"
       },
       "implementationCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
       "handoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
@@ -1635,6 +1640,15 @@
           "sourceCommit": "a51e51945bde229265163707261483fa7edce06a",
           "receipt": "docs/execution/handoffs/X-07-review-round1.md",
           "integratedCommit": "feee6445c3195d97728899f522264b61e5cf3f25"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "9c7e35dc3e8accf25b0751a69aa85b5f4ae0cab4",
+          "status": "changes_requested",
+          "sourceCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
+          "receipt": "docs/execution/handoffs/X-07-review-round2.md",
+          "integratedCommit": "afd10f721332b63dda6569dbf626580e21d37b33"
         }
       ]
     },
