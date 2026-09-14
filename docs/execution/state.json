@@ -2352,7 +2352,10 @@
         "019164e45d90b683374989c53134f0b2be08d45f W-02 correction round five handoff records 100-run recovery tests, race/full root and module checks, vet, verification, guardrails, API/Vacuum, architecture, lint, planning, and Linux amd64/arm64 builds; G-01 remains open.",
         "W-02 correction round five review dispatch will use /root/x05_reviewer against source addb005de8972d4e67c0cc61f0f96f2ac11a7a3a.",
         "fc67e8b5ea2ade046bfca38fd68f87690a552b99 W-02 correction round five independent review requested changes against source addb005de8972d4e67c0cc61f0f96f2ac11a7a3a.",
-        "Round-six review closed the one-marker fallback, SQLite close/reopen recovery, mismatched-ID fencing, lease renewal, exact effects, and initial-observe cancellation. One P2 remains when both returned-handler markers fail through the bounded retry window: no durable or in-memory retry knowledge remains and fresh RunOnce waits for startup recovery. Correction round six is required before integration."
+        "Round-six review closed the one-marker fallback, SQLite close/reopen recovery, mismatched-ID fencing, lease renewal, exact effects, and initial-observe cancellation. One P2 remains when both returned-handler markers fail through the bounded retry window: no durable or in-memory retry knowledge remains and fresh RunOnce waits for startup recovery. Correction round six is required before integration.",
+        "ff23e1b939f04c1136cba8134d3c9ae505094dba W-02 correction round six product commit adds an exact action/attempt process-local fallback shared across Executor instances when both marker writes fail.",
+        "e1f125a6dbc135fd3bfec65dd27c42952e3e1afb W-02 correction round six handoff records deterministic dual-marker outage recovery, focused/race/vet/root/module/API/Vacuum/lint/architecture/planning/guardrail checks, and Linux amd64/arm64 builds; restart durability remains through durable markers/startup recovery and G-01 remains open.",
+        "W-02 correction round six review dispatch will use /root/x05_reviewer against source ff23e1b939f04c1136cba8134d3c9ae505094dba."
       ],
       "review": {
         "status": "changes_requested",
@@ -2407,18 +2410,20 @@
         ],
         "reviewer": "/root/x05_reviewer",
         "reviewCommit": "fc67e8b5ea2ade046bfca38fd68f87690a552b99",
-        "correctionRound": 6,
+        "correctionRound": 7,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a",
+        "correctionBaseSha": "ff23e1b939f04c1136cba8134d3c9ae505094dba",
         "correctionReviewPath": "docs/execution/handoffs/W-02-review-round7.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
-        "correctionDispatchCommit": "be02ce8f3010e42ef89df7b30747a0effb18cb2b",
-        "correctionStatus": "dispatched",
-        "correctionProductCommits": [],
-        "correctionReviewSourceCommit": null,
+        "correctionImplementationCommit": "ff23e1b939f04c1136cba8134d3c9ae505094dba",
+        "correctionHandoffCommit": "e1f125a6dbc135fd3bfec65dd27c42952e3e1afb",
+        "correctionDispatchCommit": null,
+        "correctionStatus": "awaiting_independent_review",
+        "correctionProductCommits": [
+          "ff23e1b939f04c1136cba8134d3c9ae505094dba"
+        ],
+        "correctionReviewSourceCommit": "ff23e1b939f04c1136cba8134d3c9ae505094dba",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -3453,7 +3458,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round six is dispatched to /root/x05_implementer for a fallback when both returned-handler markers are unavailable; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round six is ready for independent review by /root/x05_reviewer against ff23e1b9; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
