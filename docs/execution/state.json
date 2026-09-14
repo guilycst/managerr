@@ -2415,8 +2415,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued",
+        "correctionDispatchCommit": "be02ce8f3010e42ef89df7b30747a0effb18cb2b",
+        "correctionStatus": "dispatched",
         "correctionProductCommits": [],
         "correctionReviewSourceCommit": null,
         "reviewerReroute": {
@@ -3453,7 +3453,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round six is queued to /root/x05_implementer for a fallback when both returned-handler markers are unavailable; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round six is dispatched to /root/x05_implementer for a fallback when both returned-handler markers are unavailable; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
