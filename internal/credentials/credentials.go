@@ -450,7 +450,10 @@ func readKeyFile(path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
 		return nil, ErrInvalidKey
 	}
-	info, err := os.Lstat(path)
+	// Explicit secret-file paths may be Kubernetes projected Secret symlinks.
+	// Stat follows that operator-selected link, while still requiring the final
+	// target to be a bounded regular file.
+	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrKeyUnavailable
@@ -468,6 +471,9 @@ func readKeyFile(path string) ([]byte, error) {
 }
 
 func loadOrCreatePersistentKey(path string, existingData bool) ([]byte, error) {
+	if err := validatePersistentKeyDirectory(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, ErrInvalidKey
@@ -491,8 +497,22 @@ func loadOrCreatePersistentKey(path string, existingData bool) ([]byte, error) {
 
 func createPersistentKey(path string) ([]byte, error) {
 	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, keyDirectoryMode); err != nil {
-		return nil, errors.New("create credential key directory failed")
+	// MkdirAll is used only to create a missing path. The post-create Lstat
+	// below rejects a symlink or non-directory before chmod or key publication.
+	// A local attacker replacing the directory between those checks remains
+	// outside this package's portable standard-library guarantee.
+	if info, err := os.Lstat(directory); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("inspect credential key directory failed")
+		}
+		if err := os.MkdirAll(directory, keyDirectoryMode); err != nil {
+			return nil, errors.New("create credential key directory failed")
+		}
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, ErrInvalidKey
+	}
+	if err := validatePersistentKeyDirectory(directory); err != nil {
+		return nil, err
 	}
 	if err := os.Chmod(directory, keyDirectoryMode); err != nil {
 		return nil, errors.New("secure credential key directory failed")
@@ -569,6 +589,20 @@ func syncDirectory(path string) error {
 	defer directory.Close()
 	if err := directory.Sync(); err != nil {
 		return errors.New("sync credential key directory failed")
+	}
+	return nil
+}
+
+func validatePersistentKeyDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return errors.New("inspect credential key directory failed")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrInvalidKey
 	}
 	return nil
 }

@@ -113,6 +113,86 @@ func TestLoadKeyExplicitSourcesAndNoFallback(t *testing.T) {
 	}
 }
 
+func TestExplicitKeyFileFollowsProjectedSecretSymlink(t *testing.T) {
+	volume := t.TempDir()
+	versioned := filepath.Join(volume, "..2026_09_13_00_00_00")
+	if err := os.Mkdir(versioned, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	material := bytes.Repeat([]byte{0x63}, keySize)
+	encoded := base64.StdEncoding.EncodeToString(material) + "\n"
+	if err := os.WriteFile(filepath.Join(versioned, "credentials.key"), []byte(encoded), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(versioned), filepath.Join(volume, "..data")); err != nil {
+		t.Fatalf("create projected Secret data link: %v", err)
+	}
+	visible := filepath.Join(volume, "credentials.key")
+	if err := os.Symlink(filepath.Join("..data", "credentials.key"), visible); err != nil {
+		t.Fatalf("create projected Secret key link: %v", err)
+	}
+
+	key, err := LoadKey(KeyOptions{KeyFile: visible, KeyFileProvided: true})
+	if err != nil {
+		t.Fatalf("projected Secret key was rejected: %v", err)
+	}
+	defer key.Close()
+	if key.Source() != KeySourceSecretFile || key.Fingerprint() != fingerprint(material) {
+		t.Fatalf("projected Secret key metadata = source %q fingerprint %q", key.Source(), key.Fingerprint())
+	}
+}
+
+func TestExplicitKeyFileRejectsDirectoryAndNeverGeneratesFallback(t *testing.T) {
+	dataDir := t.TempDir()
+	directory := filepath.Join(t.TempDir(), "key-directory")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(KeyOptions{DataDir: dataDir, KeyFile: directory, KeyFileProvided: true}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("directory key source = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "keys", "credentials.key")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("directory key source created fallback: %v", err)
+	}
+}
+
+func TestGeneratedKeyRejectsSymlinkedOrNonDirectoryKeysPath(t *testing.T) {
+	dataDir := t.TempDir()
+	outside := t.TempDir()
+	keysPath := filepath.Join(dataDir, "keys")
+	if err := os.Symlink(outside, keysPath); err != nil {
+		t.Fatalf("create keys symlink: %v", err)
+	}
+	outsideInfo, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(KeyOptions{DataDir: dataDir}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("symlinked keys path = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "credentials.key")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlinked keys path mutated outside data dir: %v", err)
+	}
+	afterOutsideInfo, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outsideInfo.Mode().Perm() != afterOutsideInfo.Mode().Perm() {
+		t.Fatalf("symlinked keys path changed outside directory mode from %o to %o", outsideInfo.Mode().Perm(), afterOutsideInfo.Mode().Perm())
+	}
+
+	fileDataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fileDataDir, "keys"), []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(KeyOptions{DataDir: fileDataDir}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("non-directory keys path = %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(fileDataDir, "keys")); err != nil || string(got) != "sentinel" {
+		t.Fatalf("non-directory keys path changed: %q, %v", got, err)
+	}
+}
+
 func TestPersistentKeyGenerationIsExclusive(t *testing.T) {
 	dataDir := t.TempDir()
 	const callers = 16
