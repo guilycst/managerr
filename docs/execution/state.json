@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "X-05"
+    "D-03",
+    "X-07"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -786,7 +787,7 @@
         "correctionReviewer": "/root/d02_reviewer",
         "correctionImplementationCommit": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
         "correctionHandoffCommit": "4048c7ee5035ead345a919e4ffa21ec6e289eef4",
-        "reviewIntegrationCommit": "6354e87"
+        "reviewIntegrationCommit": "6354e87d5bbd0b9d8e9271c930dcf67747d90c8d"
       },
       "implementationCommit": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
       "handoffCommit": "4048c7ee5035ead345a919e4ffa21ec6e289eef4",
@@ -822,12 +823,43 @@
       ]
     },
     "D-03": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/d02_implementer",
+      "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after D-02 approval and C-03/D-01 dependencies passed"
+      ],
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-13",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
+        "ownedPaths": [
+          "internal/configuration/"
+        ],
+        "expectedChecks": [
+          "A-38",
+          "A-39",
+          "A-42",
+          "GOWORK=off root tests/race/vet/mod-verify",
+          "YAML/API source ownership validation",
+          "credential reference and revision tests",
+          "generation/API/architecture/planning/guardrails",
+          "Linux amd64/arm64 compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/D-03-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/D-03.md",
+        "nextReviewer": "/root/d02_reviewer",
+        "dependencyCommits": {
+          "D-02": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
+          "D-02-review": "05c88f40e6907f148767a2e5e1ad4ef8125006fa",
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
+          "D-01": "8098e2b552737e5e18848d27b665991fddce18bf"
+        }
+      }
     },
     "D-04": {
       "status": "planned",
@@ -1376,10 +1408,10 @@
       ]
     },
     "X-05": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
-      "integratedSha": null,
+      "integratedSha": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
       "evidence": [
         "dispatched from b1d0fed72128c73d565c2254b61fa5e38100fb97 after all listed dependencies passed",
         "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a",
@@ -1397,13 +1429,16 @@
         "X-05 correction required: independently pin zero-speed/stalledUP and HTTP 202 fixture values; use Sonarr downloadFolderImported history enum.",
         "165f22c2d81c4123d2ab31cf00d7613cdba87054 X-05 correction round three product",
         "949b07d032f5d7bd36055388ffac17fe1be84007 X-05 correction round three handoff",
-        "X-05 correction independently pins stalledUP/upspeed=0 and HTTP 202, uses native downloadFolderImported enum, and preserves protocol-model/runtime capability blocks; focused/module/guardrail checks passed."
+        "X-05 correction independently pins stalledUP/upspeed=0 and HTTP 202, uses native downloadFolderImported enum, and preserves protocol-model/runtime capability blocks; focused/module/guardrail checks passed.",
+        "17b8f67b879be9d44174f1262bc31c46d086f82a X-05 independent review round three approved",
+        "8e3536c8a0dc138946113e59d21e5523f775d409 integrated X-05 approval receipt",
+        "X-05 complete: fixture-bound protocol models, Sonarr episode-file read-back, qBittorrent scope/lost-response checks, Jellyfin acceptance separation, explicit subtitle/anime mappings, focused/race/vet/module/generation/Vacuum/architecture/lint/planning/CI checks passed; G-01 and runtime write capabilities remain blocked."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
+        "commit": "17b8f67b879be9d44174f1262bc31c46d086f82a",
         "findings": [],
         "round": 3
       },
@@ -1440,7 +1475,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-05-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-05-correction-round3.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-00": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
           "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
@@ -1456,7 +1491,7 @@
         "correctionReviewer": "/root/x05_reviewer",
         "correctionImplementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
         "correctionHandoffCommit": "949b07d032f5d7bd36055388ffac17fe1be84007",
-        "reviewIntegrationCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
+        "reviewIntegrationCommit": "8e3536c8a0dc138946113e59d21e5523f775d409"
       },
       "implementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
       "handoffCommit": "949b07d032f5d7bd36055388ffac17fe1be84007",
@@ -1479,6 +1514,15 @@
           "sourceCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
           "receipt": "docs/execution/handoffs/X-05-review-round2.md",
           "integratedCommit": "2e98db6bc5f0fbe1c7db3ecb2ef76bdb7c0ed3f"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "17b8f67b879be9d44174f1262bc31c46d086f82a",
+          "status": "approved",
+          "sourceCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
+          "receipt": "docs/execution/handoffs/X-05-review-round3.md",
+          "integratedCommit": "8e3536c8a0dc138946113e59d21e5523f775d409"
         }
       ]
     },
@@ -1491,12 +1535,46 @@
       "review": null
     },
     "X-07": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after X-05 approval and X-12/qBittorrent client dependencies passed"
+      ],
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-13",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
+        "ownedPaths": [
+          "internal/adapters/qbittorrent/control/"
+        ],
+        "expectedChecks": [
+          "A-28",
+          "A-29",
+          "A-30",
+          "A-31",
+          "A-33",
+          "GOWORK=off root and qBittorrent module tests/race/vet/mod-verify",
+          "stop/read-back/lost-response checks",
+          "scope/deleteFiles=false/rename collision tests",
+          "generated DTO non-leakage and architecture",
+          "generation/API/planning/guardrails",
+          "Linux amd64/arm64 compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-07-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-07.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "X-05": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
+          "X-05-review": "17b8f67b879be9d44174f1262bc31c46d086f82a",
+          "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
+          "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af"
+        }
+      }
     },
     "X-08": {
       "status": "planned",
@@ -2385,7 +2463,7 @@
       ]
     }
   },
-  "nextAction": "D-02 is complete and X-05 correction round three is in independent review; await X-05 receipt.",
+  "nextAction": "D-03 configuration and X-07 qBittorrent control are dispatched in parallel from 8e3536c; reviewers reserved.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
