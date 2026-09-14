@@ -991,6 +991,23 @@ func TestBarrierReleaseRetriesAfterTransientJournalFailure(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("old worker did not return")
 	}
+	// The old worker's defer schedules the transient failure recovery in a
+	// separate goroutine. Wait for that exact dispatch attempt to leave the
+	// barrier before a fresh worker claims the action; otherwise this fixture
+	// would intentionally race two safe recovery transactions.
+	barrierDeadline := time.NewTimer(3 * time.Second)
+	defer barrierDeadline.Stop()
+	for {
+		attempts := mustAttempts(t, journal, action.ID)
+		if len(attempts) >= 2 && attempts[1].State == domain.AttemptReconciling {
+			break
+		}
+		select {
+		case <-barrierDeadline.C:
+			t.Fatalf("attempts after transient barrier failure = %+v, want dispatch barrier reconciled", attempts)
+		case <-time.After(time.Millisecond):
+		}
+	}
 
 	freshHandler := &scriptedHandler{
 		kind: domain.ActionFSCopy,
@@ -1010,7 +1027,7 @@ func TestBarrierReleaseRetriesAfterTransientJournalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(batch.Results) != 1 {
-		t.Fatalf("fresh scheduler batch after marker recovery = %+v, want one result", batch)
+		t.Fatalf("fresh scheduler batch after transient barrier recovery = %+v, want one result", batch)
 	}
 	result := batch.Results[0]
 	if result.State != domain.ActionQueued || result.Err != nil {
@@ -1115,7 +1132,14 @@ func TestDispatchBarrierIntentSurvivesMarkerWriteOutage(t *testing.T) {
 	if err := fresh.RegisterHandler(freshHandler); err != nil {
 		t.Fatal(err)
 	}
-	result := fresh.RunAction(context.Background(), action.ID)
+	batch, err := fresh.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Results) != 1 {
+		t.Fatalf("fresh scheduler batch after marker recovery = %+v, want one result", batch)
+	}
+	result := batch.Results[0]
 	if result.Err != nil || result.State != domain.ActionQueued {
 		t.Fatalf("fresh worker after marker recovery = %+v, want queued safe retry", result)
 	}
