@@ -1235,7 +1235,10 @@
         "a84853ac3bf25886aadc69c625ad7b10f9327801 F-03 correction round one handoff records deterministic regression tests and focused/race/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; unrelated internal/storage timeout remains recorded as a separate blocker.",
         "F-03 correction review dispatch is recorded against final product tree ebdf5112c5be852fc992f337d47e4e0589f52b94 and handoff a84853ac3bf25886aadc69c625ad7b10f9327801.",
         "884a505a4820d475c16a1e034fd8680367ebf9d7 F-03 correction round two independent review requested changes against source ebdf5112c5be852fc992f337d47e4e0589f52b94.",
-        "Round-two review closed the original mixed-trigger/deadline/revision findings but found P1 empty ConfigRevision acceptance, P1 overlapping old and fresh same-root runners after reconfiguration with MaxConcurrent>1, and P2 scheduled follow-up TriggerManual attribution. Correction round two is required before integration."
+        "Round-two review closed the original mixed-trigger/deadline/revision findings but found P1 empty ConfigRevision acceptance, P1 overlapping old and fresh same-root runners after reconfiguration with MaxConcurrent>1, and P2 scheduled follow-up TriggerManual attribution. Correction round two is required before integration.",
+        "b78a30b6186f025f6dc59fb7911cd7adebecb0ea F-03 correction round two product commit enforces trimmed non-empty revisions and same-root runner ownership.",
+        "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191 F-03 correction round two final product test commit covers legacy revision recovery and scheduled trigger provenance.",
+        "74d8f233e269c2fc7bc5cc0f269980641ddbf616 F-03 correction round two handoff records final product tree and focused/race/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; unrelated storage migration timeout remains recorded."
       ],
       "review": {
         "status": "changes_requested",
@@ -1286,20 +1289,21 @@
           "50e5a3a32e2acf975e3c489e4c75839a0d73a87e"
         ],
         "reviewCommit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/d02_implementer",
-        "correctionBaseSha": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
-        "correctionDispatchCommit": "2c79b600866407f4256b47dfb1913ae1ff5568c9",
+        "correctionBaseSha": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
+        "correctionDispatchCommit": null,
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
+        "correctionImplementationCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
+        "correctionHandoffCommit": "74d8f233e269c2fc7bc5cc0f269980641ddbf616",
         "correctionProductCommits": [
-          "ebdf5112c5be852fc992f337d47e4e0589f52b94"
+          "b78a30b6186f025f6dc59fb7911cd7adebecb0ea",
+          "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191"
         ],
-        "correctionStatus": "dispatched",
-        "correctionReviewSourceCommit": null
+        "correctionStatus": "awaiting_independent_review",
+        "correctionReviewSourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191"
       },
       "reviewHistory": [
         {
@@ -1309,6 +1313,14 @@
           "status": "changes_requested",
           "sourceCommit": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
           "receipt": "docs/execution/handoffs/F-03-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
+          "status": "changes_requested",
+          "sourceCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
+          "receipt": "docs/execution/handoffs/F-03-review-round2.md"
         },
         {
           "round": 2,
@@ -3333,7 +3345,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction round two remains active under /root/d02_implementer; F-05 correction round three is dispatched to /root/x05_implementer; W-02 correction remains queued.",
+  "nextAction": "F-03 correction round two is ready for independent review by /root/x05_reviewer against b65f5d65; F-05 correction round three remains active under /root/x05_implementer; W-02 correction remains queued.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
