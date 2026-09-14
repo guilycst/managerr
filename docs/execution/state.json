@@ -1068,7 +1068,10 @@
         "F-02 correction round two suffix-only subtitle language parsing and short-title regressions passed all requested checks.",
         "e451a682bc1c7457a489d8328b3b76d0755ae993 F-02 independent review round three changes requested",
         "1fcb5de docs(discovery): integrate F-02 suffix review receipt",
-        "F-02 round-three review confirms suffix language fix and retains two A-11 subtitle pairing/label blockers."
+        "F-02 round-three review confirms suffix language fix and retains two A-11 subtitle pairing/label blockers.",
+        "05dcd107d83b77632a0212d5faec31c65e3d4e13 F-02 correction round three product",
+        "da632a65257c6b5e477c006f78be3d6526cfc8ef F-02 correction round three handoff",
+        "F-02 correction round three removes unrelated sole-video pairing and preserves bracketed/parenthesized subtitle labels; requested checks passed."
       ],
       "review": {
         "status": "changes_requested",
@@ -1114,7 +1117,7 @@
         },
         "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
         "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-        "reviewSourceCommit": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+        "reviewSourceCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
         "reviewer": "/root/d02_reviewer",
         "reviewCommit": "30bca5041495eed51ea150b809332403d5c17eb3",
         "reviewIntegrationCommit": "28b1510afb8c43a131679d6ac9855807e3e530a8",
@@ -1126,12 +1129,13 @@
         "correctionReviewPath": "docs/execution/handoffs/F-02-review-round4.md",
         "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionImplementationCommit": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
-        "correctionHandoffCommit": "d32ef292d7c55dd0406ff99874fce37d0c5e3736",
+        "correctionImplementationCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
+        "correctionHandoffCommit": "da632a65257c6b5e477c006f78be3d6526cfc8ef",
         "productCommits": [
           "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
           "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
-          "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294"
+          "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+          "05dcd107d83b77632a0212d5faec31c65e3d4e13"
         ],
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
@@ -1143,7 +1147,7 @@
       },
       "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
       "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
-      "reviewSourceCommit": "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+      "reviewSourceCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
       "reviewHistory": [
         {
           "round": 1,
@@ -1176,7 +1180,8 @@
       "productCommits": [
         "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
         "949f4af065aeb8e2dcf13d3ddd7a21ccb593f2ec",
-        "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294"
+        "dcd3b8c9d93d3b0ea3d9a0592e857b36aa2c8294",
+        "05dcd107d83b77632a0212d5faec31c65e3d4e13"
       ]
     },
     "F-03": {
@@ -2996,7 +3001,7 @@
       ]
     }
   },
-  "nextAction": "F-04 correction round two product and handoff are recorded; independent review of 2621343 is pending with /root/x05_reviewer. F-02 correction round three remains active with /root/d02_implementer.",
+  "nextAction": "F-02 correction round three product and handoff are recorded; dispatch independent review of 05dcd107. F-04 correction round two review is pending with /root/x05_reviewer.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
