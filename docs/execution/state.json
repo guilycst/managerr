@@ -713,7 +713,7 @@
       }
     },
     "D-02": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d02_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -722,14 +722,19 @@
         "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a",
         "8ff358be55891e7b7a588e76a57bd3e7d8ce661c D-02 product commit",
         "47b1dfa D-02 handoff commit",
-        "D-02 implementer reports focused credential, race, vet, mod verify, generation, architecture, lint, planning, and Linux amd64/arm64 checks passed; full CI-equivalent waits for concurrent X-05 fixture completion"
+        "D-02 implementer reports focused credential, race, vet, mod verify, generation, architecture, lint, planning, and Linux amd64/arm64 checks passed; full CI-equivalent waits for concurrent X-05 fixture completion",
+        "ad6a2bc7d8e6944a5001cbadf39287af746e64cf D-02 independent review round one: changes requested",
+        "D-02 correction required: support projected Secret symlink targets safely and reject symlinked generated key directories without escaping data-dir."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d02_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf",
+        "findings": [
+          "P1: explicit key-file paths reject Kubernetes projected Secret symlinks; follow a configured symlink only when the resolved target is a bounded regular file, with directory/FIFO rejection tests.",
+          "P1: generated-key creation follows a symlinked data-dir/keys directory and can create credentials.key outside the configured data directory; reject symlinked/non-directory keys before chmod or publication and prove no external mutation."
+        ],
         "round": 1
       },
       "leaseHistory": [
@@ -759,17 +764,35 @@
           "generation/API/architecture/planning/guardrails",
           "Linux amd64/arm64 compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/D-02-review-round1.md",
-        "handoffPath": "docs/execution/handoffs/D-02.md",
+        "reviewPath": "docs/execution/handoffs/D-02-review-round2.md",
+        "handoffPath": "docs/execution/handoffs/D-02-correction-round2.md",
         "nextReviewer": "/root/d02_reviewer",
         "dependencyCommits": {
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
-        }
+        },
+        "correctionRound": 2,
+        "correctionOwner": "/root/d02_implementer",
+        "correctionBaseSha": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
+        "correctionReviewPath": "docs/execution/handoffs/D-02-review-round1.md",
+        "correctionReviewer": "/root/d02_reviewer",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending"
       },
       "implementationCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
       "handoffCommit": "47b1dfa",
-      "reviewSourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c"
+      "reviewSourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/d02_reviewer",
+          "commit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf",
+          "status": "changes_requested",
+          "sourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
+          "receipt": "docs/execution/handoffs/D-02-review-round1.md",
+          "integratedCommit": "ad6a2bc"
+        }
+      ]
     },
     "D-03": {
       "status": "planned",
@@ -2320,7 +2343,7 @@
       ]
     }
   },
-  "nextAction": "X-05 correction round two is assigned to /root/x05_implementer; D-02 remains in independent review.",
+  "nextAction": "D-02 correction round two and X-05 correction round two are assigned; reviewers recheck after exact product and handoff receipts.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
