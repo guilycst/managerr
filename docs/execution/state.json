@@ -1506,7 +1506,10 @@
         "ba03c61e0298a5ec9499945be5e5cc0eca3fcd1a F-05 correction round three handoff records deterministic mutation/retry tests and focused/race/vet/root/cross-build/planning/architecture/guardrail checks.",
         "F-05 correction round three review dispatch will use /root/x05_reviewer against source ffc11d8f4acf6267a763c060bac701004b805dbe.",
         "7235e042302702abb3aeebd92ffb15dbd28577b1 F-05 correction round three independent review requested changes against source ffc11d8f4acf6267a763c060bac701004b805dbe.",
-        "Round-three review closed independent byte-copy destination protection and partial guard rollback. One P1 remains: nested mode-0700 quarantine cleanup still validates, closes, and then name-unlinks, allowing same-UID replacement exchange during delete and move cleanup. Correction round four is required before integration."
+        "Round-three review closed independent byte-copy destination protection and partial guard rollback. One P1 remains: nested mode-0700 quarantine cleanup still validates, closes, and then name-unlinks, allowing same-UID replacement exchange during delete and move cleanup. Correction round four is required before integration.",
+        "3be99364621311c4edc31a2571c095acfb5c1ed4 F-05 correction round four product commit fails closed before quarantine mutation when inode-bound cleanup cannot be guaranteed.",
+        "0cb30eb2421bdb62adea7f2ea878e3fef577b3b8 F-05 correction round four handoff records nested quarantine exchange regressions and focused/race/vet/root/six-cross-build/planning/architecture/generation/API/Vacuum/lint/guardrail checks.",
+        "F-05 correction round four required a bounded implementation retry after an idle worker turn; product and handoff ownership remained /root/x05_implementer and no state files were edited."
       ],
       "review": {
         "status": "changes_requested",
@@ -1559,8 +1562,8 @@
         "correctionRound": 4,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "ffc11d8f4acf6267a763c060bac701004b805dbe",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
+        "correctionImplementationCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
+        "correctionHandoffCommit": "0cb30eb2421bdb62adea7f2ea878e3fef577b3b8",
         "reviewCommit": "7235e042302702abb3aeebd92ffb15dbd28577b1",
         "correctionReviewPath": "docs/execution/handoffs/F-05-review-round4.md",
         "correctionReviewer": "/root/x05_reviewer",
@@ -1568,10 +1571,12 @@
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": "53ccef7b4db079124d224fb852410d76f8d0fc5c",
-        "correctionProductCommits": [],
-        "correctionStatus": "dispatched",
-        "correctionReviewSourceCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionProductCommits": [
+          "3be99364621311c4edc31a2571c095acfb5c1ed4"
+        ],
+        "correctionStatus": "awaiting_independent_review",
+        "correctionReviewSourceCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "errored",
@@ -3360,7 +3365,7 @@
       ]
     }
   },
-  "nextAction": "F-05 correction round four is dispatched to /root/x05_implementer for inode-bound quarantine cleanup; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
+  "nextAction": "F-05 correction round four is ready for independent review by /root/x05_reviewer against 3be99364; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
