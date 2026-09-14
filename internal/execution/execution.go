@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -356,6 +357,7 @@ func normalizeReportedEffects(effects []Effect, actionID string) {
 
 func validateEffects(effects []Effect, actionID string) error {
 	seen := make(map[int64]struct{}, len(effects))
+	seenIdentity := make(map[string]struct{}, len(effects))
 	for index, effect := range effects {
 		if effect.ActionRunID == "" {
 			effect.ActionRunID = actionID
@@ -379,8 +381,17 @@ func validateEffects(effects []Effect, actionID string) error {
 			return fmt.Errorf("%w: duplicate effect ordinal %d", ErrInvalidJournal, effect.Ordinal)
 		}
 		seen[effect.Ordinal] = struct{}{}
+		identity := effectIdentity(effect)
+		if _, ok := seenIdentity[identity]; ok {
+			return fmt.Errorf("%w: duplicate effect identity %s", ErrInvalidJournal, identity)
+		}
+		seenIdentity[identity] = struct{}{}
 	}
 	return nil
+}
+
+func effectIdentity(effect Effect) string {
+	return strings.Join([]string{effect.TargetKind, effect.TargetID, effect.EffectKind}, "\x00")
 }
 
 // validateReportedEffect validates a handler-reported effect before the
@@ -437,6 +448,36 @@ type Journal interface {
 // handler call is made while the transaction is open.
 type TransactionalJournal interface {
 	InTx(context.Context, func(Journal) error) error
+}
+
+// ClaimFence is the immutable ownership evidence captured immediately after a
+// successful claim. Post-dispatch journal writes must use this fence; a fresh
+// action row must never grant a stale worker ownership of a recovered or
+// re-claimed generation. Cancellation may advance Version once while keeping
+// the same worker and lease, so implementations accept that durable marker as
+// part of the original fence.
+type ClaimFence struct {
+	ActionID   string
+	Version    int64
+	WorkerID   string
+	LeaseUntil string
+	Now        string
+}
+
+// FencedTransactionalJournal provides the atomic ownership boundary used for
+// all journal writes made by a claimed worker. The callback runs inside the
+// transaction after the implementation has acquired its writer/ownership
+// fence, and no handler call is made from the callback.
+type FencedTransactionalJournal interface {
+	InTxClaimed(context.Context, ClaimFence, func(Journal) error) error
+}
+
+// ReservationJournal persists canonical resource keys with an action while it
+// has unresolved effects. Reserve is called inside InTxClaimed, allowing the
+// implementation to inspect other active action rows and reject overlap
+// atomically across workers and process restarts.
+type ReservationJournal interface {
+	Reserve(context.Context, string, []string) error
 }
 
 // OutcomeUpdate is the CAS-fenced action transition persisted after attempt
@@ -497,13 +538,14 @@ func (policy RetryPolicy) delay(attempt int64) time.Duration {
 
 // Options controls one executor instance.
 type Options struct {
-	WorkerID      string
-	LeaseDuration time.Duration
-	Retry         RetryPolicy
-	MaxBatch      int
-	Now           func() time.Time
-	AttemptID     func(actionID string, number int64, phase AttemptPhase) string
-	EffectID      func(actionID string, ordinal int64) string
+	WorkerID       string
+	LeaseDuration  time.Duration
+	JournalTimeout time.Duration
+	Retry          RetryPolicy
+	MaxBatch       int
+	Now            func() time.Time
+	AttemptID      func(actionID string, number int64, phase AttemptPhase) string
+	EffectID       func(actionID string, ordinal int64) string
 }
 
 func (options Options) normalized() Options {
@@ -512,6 +554,9 @@ func (options Options) normalized() Options {
 	}
 	if options.LeaseDuration <= 0 {
 		options.LeaseDuration = 30 * time.Second
+	}
+	if options.JournalTimeout <= 0 {
+		options.JournalTimeout = 5 * time.Second
 	}
 	if options.MaxBatch <= 0 {
 		options.MaxBatch = 16
@@ -543,6 +588,12 @@ type Executor struct {
 	handlers      map[domain.ActionKind]Handler
 	reservations  map[string]string
 	reservationMu sync.Mutex
+	activeMu      sync.Mutex
+	active        map[string]*activeHandler
+}
+
+type activeHandler struct {
+	cancel context.CancelFunc
 }
 
 // New constructs an executor over a durable journal.
@@ -550,11 +601,21 @@ func New(journal Journal, options Options) (*Executor, error) {
 	if journal == nil {
 		return nil, errors.New("execution journal is required")
 	}
+	if _, ok := journal.(TransactionalJournal); !ok {
+		return nil, fmt.Errorf("%w: transactional journal capability is required", ErrInvalidJournal)
+	}
+	if _, ok := journal.(FencedTransactionalJournal); !ok {
+		return nil, fmt.Errorf("%w: fenced transactional journal capability is required", ErrInvalidJournal)
+	}
+	if _, ok := journal.(ReservationJournal); !ok {
+		return nil, fmt.Errorf("%w: durable reservation journal capability is required", ErrInvalidJournal)
+	}
 	return &Executor{
 		journal:      journal,
 		options:      options.normalized(),
 		handlers:     make(map[domain.ActionKind]Handler),
 		reservations: make(map[string]string),
+		active:       make(map[string]*activeHandler),
 	}, nil
 }
 
@@ -593,6 +654,76 @@ func nowUTC(options Options) time.Time {
 
 func formatTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func (executor *Executor) journalContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(context.WithoutCancel(parent), executor.options.JournalTimeout)
+}
+
+func (executor *Executor) claimFence(action Action) ClaimFence {
+	return ClaimFence{
+		ActionID:   action.ID,
+		Version:    action.Version,
+		WorkerID:   executor.options.WorkerID,
+		LeaseUntil: action.LeaseUntil,
+		Now:        formatTime(nowUTC(executor.options)),
+	}
+}
+
+func (executor *Executor) withClaimedTransaction(ctx context.Context, action Action, fn func(context.Context, Journal) error) error {
+	if fn == nil {
+		return errors.New("execution transaction callback is required")
+	}
+	transactional, ok := executor.journal.(FencedTransactionalJournal)
+	if !ok {
+		return fmt.Errorf("%w: fenced transactional journal capability is required", ErrInvalidJournal)
+	}
+	transactionCtx, cancel := executor.journalContext(ctx)
+	defer cancel()
+	return transactional.InTxClaimed(transactionCtx, executor.claimFence(action), func(journal Journal) error {
+		return fn(transactionCtx, journal)
+	})
+}
+
+func (executor *Executor) withTransaction(ctx context.Context, fn func(context.Context, Journal) error) error {
+	if fn == nil {
+		return errors.New("execution transaction callback is required")
+	}
+	transactional, ok := executor.journal.(TransactionalJournal)
+	if !ok {
+		return fmt.Errorf("%w: transactional journal capability is required", ErrInvalidJournal)
+	}
+	transactionCtx, cancel := executor.journalContext(ctx)
+	defer cancel()
+	return transactional.InTx(transactionCtx, func(journal Journal) error {
+		return fn(transactionCtx, journal)
+	})
+}
+
+func (executor *Executor) registerActiveHandler(actionID string, cancel context.CancelFunc) func() {
+	active := &activeHandler{cancel: cancel}
+	executor.activeMu.Lock()
+	executor.active[actionID] = active
+	executor.activeMu.Unlock()
+	return func() {
+		executor.activeMu.Lock()
+		if executor.active[actionID] == active {
+			delete(executor.active, actionID)
+		}
+		executor.activeMu.Unlock()
+	}
+}
+
+func (executor *Executor) cancelActiveHandler(actionID string) {
+	executor.activeMu.Lock()
+	active := executor.active[actionID]
+	executor.activeMu.Unlock()
+	if active != nil && active.cancel != nil {
+		active.cancel()
+	}
 }
 
 func parseTime(value string) (time.Time, error) {
@@ -792,44 +923,70 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 		return result
 	}
 	result.Action = claimed
-	reserved, err := executor.acquireReservations(claimed, handler)
+	reserved, err := executor.acquireAndPersistReservations(ctx, claimed, handler)
 	if err != nil {
-		result.Err = executor.wait(ctx, claimed, err)
+		result.Err = executor.waitOwned(ctx, claimed, err)
 		result.State = domain.ActionWaitingDependency
 		return result
 	}
-	defer executor.releaseReservations(reserved, claimed.ID)
 
+	var processed Result
 	if action.State == domain.ActionReconciling {
-		return executor.processReconciliation(ctx, claimed, true)
+		processed = executor.processReconciliation(ctx, claimed, true)
+	} else {
+		processed = executor.processObserved(ctx, claimed, handler)
 	}
-	return executor.processObserved(ctx, claimed, handler)
+	// Reservations remain durable and local while an effect is unresolved. A
+	// stale worker may return after lease recovery, so retain its local keys on
+	// lease loss as well; the next worker will reconcile the durable row.
+	if processed.State != domain.ActionReconciling && !errors.Is(processed.Err, ErrLeaseLost) {
+		executor.releaseReservations(reserved, claimed.ID)
+	}
+	return processed
 }
 
-func (executor *Executor) acquireReservations(action Action, handler Handler) ([]string, error) {
-	keys := handler.Reservations(action)
-	canonical := make([]string, 0, len(keys))
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		canonical = append(canonical, key)
+func (executor *Executor) acquireAndPersistReservations(ctx context.Context, action Action, handler Handler) ([]string, error) {
+	keys, err := reservationKeys(action, handler)
+	if err != nil {
+		return nil, err
 	}
+	canonical, err := executor.acquireReservations(action.ID, keys)
+	if err != nil {
+		return nil, err
+	}
+	transactional, ok := executor.journal.(FencedTransactionalJournal)
+	if !ok {
+		executor.releaseReservations(canonical, action.ID)
+		return nil, fmt.Errorf("%w: fenced transactional journal capability is required", ErrInvalidJournal)
+	}
+	transactionCtx, cancel := executor.journalContext(ctx)
+	defer cancel()
+	err = transactional.InTxClaimed(transactionCtx, executor.claimFence(action), func(journal Journal) error {
+		reservations, ok := journal.(ReservationJournal)
+		if !ok {
+			return fmt.Errorf("%w: durable reservation journal capability is required", ErrInvalidJournal)
+		}
+		return reservations.Reserve(transactionCtx, action.ID, canonical)
+	})
+	if err != nil {
+		executor.releaseReservations(canonical, action.ID)
+		return nil, err
+	}
+	return canonical, nil
+}
+
+func (executor *Executor) acquireReservations(actionID string, canonical []string) ([]string, error) {
 	executor.reservationMu.Lock()
 	defer executor.reservationMu.Unlock()
 	for _, key := range canonical {
-		if owner, exists := executor.reservations[key]; exists && owner != action.ID {
-			return nil, fmt.Errorf("%w: %s", ErrReservationConflict, key)
+		for existing, owner := range executor.reservations {
+			if owner != actionID && reservationConflicts(existing, key) {
+				return nil, fmt.Errorf("%w: %s", ErrReservationConflict, key)
+			}
 		}
 	}
 	for _, key := range canonical {
-		executor.reservations[key] = action.ID
+		executor.reservations[key] = actionID
 	}
 	return canonical, nil
 }
@@ -844,6 +1001,142 @@ func (executor *Executor) releaseReservations(keys []string, actionID string) {
 	}
 }
 
+func reservationKeys(action Action, handler Handler) ([]string, error) {
+	if handler == nil {
+		return nil, errors.New("execution handler is required")
+	}
+	persisted, err := reservationKeysFromOutcome(action.Outcome)
+	if err != nil {
+		return nil, err
+	}
+	return canonicalReservationKeys(append(persisted, handler.Reservations(action)...)), nil
+}
+
+func canonicalReservationKeys(keys []string) []string {
+	canonical := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		canonical = append(canonical, key)
+	}
+	sort.Strings(canonical)
+	return canonical
+}
+
+func reservationConflicts(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	if left == right {
+		return true
+	}
+	leftNamespace, leftPath := reservationNamespace(left)
+	rightNamespace, rightPath := reservationNamespace(right)
+	if leftNamespace != rightNamespace || leftNamespace == "" {
+		return false
+	}
+	return pathReservationConflicts(leftPath, rightPath)
+}
+
+func reservationNamespace(value string) (string, string) {
+	index := strings.IndexByte(value, ':')
+	if index < 0 {
+		return "", value
+	}
+	return value[:index], strings.TrimPrefix(value[index+1:], "/")
+}
+
+func pathReservationConflicts(left, right string) bool {
+	left = strings.TrimSuffix(strings.TrimSpace(left), "/")
+	right = strings.TrimSuffix(strings.TrimSpace(right), "/")
+	if left == "" || right == "" {
+		return true
+	}
+	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+const reservationOutcomeField = "reservations"
+
+func reservationKeysFromOutcome(outcome json.RawMessage) ([]string, error) {
+	if len(outcome) == 0 || string(outcome) == "null" {
+		return nil, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(outcome, &object); err != nil {
+		return nil, fmt.Errorf("%w: invalid outcome reservation metadata: %v", ErrInvalidJournal, err)
+	}
+	raw, ok := object[reservationOutcomeField]
+	if !ok || string(raw) == "null" {
+		return nil, nil
+	}
+	var keys []string
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil, fmt.Errorf("%w: invalid outcome reservations: %v", ErrInvalidJournal, err)
+	}
+	return canonicalReservationKeys(keys), nil
+}
+
+func outcomeWithReservations(outcome json.RawMessage, keys []string) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if len(outcome) == 0 || string(outcome) == "null" {
+		object = make(map[string]json.RawMessage)
+	} else if err := json.Unmarshal(outcome, &object); err != nil {
+		return nil, fmt.Errorf("%w: invalid outcome: %v", ErrInvalidJournal, err)
+	} else if object == nil {
+		object = make(map[string]json.RawMessage)
+	}
+	keys = canonicalReservationKeys(keys)
+	if len(keys) == 0 {
+		delete(object, reservationOutcomeField)
+	} else {
+		encoded, err := json.Marshal(keys)
+		if err != nil {
+			return nil, fmt.Errorf("%w: encode reservations: %v", ErrInvalidJournal, err)
+		}
+		object[reservationOutcomeField] = encoded
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode outcome: %v", ErrInvalidJournal, err)
+	}
+	return encoded, nil
+}
+
+func outcomePreservingReservations(existing, next json.RawMessage, state domain.ActionState) (json.RawMessage, error) {
+	keys, err := reservationKeysFromOutcome(existing)
+	if err != nil {
+		return nil, err
+	}
+	if state != domain.ActionRunning && state != domain.ActionReconciling && state != domain.ActionNeedsReview {
+		keys = nil
+	}
+	return outcomeWithReservations(next, keys)
+}
+
+func claimFenceMatches(action Action, fence ClaimFence) bool {
+	if action.ID != fence.ActionID || action.State != domain.ActionRunning || action.ClaimedBy != fence.WorkerID || action.LeaseUntil != fence.LeaseUntil {
+		return false
+	}
+	if action.Version != fence.Version && (action.Version != fence.Version+1 || action.CancellationRequestedAt == "") {
+		return false
+	}
+	now, err := parseTime(fence.Now)
+	if err != nil {
+		return false
+	}
+	lease, err := parseTime(action.LeaseUntil)
+	return err == nil && !lease.IsZero() && lease.After(now)
+}
+
 func expired(value string, now time.Time) bool {
 	parsed, err := parseTime(value)
 	return err == nil && !parsed.IsZero() && !parsed.After(now)
@@ -851,7 +1144,7 @@ func expired(value string, now time.Time) bool {
 
 func (executor *Executor) processObserved(ctx context.Context, action Action, handler Handler) Result {
 	result := Result{Action: action, State: action.State}
-	attempt, err := executor.newAttempt(ctx, action, AttemptObserve, CertaintyNotDispatched)
+	attempt, err := executor.newAttemptOwned(ctx, action, AttemptObserve, CertaintyNotDispatched)
 	if err != nil {
 		result.Err = err
 		return result
@@ -868,50 +1161,54 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 		if failureWasDispatched(err) || kind == FailureUncertain {
 			finished.OutcomeCertainty = CertaintyUncertain
 		}
-		if _, updateErr := executor.journal.UpdateAttempt(ctx, finished); updateErr != nil {
+		if _, updateErr := executor.updateAttemptOwned(ctx, action, finished); updateErr != nil {
 			result.Err = updateErr
 			return result
 		}
 		if kind == FailureDependency {
-			result.Err = executor.wait(ctx, action, err)
+			result.Err = executor.waitOwned(ctx, action, err)
 			result.Action = action
 			result.State = domain.ActionWaitingDependency
 			return result
 		}
-		result.Err = executor.hold(ctx, action, err)
+		result.Err = executor.holdOwned(ctx, action, err)
 		result.Action = action
 		result.State = domain.ActionNeedsReview
 		return result
 	}
 	if err := observation.validate(action.ID); err != nil {
-		_, _ = executor.journal.UpdateAttempt(ctx, finishAttempt(attempt, domain.AttemptFailed, CertaintyKnown, err, executor.options))
-		result.Err = executor.hold(ctx, action, err)
+		finished := finishAttempt(attempt, domain.AttemptFailed, CertaintyKnown, err, executor.options)
+		if _, updateErr := executor.updateAttemptOwned(ctx, action, finished); updateErr != nil {
+			result.Err = updateErr
+			return result
+		}
+		result.Err = executor.holdOwned(ctx, action, err)
 		result.State = domain.ActionNeedsReview
 		return result
 	}
 	if observation.State == ObserveUnknown {
 		finished := finishAttempt(attempt, domain.AttemptSucceeded, CertaintyKnown, nil, executor.options)
 		finished.Evidence = evidenceJSON(observation.Evidence)
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptOwned(ctx, action, finished); err != nil {
 			result.Err = err
 			return result
 		}
-		result.Err = executor.hold(ctx, action, errors.New("desired state could not be proven"))
+		result.Err = executor.holdOwned(ctx, action, errors.New("desired state could not be proven"))
 		result.State = domain.ActionNeedsReview
 		return result
 	}
 	if observation.State == ObserveSatisfied {
 		finished := finishAttempt(attempt, domain.AttemptSucceeded, CertaintyKnown, nil, executor.options)
 		finished.Evidence = evidenceJSON(observation.Evidence)
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptOwned(ctx, action, finished); err != nil {
 			result.Err = err
 			return result
 		}
-		if err := executor.recordEffects(ctx, action, finished, observation.Effects, EffectAlreadySatisfied); err != nil {
+		if err := executor.recordEffectsOwned(ctx, action, finished, observation.Effects, EffectAlreadySatisfied); err != nil {
 			result.Err = err
 			return result
 		}
-		updated, err := executor.transition(ctx, action, finished, domain.ActionSucceeded, domain.OutcomeAlreadySatisfied, 0, "already_satisfied")
+		updated, err := executor.transitionOwned(ctx, action, finished, domain.ActionSucceeded, domain.OutcomeAlreadySatisfied, 0, "already_satisfied")
 		result.Action = updated
 		result.State = updated.State
 		result.Outcome = domain.OutcomeAlreadySatisfied
@@ -931,41 +1228,22 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 	}
 	result.AttemptID = dispatchAttempt.ID
 
-	if err := executor.beforeDispatch(ctx, action); err != nil {
+	dispatchCtx, cancelDispatch := executor.handlerContext(ctx, action)
+	unregister := executor.registerActiveHandler(action.ID, cancelDispatch)
+	defer unregister()
+	defer cancelDispatch()
+	if err := executor.beforeDispatch(dispatchCtx, action); err != nil {
 		kind := failureKind(err)
 		if errors.Is(err, ErrLeaseLost) {
 			result.Err = err
 			return result
 		}
 		finished := finishAttempt(dispatchAttempt, domain.AttemptCancelled, CertaintyNotDispatched, err, executor.options)
-		if _, updateErr := executor.journal.UpdateAttempt(ctx, finished); updateErr != nil {
+		if _, updateErr := executor.updateAttemptOwned(ctx, action, finished); updateErr != nil {
 			result.Err = updateErr
 			return result
 		}
-		state := domain.ActionCancelled
-		if kind != FailureCancelled {
-			state = domain.ActionDeadlineExceeded
-		}
-		// The cancellation/deadline marker may have advanced the action version
-		// while Observe was running. Use the fresh row for the terminal CAS so a
-		// pre-dispatch cancellation is visible instead of being reported as a
-		// lost lease forever.
-		latest, latestErr := executor.currentAction(ctx, action)
-		if latestErr != nil {
-			result.Err = latestErr
-			return result
-		}
-		if latest.CancellationRequestedAt == "" && !expired(latest.DeadlineAt, nowUTC(executor.options)) {
-			// The marker disappeared or was never committed. The fresh ownership
-			// check is authoritative; fail closed rather than guessing a terminal
-			// state from the stale pre-dispatch error.
-			result.Err = ErrLeaseLost
-			return result
-		}
-		if latest.CancellationRequestedAt == "" {
-			state = domain.ActionDeadlineExceeded
-		}
-		updated, updateErr := executor.transition(ctx, latest, finished, state, "", 0, string(kind))
+		updated, updateErr := executor.transitionStopOwned(ctx, action, finished, string(kind))
 		result.Action = updated
 		result.State = updated.State
 		result.Err = updateErr
@@ -975,7 +1253,7 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 		return result
 	}
 
-	dispatchResult, dispatchErr := handler.Dispatch(ctx, action, dispatchAttempt)
+	dispatchResult, dispatchErr := handler.Dispatch(dispatchCtx, action, dispatchAttempt)
 	result.Dispatched = true
 	if dispatchErr != nil {
 		return executor.finishDispatchError(ctx, result, dispatchAttempt, dispatchErr)
@@ -985,41 +1263,35 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 	}
 	// A returned success is only an input to the final read-back. The handler
 	// must prove the desired state through its read-only Observe implementation.
-	readBack, readErr := handler.Observe(ctx, action)
+	readBack, readErr := handler.Observe(dispatchCtx, action)
 	if readErr != nil {
 		return executor.finishDispatchError(ctx, result, dispatchAttempt, NewDispatchedFailure(FailureUncertain, readErr))
 	}
-	if err := readBack.validate(action.ID); err != nil || readBack.State != ObserveSatisfied {
+	if err := readBack.validate(action.ID); err != nil || readBack.State != ObserveSatisfied || effectSetMismatch(observation.Effects, readBack.Effects, action.ID) {
 		if err == nil {
-			err = errors.New("dispatch read-back did not prove desired state")
+			if effectSetMismatch(observation.Effects, readBack.Effects, action.ID) {
+				err = errors.New("dispatch read-back effects did not match the approved target set")
+			} else {
+				err = errors.New("dispatch read-back did not prove desired state")
+			}
 		}
 		return executor.finishDispatchError(ctx, result, dispatchAttempt, NewDispatchedFailure(FailureUncertain, err))
+	}
+	if len(dispatchResult.Effects) > 0 && effectSetMismatch(observation.Effects, dispatchResult.Effects, action.ID) {
+		return executor.finishDispatchError(ctx, result, dispatchAttempt, NewDispatchedFailure(FailureUncertain, errors.New("dispatch effects did not match the approved target set")))
 	}
 	finished := finishAttempt(dispatchAttempt, domain.AttemptSucceeded, CertaintyKnown, nil, executor.options)
 	finished.ExternalID = dispatchResult.ExternalID
 	finished.Evidence = evidenceJSON(append(dispatchResult.Evidence, readBack.Evidence...))
-	if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+	if _, err := executor.updateAttemptOwned(ctx, action, finished); err != nil {
 		result.Err = err
 		return result
 	}
-	if err := executor.recordEffects(ctx, action, finished, mergeEffects(dispatchResult.Effects, readBack.Effects), effectForOutcome(dispatchResult.Outcome)); err != nil {
+	if err := executor.recordEffectsOwned(ctx, action, finished, readBack.Effects, effectForOutcome(dispatchResult.Outcome)); err != nil {
 		result.Err = err
 		return result
 	}
-	// Cancellation or a deadline can be committed while the handler is in
-	// flight. Refresh the action before the terminal CAS so the late effect is
-	// visible under the cancellation/deadline state rather than being reported
-	// as an ordinary success.
-	latest, latestErr := executor.currentAction(ctx, action)
-	if latestErr != nil {
-		return executor.finishDispatchError(ctx, result, dispatchAttempt, NewDispatchedFailure(FailureUncertain, latestErr))
-	}
-	state, outcome := executor.cancelledOrDeadline(latest)
-	if state == "" {
-		state = domain.ActionSucceeded
-		outcome = dispatchResult.Outcome
-	}
-	updated, err := executor.transition(ctx, latest, finished, state, outcome, 0, "dispatch_applied")
+	updated, _, outcome, err := executor.transitionDispatchOwned(ctx, action, finished, dispatchResult.Outcome)
 	result.Action = updated
 	result.State = updated.State
 	result.Outcome = outcome
@@ -1031,17 +1303,32 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	result := Result{Action: action, State: action.State}
 	handler, err := executor.handler(action.Kind)
 	if err != nil {
-		result.Err = executor.hold(ctx, action, err)
+		if claimed {
+			result.Err = executor.holdOwned(ctx, action, err)
+		} else {
+			result.Err = executor.hold(ctx, action, err)
+		}
 		result.State = domain.ActionNeedsReview
 		return result
 	}
-	attempt, err := executor.reconciliationAttempt(ctx, action)
+	var attempt Attempt
+	if claimed {
+		attempt, err = executor.reconciliationAttemptOwned(ctx, action)
+	} else {
+		attempt, err = executor.reconciliationAttempt(ctx, action)
+	}
 	if err != nil {
 		result.Err = err
 		return result
 	}
 	result.AttemptID = attempt.ID
-	reconciled, reconcileErr := handler.Reconcile(ctx, action, attempt)
+	reconcileCtx, cancelReconcile := executor.handlerContext(ctx, action)
+	if claimed {
+		unregister := executor.registerActiveHandler(action.ID, cancelReconcile)
+		defer unregister()
+	}
+	defer cancelReconcile()
+	reconciled, reconcileErr := handler.Reconcile(reconcileCtx, action, attempt)
 	if reconcileErr != nil {
 		return executor.finishReconciliationError(ctx, result, attempt, reconcileErr, claimed)
 	}
@@ -1051,24 +1338,29 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	if reconciled.Outcome.Valid() {
 		finished := finishAttempt(attempt, domain.AttemptSucceeded, CertaintyKnown, nil, executor.options)
 		finished.Evidence = evidenceJSON(reconciled.Evidence)
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptFor(ctx, action, finished, claimed); err != nil {
 			result.Err = err
 			return result
 		}
-		if err := executor.recordEffects(ctx, action, finished, reconciled.Effects, effectForOutcome(reconciled.Outcome)); err != nil {
-			result.Err = err
-			return result
+		if err := executor.recordEffectsFor(ctx, action, finished, reconciled.Effects, effectForOutcome(reconciled.Outcome), claimed); err != nil {
+			return executor.finishReconciliationError(ctx, result, attempt, NewFailure(FailureInvalid, err), claimed)
 		}
-		latest, latestErr := executor.currentAction(ctx, action)
-		if latestErr != nil {
-			result.Err = latestErr
-			return result
+		var updated Action
+		var err error
+		if claimed {
+			updated, _, _, err = executor.transitionDispatchOwned(ctx, action, finished, reconciled.Outcome)
+		} else {
+			latest, latestErr := executor.currentAction(ctx, action)
+			if latestErr != nil {
+				result.Err = latestErr
+				return result
+			}
+			state, _ := executor.cancelledOrDeadline(latest)
+			if state == "" {
+				state = domain.ActionSucceeded
+			}
+			updated, err = executor.transition(ctx, latest, finished, state, reconciled.Outcome, 0, "reconciled")
 		}
-		state, _ := executor.cancelledOrDeadline(latest)
-		if state == "" {
-			state = domain.ActionSucceeded
-		}
-		updated, err := executor.transition(ctx, latest, finished, state, reconciled.Outcome, 0, "reconciled")
 		result.Action = updated
 		result.State = updated.State
 		result.Outcome = reconciled.Outcome
@@ -1078,27 +1370,29 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	if reconciled.SafeToRetry {
 		finished := finishAttempt(attempt, domain.AttemptSucceeded, CertaintyKnown, nil, executor.options)
 		finished.Evidence = evidenceJSON(reconciled.Evidence)
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptFor(ctx, action, finished, claimed); err != nil {
 			result.Err = err
 			return result
 		}
-		if err := executor.recordEffects(ctx, action, finished, reconciled.Effects, EffectPending); err != nil {
-			result.Err = err
-			return result
+		if err := executor.recordEffectsFor(ctx, action, finished, reconciled.Effects, EffectPending, claimed); err != nil {
+			return executor.finishReconciliationError(ctx, result, attempt, NewFailure(FailureInvalid, err), claimed)
 		}
-		latest, latestErr := executor.currentAction(ctx, action)
-		if latestErr != nil {
-			result.Err = latestErr
-			return result
+		var updated Action
+		var err error
+		if claimed {
+			updated, err = executor.requeueOwned(ctx, action, finished, "reconciliation_proved_no_effect")
+		} else {
+			latest, latestErr := executor.currentAction(ctx, action)
+			if latestErr != nil {
+				result.Err = latestErr
+				return result
+			}
+			if state, _ := executor.cancelledOrDeadline(latest); state != "" {
+				updated, err = executor.transition(ctx, latest, finished, state, "", 0, "reconciliation_cancelled")
+			} else {
+				updated, err = executor.requeue(ctx, latest, finished, "reconciliation_proved_no_effect")
+			}
 		}
-		if state, _ := executor.cancelledOrDeadline(latest); state != "" {
-			updated, transitionErr := executor.transition(ctx, latest, finished, state, "", 0, "reconciliation_cancelled")
-			result.Action = updated
-			result.State = updated.State
-			result.Err = transitionErr
-			return result
-		}
-		updated, err := executor.requeue(ctx, latest, finished, "reconciliation_proved_no_effect")
 		result.Action = updated
 		result.State = updated.State
 		result.Err = err
@@ -1110,20 +1404,24 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	finished.OutcomeCertainty = CertaintyUncertain
 	finished.Evidence = evidenceJSON(reconciled.Evidence)
 	finished.FinishedAt = ""
-	if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+	if _, err := executor.updateAttemptFor(ctx, action, finished, claimed); err != nil {
 		result.Err = err
 		return result
 	}
-	if err := executor.recordEffects(ctx, action, finished, reconciled.Effects, EffectUnknown); err != nil {
-		result.Err = err
-		return result
+	if err := executor.recordEffectsFor(ctx, action, finished, reconciled.Effects, EffectUnknown, claimed); err != nil {
+		return executor.finishReconciliationError(ctx, result, attempt, NewFailure(FailureInvalid, err), claimed)
 	}
-	latest, latestErr := executor.currentAction(ctx, action)
-	if latestErr != nil {
-		result.Err = latestErr
-		return result
+	var updated Action
+	if claimed {
+		updated, err = executor.transitionOwnedAt(ctx, action, finished, domain.ActionReconciling, "", 1, "reconciliation_unresolved", executor.retryAt(attempt.AttemptNumber))
+	} else {
+		latest, latestErr := executor.currentAction(ctx, action)
+		if latestErr != nil {
+			result.Err = latestErr
+			return result
+		}
+		updated, err = executor.transitionAt(ctx, latest, finished, domain.ActionReconciling, "", 1, "reconciliation_unresolved", executor.retryAt(attempt.AttemptNumber))
 	}
-	updated, err := executor.transitionAt(ctx, latest, finished, domain.ActionReconciling, "", 1, "reconciliation_unresolved", executor.retryAt(attempt.AttemptNumber))
 	result.Action = updated
 	result.State = updated.State
 	result.Err = err
@@ -1140,44 +1438,31 @@ func (executor *Executor) finishDispatchError(ctx context.Context, result Result
 		finished.ErrorCode = string(FailureUncertain)
 		finished.ErrorDetail = safeDetail(dispatchErr)
 		finished.Evidence = evidenceJSON([]string{"dispatch_result_uncertain"})
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptOwned(ctx, result.Action, finished); err != nil {
 			result.Err = err
 			return result
 		}
-		if err := executor.recordEffects(ctx, result.Action, finished, nil, EffectUnknown); err != nil {
+		if err := executor.recordUnknownEffectsOwned(ctx, result.Action, finished, EffectUnknown); err != nil {
 			result.Err = err
 			return result
 		}
-		latest, latestErr := executor.currentAction(ctx, result.Action)
-		if latestErr != nil {
-			result.Err = latestErr
-			return result
-		}
-		state := domain.ActionReconciling
-		if stopState, _ := executor.cancelledOrDeadline(latest); stopState != "" {
-			state = stopState
-		}
-		nextAttemptAt := executor.retryAt(attempt.AttemptNumber)
-		if state != domain.ActionReconciling {
-			nextAttemptAt = ""
-		}
-		updated, err := executor.transitionAt(ctx, latest, finished, state, "", 1, "dispatch_uncertain", nextAttemptAt)
+		updated, _, err := executor.transitionUncertainOwned(ctx, result.Action, finished, "dispatch_uncertain", executor.retryAt(attempt.AttemptNumber))
 		result.Action = updated
 		result.State = updated.State
 		result.Err = err
 		return result
 	}
 	finished := finishAttempt(attempt, domain.AttemptFailed, CertaintyNotDispatched, dispatchErr, executor.options)
-	if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+	if _, err := executor.updateAttemptOwned(ctx, result.Action, finished); err != nil {
 		result.Err = err
 		return result
 	}
 	if kind == FailureDependency {
-		result.Err = executor.wait(ctx, result.Action, dispatchErr)
+		result.Err = executor.waitOwned(ctx, result.Action, dispatchErr)
 		result.State = domain.ActionWaitingDependency
 		return result
 	}
-	updated, err := executor.transition(ctx, result.Action, finished, domain.ActionFailed, "", 0, string(kind))
+	updated, err := executor.transitionOwned(ctx, result.Action, finished, domain.ActionFailed, "", 0, string(kind))
 	result.Action = updated
 	result.State = updated.State
 	result.Err = err
@@ -1185,12 +1470,6 @@ func (executor *Executor) finishDispatchError(ctx context.Context, result Result
 }
 
 func (executor *Executor) finishReconciliationError(ctx context.Context, result Result, attempt Attempt, reconcileErr error, claimed bool) Result {
-	latest, latestErr := executor.currentAction(ctx, result.Action)
-	if latestErr != nil {
-		result.Err = latestErr
-		return result
-	}
-	result.Action = latest
 	kind := failureKind(reconcileErr)
 	if kind == FailureDependency || kind == FailureUncertain {
 		finished := attempt
@@ -1198,26 +1477,48 @@ func (executor *Executor) finishReconciliationError(ctx context.Context, result 
 		finished.OutcomeCertainty = CertaintyUncertain
 		finished.ErrorCode = string(kind)
 		finished.ErrorDetail = safeDetail(reconcileErr)
-		if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+		if _, err := executor.updateAttemptFor(ctx, result.Action, finished, claimed); err != nil {
 			result.Err = err
 			return result
 		}
-		updated, err := executor.transitionAt(ctx, latest, finished, domain.ActionReconciling, "", 1, string(kind), executor.retryAt(attempt.AttemptNumber))
+		var updated Action
+		var err error
+		if claimed {
+			updated, _, err = executor.transitionUncertainOwned(ctx, result.Action, finished, string(kind), executor.retryAt(attempt.AttemptNumber))
+		} else {
+			latest, latestErr := executor.currentAction(ctx, result.Action)
+			if latestErr != nil {
+				result.Err = latestErr
+				return result
+			}
+			updated, err = executor.transitionAt(ctx, latest, finished, domain.ActionReconciling, "", 1, string(kind), executor.retryAt(attempt.AttemptNumber))
+		}
 		result.Action = updated
 		result.State = updated.State
 		result.Err = err
 		return result
 	}
 	finished := finishAttempt(attempt, domain.AttemptFailed, CertaintyKnown, reconcileErr, executor.options)
-	if _, err := executor.journal.UpdateAttempt(ctx, finished); err != nil {
+	if _, err := executor.updateAttemptFor(ctx, result.Action, finished, claimed); err != nil {
 		result.Err = err
 		return result
 	}
-	state := domain.ActionNeedsReview
-	if stopState, _ := executor.cancelledOrDeadline(latest); stopState != "" {
-		state = stopState
+	var updated Action
+	var err error
+	if claimed {
+		updated, err = executor.transitionOwned(ctx, result.Action, finished, domain.ActionNeedsReview, "", 0, string(kind))
+	} else {
+		latest, latestErr := executor.currentAction(ctx, result.Action)
+		if latestErr != nil {
+			result.Err = latestErr
+			return result
+		}
+		state := domain.ActionNeedsReview
+		if stopState, _ := executor.cancelledOrDeadline(latest); stopState != "" {
+			state = stopState
+		}
+		updated, err = executor.transition(ctx, latest, finished, state, "", 0, string(kind))
 	}
-	updated, err := executor.transition(ctx, latest, finished, state, "", 0, string(kind))
 	result.Action = updated
 	result.State = updated.State
 	result.Err = err
@@ -1225,7 +1526,11 @@ func (executor *Executor) finishReconciliationError(ctx context.Context, result 
 }
 
 func (executor *Executor) nextAttempt(ctx context.Context, action Action, phase AttemptPhase, certainty OutcomeCertainty) (Attempt, error) {
-	attempts, err := executor.journal.ListAttempts(ctx, action.ID)
+	return executor.nextAttemptInJournal(ctx, executor.journal, action, phase, certainty)
+}
+
+func (executor *Executor) nextAttemptInJournal(ctx context.Context, journal Journal, action Action, phase AttemptPhase, certainty OutcomeCertainty) (Attempt, error) {
+	attempts, err := journal.ListAttempts(ctx, action.ID)
 	if err != nil {
 		return Attempt{}, err
 	}
@@ -1260,6 +1565,25 @@ func (executor *Executor) newAttempt(ctx context.Context, action Action, phase A
 	return executor.journal.CreateAttempt(ctx, attempt)
 }
 
+func (executor *Executor) newAttemptOwned(ctx context.Context, action Action, phase AttemptPhase, certainty OutcomeCertainty) (Attempt, error) {
+	var created Attempt
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		attempt, err := executor.nextAttemptInJournal(transactionCtx, journal, action, phase, certainty)
+		if err != nil {
+			return err
+		}
+		created, err = journal.CreateAttempt(transactionCtx, attempt)
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Attempt{}, ErrLeaseLost
+		}
+		return Attempt{}, err
+	}
+	return created, nil
+}
+
 func (executor *Executor) reconciliationAttempt(ctx context.Context, action Action) (Attempt, error) {
 	attempts, err := executor.journal.ListAttempts(ctx, action.ID)
 	if err != nil {
@@ -1279,21 +1603,65 @@ func (executor *Executor) reconciliationAttempt(ctx context.Context, action Acti
 	return executor.newAttempt(ctx, action, AttemptReconcile, CertaintyUncertain)
 }
 
-func (executor *Executor) prepareDispatch(ctx context.Context, action Action, observed Attempt, effects []Effect) (Attempt, error) {
-	dispatch, err := executor.nextAttempt(ctx, action, AttemptDispatch, CertaintyNotDispatched)
+func (executor *Executor) reconciliationAttemptOwned(ctx context.Context, action Action) (Attempt, error) {
+	attempts, err := executor.journal.ListAttempts(ctx, action.ID)
 	if err != nil {
 		return Attempt{}, err
 	}
+	for _, candidate := range attempts {
+		if candidate.Phase == AttemptReconcile && candidate.State == domain.AttemptReconciling {
+			return candidate, nil
+		}
+	}
+	return executor.newAttemptOwned(ctx, action, AttemptReconcile, CertaintyUncertain)
+}
+
+func (executor *Executor) updateAttemptOwned(ctx context.Context, action Action, attempt Attempt) (Attempt, error) {
+	var updated Attempt
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		var err error
+		updated, err = journal.UpdateAttempt(transactionCtx, attempt)
+		return err
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, ErrLeaseLost
+	}
+	return updated, err
+}
+
+func (executor *Executor) handlerContext(ctx context.Context, action Action) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	child, cancel := context.WithCancel(ctx)
+	deadline, err := parseTime(action.DeadlineAt)
+	if err == nil && !deadline.IsZero() {
+		withDeadline, deadlineCancel := context.WithDeadline(child, deadline)
+		return withDeadline, func() {
+			deadlineCancel()
+			cancel()
+		}
+	}
+	return child, cancel
+}
+
+func (executor *Executor) prepareDispatch(ctx context.Context, action Action, observed Attempt, effects []Effect) (Attempt, error) {
 	// Create the dispatch intent and all pending effect rows in one short
 	// transaction. No handler call occurs until this callback commits.
-	transaction := func(journal Journal) error {
-		if _, err := journal.UpdateAttempt(ctx, observed); err != nil {
+	var dispatch Attempt
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		var err error
+		dispatch, err = executor.nextAttemptInJournal(transactionCtx, journal, action, AttemptDispatch, CertaintyNotDispatched)
+		if err != nil {
 			return err
 		}
-		if _, err := journal.CreateAttempt(ctx, dispatch); err != nil {
+		if _, err := journal.UpdateAttempt(transactionCtx, observed); err != nil {
 			return err
 		}
-		existing, err := journal.ListEffects(ctx, action.ID)
+		if _, err := journal.CreateAttempt(transactionCtx, dispatch); err != nil {
+			return err
+		}
+		existing, err := journal.ListEffects(transactionCtx, action.ID)
 		if err != nil {
 			return err
 		}
@@ -1322,22 +1690,21 @@ func (executor *Executor) prepareDispatch(ctx context.Context, action Action, ob
 					return fmt.Errorf("%w: effect ordinal %d changed target across attempts", ErrInvalidJournal, effect.Ordinal)
 				}
 				effect.ID = previous.ID
-				if _, err := journal.UpdateEffect(ctx, effect); err != nil {
+				if _, err := journal.UpdateEffect(transactionCtx, effect); err != nil {
 					return err
 				}
 				continue
 			}
-			if _, err := journal.CreateEffect(ctx, effect); err != nil {
+			if _, err := journal.CreateEffect(transactionCtx, effect); err != nil {
 				return err
 			}
 		}
 		return nil
-	}
-	if transactional, ok := executor.journal.(TransactionalJournal); ok {
-		if err := transactional.InTx(ctx, transaction); err != nil {
-			return Attempt{}, err
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Attempt{}, ErrLeaseLost
 		}
-	} else if err := transaction(executor.journal); err != nil {
 		return Attempt{}, err
 	}
 	return dispatch, nil
@@ -1417,22 +1784,39 @@ func evidenceJSON(values []string) json.RawMessage {
 	return payload
 }
 
-func mergeEffects(groups ...[]Effect) []Effect {
-	merged := make([]Effect, 0)
-	seen := make(map[int64]struct{})
-	for _, group := range groups {
-		for index, effect := range group {
-			if effect.Ordinal < 0 {
-				effect.Ordinal = int64(index)
-			}
-			if _, exists := seen[effect.Ordinal]; exists {
-				continue
-			}
-			seen[effect.Ordinal] = struct{}{}
-			merged = append(merged, effect)
+// validateEffectSet requires a read-back to describe exactly the approved
+// targets. Ordinal and the full target/effect identity are checked together;
+// an empty or partial report is therefore never promoted to applied.
+func validateEffectSet(expected, reported []Effect, actionID string) error {
+	normalizeReportedEffects(expected, actionID)
+	normalizeReportedEffects(reported, actionID)
+	if err := validateEffects(expected, actionID); err != nil {
+		return fmt.Errorf("approved effects: %w", err)
+	}
+	if err := validateEffects(reported, actionID); err != nil {
+		return fmt.Errorf("reported effects: %w", err)
+	}
+	if len(expected) != len(reported) {
+		return fmt.Errorf("%w: effect set has %d reported targets, want %d", ErrInvalidJournal, len(reported), len(expected))
+	}
+	byIdentity := make(map[string]Effect, len(expected))
+	for _, effect := range expected {
+		byIdentity[effectIdentity(effect)] = effect
+	}
+	for _, effect := range reported {
+		approved, ok := byIdentity[effectIdentity(effect)]
+		if !ok {
+			return fmt.Errorf("%w: unapproved effect target %s", ErrInvalidJournal, effectIdentity(effect))
+		}
+		if approved.Ordinal != effect.Ordinal {
+			return fmt.Errorf("%w: effect target %s changed ordinal", ErrInvalidJournal, effectIdentity(effect))
 		}
 	}
-	return merged
+	return nil
+}
+
+func effectSetMismatch(expected, reported []Effect, actionID string) bool {
+	return validateEffectSet(expected, reported, actionID) != nil
 }
 
 func effectForOutcome(outcome domain.EffectOutcome) EffectState {
@@ -1446,80 +1830,90 @@ func effectForOutcome(outcome domain.EffectOutcome) EffectState {
 }
 
 func (executor *Executor) recordEffects(ctx context.Context, action Action, attempt Attempt, reported []Effect, defaultState EffectState) error {
-	transaction := func(journal Journal) error {
-		existing, err := journal.ListEffects(ctx, action.ID)
-		if err != nil {
+	return executor.withTransaction(ctx, func(transactionCtx context.Context, journal Journal) error {
+		return executor.recordEffectsInJournal(transactionCtx, journal, action, attempt, reported, defaultState, true)
+	})
+}
+
+func (executor *Executor) recordEffectsOwned(ctx context.Context, action Action, attempt Attempt, reported []Effect, defaultState EffectState) error {
+	return executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		return executor.recordEffectsInJournal(transactionCtx, journal, action, attempt, reported, defaultState, true)
+	})
+}
+
+func (executor *Executor) recordUnknownEffectsOwned(ctx context.Context, action Action, attempt Attempt, defaultState EffectState) error {
+	return executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		return executor.recordEffectsInJournal(transactionCtx, journal, action, attempt, nil, defaultState, false)
+	})
+}
+
+func (executor *Executor) recordEffectsFor(ctx context.Context, action Action, attempt Attempt, reported []Effect, defaultState EffectState, claimed bool) error {
+	if claimed {
+		return executor.recordEffectsOwned(ctx, action, attempt, reported, defaultState)
+	}
+	return executor.recordEffects(ctx, action, attempt, reported, defaultState)
+}
+
+func (executor *Executor) recordEffectsInJournal(ctx context.Context, journal Journal, action Action, attempt Attempt, reported []Effect, defaultState EffectState, requireComplete bool) error {
+	existing, err := journal.ListEffects(ctx, action.ID)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 && (requireComplete || len(reported) > 0) {
+		if err := validateEffectSet(existing, reported, action.ID); err != nil {
 			return err
 		}
-		byOrdinal := make(map[int64]Effect, len(existing))
-		for _, effect := range existing {
-			byOrdinal[effect.Ordinal] = effect
+	}
+	byOrdinal := make(map[int64]Effect, len(existing))
+	for _, candidate := range existing {
+		byOrdinal[candidate.Ordinal] = candidate
+	}
+	for index, effect := range reported {
+		if effect.Ordinal < 0 {
+			effect.Ordinal = int64(index)
 		}
-		for index, effect := range reported {
-			if effect.Ordinal < 0 {
-				effect.Ordinal = int64(index)
-			}
-			if existingEffect, ok := byOrdinal[effect.Ordinal]; ok {
-				effect.ID = existingEffect.ID
-				effect.ActionRunID = action.ID
-				effect.AttemptID = attempt.ID
-				if effect.TargetKind == "" {
-					effect.TargetKind = existingEffect.TargetKind
-				}
-				if effect.TargetID == "" {
-					effect.TargetID = existingEffect.TargetID
-				}
-				if effect.EffectKind == "" {
-					effect.EffectKind = existingEffect.EffectKind
-				}
-				if effect.State == "" || effect.State == EffectPending {
-					effect.State = defaultState
-				}
-				if effect.Evidence == nil {
-					effect.Evidence = existingEffect.Evidence
-				}
-				if effect.ObservedAt == "" {
-					effect.ObservedAt = formatTime(nowUTC(executor.options))
-				}
-				if _, err := journal.UpdateEffect(ctx, effect); err != nil {
-					return err
-				}
-				continue
-			}
-			effect.ID = executor.options.EffectID(action.ID, effect.Ordinal)
+		if existingEffect, ok := byOrdinal[effect.Ordinal]; ok {
+			effect.ID = existingEffect.ID
 			effect.ActionRunID = action.ID
 			effect.AttemptID = attempt.ID
 			if effect.State == "" || effect.State == EffectPending {
 				effect.State = defaultState
 			}
 			if effect.Evidence == nil {
-				effect.Evidence = json.RawMessage(`{}`)
+				effect.Evidence = existingEffect.Evidence
 			}
 			if effect.ObservedAt == "" {
 				effect.ObservedAt = formatTime(nowUTC(executor.options))
 			}
-			if _, err := journal.CreateEffect(ctx, effect); err != nil {
+			if _, err := journal.UpdateEffect(ctx, effect); err != nil {
 				return err
 			}
+			continue
 		}
-		if len(reported) == 0 {
-			for _, effect := range existing {
-				if effect.State == EffectPending || effect.State == EffectUnknown {
-					effect.State = defaultState
-					effect.AttemptID = attempt.ID
-					effect.ObservedAt = formatTime(nowUTC(executor.options))
-					if _, err := journal.UpdateEffect(ctx, effect); err != nil {
-						return err
-					}
-				}
-			}
+		effect.ID = executor.options.EffectID(action.ID, effect.Ordinal)
+		effect.ActionRunID = action.ID
+		effect.AttemptID = attempt.ID
+		if effect.State == "" || effect.State == EffectPending {
+			effect.State = defaultState
 		}
-		return nil
+		if effect.Evidence == nil {
+			effect.Evidence = json.RawMessage(`{}`)
+		}
+		if effect.ObservedAt == "" {
+			effect.ObservedAt = formatTime(nowUTC(executor.options))
+		}
+		if _, err := journal.CreateEffect(ctx, effect); err != nil {
+			return err
+		}
 	}
-	if transactional, ok := executor.journal.(TransactionalJournal); ok {
-		return transactional.InTx(ctx, transaction)
+	return nil
+}
+
+func (executor *Executor) updateAttemptFor(ctx context.Context, action Action, attempt Attempt, claimed bool) (Attempt, error) {
+	if claimed {
+		return executor.updateAttemptOwned(ctx, action, attempt)
 	}
-	return transaction(executor.journal)
+	return executor.journal.UpdateAttempt(ctx, attempt)
 }
 
 func (executor *Executor) cancelledOrDeadline(action Action) (domain.ActionState, domain.EffectOutcome) {
@@ -1574,108 +1968,251 @@ func (executor *Executor) transition(ctx context.Context, action Action, attempt
 }
 
 func (executor *Executor) transitionAt(ctx context.Context, action Action, attempt Attempt, state domain.ActionState, outcome domain.EffectOutcome, unresolved int64, reason, nextAttemptAt string) (Action, error) {
-	if state == "" {
-		state = domain.ActionNeedsReview
-	}
-	if err := domain.TransitionAction(action.State, state); err != nil && action.State != state {
-		// A claimed reconciling row is represented as running by SQL's claim. The
-		// caller can use requeue for the only transition that needs two steps.
-		return action, err
-	}
-	update := OutcomeUpdate{
-		ID:              action.ID,
-		Version:         action.Version,
-		State:           state,
-		NextAttemptAt:   nextAttemptAt,
-		Outcome:         outcomeJSON(outcome, reason, unresolved),
-		UnresolvedCount: unresolved,
-		UpdatedAt:       formatTime(nowUTC(executor.options)),
-	}
-	updated, err := executor.journal.UpdateOutcome(ctx, update)
+	var updated Action
+	err := executor.withTransaction(ctx, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		if state == "" {
+			state = domain.ActionNeedsReview
+		}
+		if err := domain.TransitionAction(current.State, state); err != nil && current.State != state {
+			return err
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
+			ID:              current.ID,
+			Version:         current.Version,
+			State:           state,
+			NextAttemptAt:   nextAttemptAt,
+			Outcome:         outcomeJSON(outcome, reason, unresolved),
+			UnresolvedCount: unresolved,
+			UpdatedAt:       formatTime(nowUTC(executor.options)),
+		})
+		return err
+	})
 	if err != nil {
 		if isNoRows(err) {
 			return action, ErrLeaseLost
 		}
 		return action, err
 	}
-	updated.Kind = action.Kind
-	updated.PlanID = action.PlanID
-	updated.PlanRevision = action.PlanRevision
-	updated.PlanDigest = action.PlanDigest
+	updated = preserveActionPlan(updated, action)
 	return updated, nil
+}
+
+func preserveActionPlan(updated, source Action) Action {
+	updated.Kind = source.Kind
+	updated.PlanID = source.PlanID
+	updated.PlanRevision = source.PlanRevision
+	updated.PlanDigest = source.PlanDigest
+	return updated
+}
+
+func (executor *Executor) transitionOwned(ctx context.Context, action Action, attempt Attempt, state domain.ActionState, outcome domain.EffectOutcome, unresolved int64, reason string) (Action, error) {
+	return executor.transitionOwnedAt(ctx, action, attempt, state, outcome, unresolved, reason, "")
+}
+
+func (executor *Executor) transitionOwnedAt(ctx context.Context, action Action, attempt Attempt, state domain.ActionState, outcome domain.EffectOutcome, unresolved int64, reason, nextAttemptAt string) (Action, error) {
+	var updated Action
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		if state == "" {
+			state = domain.ActionNeedsReview
+		}
+		if err := domain.TransitionAction(current.State, state); err != nil && current.State != state {
+			return err
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
+			ID:              current.ID,
+			Version:         current.Version,
+			State:           state,
+			NextAttemptAt:   nextAttemptAt,
+			Outcome:         outcomeJSON(outcome, reason, unresolved),
+			UnresolvedCount: unresolved,
+			UpdatedAt:       formatTime(nowUTC(executor.options)),
+		})
+		return err
+	})
+	if err != nil {
+		if isNoRows(err) {
+			return action, ErrLeaseLost
+		}
+		return action, err
+	}
+	return preserveActionPlan(updated, action), nil
+}
+
+func (executor *Executor) transitionStopOwned(ctx context.Context, action Action, attempt Attempt, reason string) (Action, error) {
+	var updated Action
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		state, _ := executor.cancelledOrDeadline(current)
+		if state == "" {
+			return ErrLeaseLost
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
+			ID: current.ID, Version: current.Version, State: state,
+			Outcome: outcomeJSON("", reason, 0), UpdatedAt: formatTime(nowUTC(executor.options)),
+		})
+		return err
+	})
+	if err != nil {
+		if isNoRows(err) {
+			return action, ErrLeaseLost
+		}
+		return action, err
+	}
+	return preserveActionPlan(updated, action), nil
+}
+
+func (executor *Executor) transitionDispatchOwned(ctx context.Context, action Action, attempt Attempt, applied domain.EffectOutcome) (Action, domain.ActionState, domain.EffectOutcome, error) {
+	var updated Action
+	var state domain.ActionState
+	outcome := applied
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		state, outcome = executor.cancelledOrDeadline(current)
+		if state == "" {
+			state = domain.ActionSucceeded
+			outcome = applied
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
+			ID: current.ID, Version: current.Version, State: state,
+			Outcome: outcomeJSON(outcome, "dispatch_applied", 0), UpdatedAt: formatTime(nowUTC(executor.options)),
+		})
+		return err
+	})
+	if err != nil {
+		if isNoRows(err) {
+			err = ErrLeaseLost
+		}
+		return action, state, outcome, err
+	}
+	return preserveActionPlan(updated, action), state, outcome, nil
+}
+
+func (executor *Executor) transitionUncertainOwned(ctx context.Context, action Action, attempt Attempt, reason, nextAttemptAt string) (Action, domain.ActionState, error) {
+	var updated Action
+	var state domain.ActionState
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		state, _ = executor.cancelledOrDeadline(current)
+		if state == "" {
+			state = domain.ActionReconciling
+		} else {
+			nextAttemptAt = ""
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: state, NextAttemptAt: nextAttemptAt, Outcome: outcomeJSON("", reason, 1), UnresolvedCount: 1, UpdatedAt: formatTime(nowUTC(executor.options))})
+		return err
+	})
+	if err != nil {
+		if isNoRows(err) {
+			return action, state, ErrLeaseLost
+		}
+		return action, state, err
+	}
+	return preserveActionPlan(updated, action), state, nil
 }
 
 func (executor *Executor) requeue(ctx context.Context, action Action, attempt Attempt, reason string) (Action, error) {
-	now := nowUTC(executor.options)
-	if action.State == domain.ActionRunning {
-		// A claimed reconciliation row was changed to running by the SQL CAS.
-		// Leave it reconciling first; a crash here remains read-only and safe.
-		reconciling, err := executor.transition(ctx, action, attempt, domain.ActionReconciling, "", 0, reason)
+	var updated Action
+	err := executor.withTransaction(ctx, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
 		if err != nil {
-			return action, err
+			return err
 		}
-		action = reconciling
-	}
-	update := OutcomeUpdate{
-		ID:            action.ID,
-		Version:       action.Version,
-		State:         domain.ActionQueued,
-		NextAttemptAt: formatTime(now),
-		Outcome:       outcomeJSON("", reason, 0),
-		UpdatedAt:     formatTime(now),
-	}
-	updated, err := executor.journal.UpdateOutcome(ctx, update)
+		if current.State == domain.ActionRunning {
+			current, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: domain.ActionReconciling, Outcome: outcomeJSON("", reason, 0), UnresolvedCount: 0, UpdatedAt: formatTime(nowUTC(executor.options))})
+			if err != nil {
+				return err
+			}
+		}
+		now := nowUTC(executor.options)
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: domain.ActionQueued, NextAttemptAt: formatTime(now), Outcome: outcomeJSON("", reason, 0), UpdatedAt: formatTime(now)})
+		return err
+	})
 	if err != nil {
 		if isNoRows(err) {
 			return action, ErrLeaseLost
 		}
 		return action, err
 	}
-	updated.Kind = action.Kind
-	updated.PlanID = action.PlanID
-	updated.PlanRevision = action.PlanRevision
-	updated.PlanDigest = action.PlanDigest
-	return updated, nil
+	return preserveActionPlan(updated, action), nil
 }
 
 func (executor *Executor) wait(ctx context.Context, action Action, cause error) error {
-	attempts, err := executor.journal.ListAttempts(ctx, action.ID)
-	if err != nil {
-		return err
-	}
-	attemptNumber := int64(len(attempts))
-	if executor.options.Retry.MaxAttempts > 0 && int(attemptNumber) >= executor.options.Retry.MaxAttempts {
-		return executor.hold(ctx, action, fmt.Errorf("retry limit reached: %w", cause))
-	}
-	next := nowUTC(executor.options).Add(executor.options.Retry.delay(attemptNumber))
-	update := OutcomeUpdate{
-		ID:            action.ID,
-		Version:       action.Version,
-		State:         domain.ActionWaitingDependency,
-		NextAttemptAt: formatTime(next),
-		Outcome:       outcomeJSON("", "dependency_wait", 0),
-		UpdatedAt:     formatTime(nowUTC(executor.options)),
-	}
-	updated, err := executor.journal.UpdateOutcome(ctx, update)
-	if err != nil {
-		if isNoRows(err) {
-			return ErrLeaseLost
-		}
-		return err
-	}
-	_ = updated
-	return cause
+	return executor.waitFor(ctx, action, cause, false)
 }
 
 func (executor *Executor) hold(ctx context.Context, action Action, cause error) error {
-	update := OutcomeUpdate{
-		ID:        action.ID,
-		Version:   action.Version,
-		State:     domain.ActionNeedsReview,
-		Outcome:   outcomeJSON("", safeDetail(cause), 0),
-		UpdatedAt: formatTime(nowUTC(executor.options)),
+	return executor.holdFor(ctx, action, cause, false)
+}
+
+func (executor *Executor) requeueOwned(ctx context.Context, action Action, attempt Attempt, reason string) (Action, error) {
+	var updated Action
+	err := executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		if current.State == domain.ActionRunning {
+			current, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: domain.ActionReconciling, Outcome: outcomeJSON("", reason, 0), UnresolvedCount: 0, UpdatedAt: formatTime(nowUTC(executor.options))})
+			if err != nil {
+				return err
+			}
+		}
+		now := nowUTC(executor.options)
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: domain.ActionQueued, NextAttemptAt: formatTime(now), Outcome: outcomeJSON("", reason, 0), UpdatedAt: formatTime(now)})
+		return err
+	})
+	if err != nil {
+		if isNoRows(err) {
+			return action, ErrLeaseLost
+		}
+		return action, err
 	}
-	_, err := executor.journal.UpdateOutcome(ctx, update)
+	return preserveActionPlan(updated, action), nil
+}
+
+func (executor *Executor) waitOwned(ctx context.Context, action Action, cause error) error {
+	return executor.waitFor(ctx, action, cause, true)
+}
+
+func (executor *Executor) waitFor(ctx context.Context, action Action, cause error, claimed bool) error {
+	var err error
+	var current Action
+	if claimed {
+		err = executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
+			var innerErr error
+			current, innerErr = journal.GetAction(transactionCtx, action.ID)
+			if innerErr != nil {
+				return innerErr
+			}
+			return executor.applyWait(transactionCtx, journal, current, cause)
+		})
+	} else {
+		err = executor.withTransaction(ctx, func(transactionCtx context.Context, journal Journal) error {
+			var innerErr error
+			current, innerErr = journal.GetAction(transactionCtx, action.ID)
+			if innerErr != nil {
+				return innerErr
+			}
+			return executor.applyWait(transactionCtx, journal, current, cause)
+		})
+	}
 	if isNoRows(err) {
 		return ErrLeaseLost
 	}
@@ -1685,6 +2222,52 @@ func (executor *Executor) hold(ctx context.Context, action Action, cause error) 
 	return cause
 }
 
+func (executor *Executor) applyWait(ctx context.Context, journal Journal, action Action, cause error) error {
+	attempts, err := journal.ListAttempts(ctx, action.ID)
+	if err != nil {
+		return err
+	}
+	attemptNumber := int64(len(attempts))
+	if executor.options.Retry.MaxAttempts > 0 && int(attemptNumber) >= executor.options.Retry.MaxAttempts {
+		return executor.applyHold(ctx, journal, action, fmt.Errorf("retry limit reached: %w", cause))
+	}
+	next := nowUTC(executor.options).Add(executor.options.Retry.delay(attemptNumber))
+	_, err = journal.UpdateOutcome(ctx, OutcomeUpdate{ID: action.ID, Version: action.Version, State: domain.ActionWaitingDependency, NextAttemptAt: formatTime(next), Outcome: outcomeJSON("", "dependency_wait", 0), UpdatedAt: formatTime(nowUTC(executor.options))})
+	return err
+}
+
+func (executor *Executor) holdOwned(ctx context.Context, action Action, cause error) error {
+	return executor.holdFor(ctx, action, cause, true)
+}
+
+func (executor *Executor) holdFor(ctx context.Context, action Action, cause error, claimed bool) error {
+	apply := func(transactionCtx context.Context, journal Journal) error {
+		current, err := journal.GetAction(transactionCtx, action.ID)
+		if err != nil {
+			return err
+		}
+		return executor.applyHold(transactionCtx, journal, current, cause)
+	}
+	var err error
+	if claimed {
+		err = executor.withClaimedTransaction(ctx, action, apply)
+	} else {
+		err = executor.withTransaction(ctx, apply)
+	}
+	if isNoRows(err) {
+		return ErrLeaseLost
+	}
+	if err != nil {
+		return err
+	}
+	return cause
+}
+
+func (executor *Executor) applyHold(ctx context.Context, journal Journal, action Action, cause error) error {
+	_, err := journal.UpdateOutcome(ctx, OutcomeUpdate{ID: action.ID, Version: action.Version, State: domain.ActionNeedsReview, Outcome: outcomeJSON("", safeDetail(cause), 0), UpdatedAt: formatTime(nowUTC(executor.options))})
+	return err
+}
+
 // Cancel persists one cancellation marker. Repeating it is idempotent at the
 // SQL boundary; an in-flight dispatch is never claimed to be rolled back.
 func (executor *Executor) Cancel(ctx context.Context, id string) (Action, error) {
@@ -1692,22 +2275,29 @@ func (executor *Executor) Cancel(ctx context.Context, id string) (Action, error)
 		return Action{}, errors.New("execution executor is nil")
 	}
 	requestedAt := formatTime(nowUTC(executor.options))
-	action, err := executor.journal.RequestCancellation(ctx, id, requestedAt)
+	var action Action
+	err := executor.withTransaction(ctx, func(transactionCtx context.Context, journal Journal) error {
+		var err error
+		action, err = journal.RequestCancellation(transactionCtx, id, requestedAt)
+		return err
+	})
 	if err != nil {
 		return Action{}, err
 	}
 	if err := action.validate(); err != nil {
 		return Action{}, err
 	}
+	executor.cancelActiveHandler(id)
 	return action, nil
 }
 
 // SQLJournal adapts the generated D-01 queries without exposing generated
 // rows to handlers or the public Mastarr API.
 type SQLJournal struct {
-	store SQLStore
-	query sqlQueryer
-	db    *sql.DB
+	store  SQLStore
+	query  sqlQueryer
+	db     *sql.DB
+	runner sqlRunner
 }
 
 // SQLStore is implemented by storage.Store. It is kept as a local interface
@@ -1718,12 +2308,17 @@ type SQLStore interface {
 	WithTx(context.Context, func(*sqlc.Queries) error) error
 }
 
+type sqlRunner interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
 // NewSQLJournal binds the action executor to an opened storage.Store.
 func NewSQLJournal(store SQLStore) (*SQLJournal, error) {
 	if store == nil || store.Queries() == nil || store.DB() == nil {
 		return nil, errors.New("execution SQL store is required")
 	}
-	return &SQLJournal{store: store, query: store.Queries(), db: store.DB()}, nil
+	return &SQLJournal{store: store, query: store.Queries(), db: store.DB(), runner: store.DB()}, nil
 }
 
 type sqlQueryer interface {
@@ -1747,7 +2342,11 @@ type sqlQueryer interface {
 }
 
 func (journal *SQLJournal) clone(query sqlQueryer) *SQLJournal {
-	return &SQLJournal{query: query}
+	return &SQLJournal{store: journal.store, query: query, db: journal.db}
+}
+
+func (journal *SQLJournal) cloneWithRunner(query sqlQueryer, runner sqlRunner) *SQLJournal {
+	return &SQLJournal{store: journal.store, query: query, db: journal.db, runner: runner}
 }
 
 // InTx implements TransactionalJournal. The handler is never called from the
@@ -1762,6 +2361,114 @@ func (journal *SQLJournal) InTx(ctx context.Context, fn func(Journal) error) err
 	return journal.store.WithTx(ctx, func(query *sqlc.Queries) error {
 		return fn(journal.clone(query))
 	})
+}
+
+// InTxClaimed acquires SQLite's writer lock and verifies the immutable claim
+// before exposing a transactional journal. Every effect/attempt/transition
+// written by the callback is therefore part of the same ownership generation;
+// lease recovery or re-claim cannot interleave between the check and commit.
+func (journal *SQLJournal) InTxClaimed(ctx context.Context, fence ClaimFence, fn func(Journal) error) error {
+	if journal == nil || journal.db == nil {
+		return errors.New("execution SQL claimed transaction is unavailable")
+	}
+	if fn == nil {
+		return errors.New("execution claimed transaction callback is required")
+	}
+	tx, err := journal.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	rollback := func() { _ = tx.Rollback() }
+	defer rollback()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE action_runs
+		SET updated_at = updated_at
+		WHERE id = ?1
+		  AND state = 'running'
+		  AND claimed_by = ?2
+		  AND lease_until = ?3
+		  AND lease_until > ?4
+		  AND (version = ?5 OR (version = ?5 + 1 AND cancellation_requested_at IS NOT NULL))`,
+		fence.ActionID, fence.WorkerID, fence.LeaseUntil, fence.Now, fence.Version)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrLeaseLost
+	}
+	if err := fn(journal.cloneWithRunner(sqlc.New(tx), tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (journal *SQLJournal) Reserve(ctx context.Context, actionID string, keys []string) error {
+	if journal == nil || journal.runner == nil {
+		return fmt.Errorf("%w: durable reservation transaction is unavailable", ErrInvalidJournal)
+	}
+	keys = canonicalReservationKeys(keys)
+	rows, err := journal.runner.QueryContext(ctx, `SELECT id, outcome_json FROM action_runs WHERE state IN ('running', 'reconciling', 'needs_review')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ownOutcome json.RawMessage
+	var ownFound bool
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			return err
+		}
+		candidate, err := reservationKeysFromOutcome(json.RawMessage(raw))
+		if err != nil {
+			return err
+		}
+		if id == actionID {
+			ownOutcome = json.RawMessage(raw)
+			ownFound = true
+			continue
+		}
+		for _, requested := range keys {
+			for _, held := range candidate {
+				if reservationConflicts(requested, held) {
+					return fmt.Errorf("%w: %s", ErrReservationConflict, requested)
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !ownFound {
+		return ErrNotFound
+	}
+	current, err := reservationKeysFromOutcome(ownOutcome)
+	if err != nil {
+		return err
+	}
+	merged, err := outcomeWithReservations(ownOutcome, append(current, keys...))
+	if err != nil {
+		return err
+	}
+	result, err := journal.runner.ExecContext(ctx, `UPDATE action_runs SET outcome_json = ?1 WHERE id = ?2`, string(merged), actionID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrLeaseLost
+	}
+	return nil
 }
 
 func (journal *SQLJournal) GetAction(ctx context.Context, id string) (Action, error) {
@@ -2027,7 +2734,18 @@ func (journal *SQLJournal) UpdateOutcome(ctx context.Context, update OutcomeUpda
 	if update.ID == "" || update.Version <= 0 || !update.State.Valid() || !json.Valid(update.Outcome) || update.UnresolvedCount < 0 {
 		return Action{}, fmt.Errorf("%w: invalid outcome update", ErrInvalidJournal)
 	}
-	run, err := journal.query.UpdateActionRunOutcome(ctx, &sqlc.UpdateActionRunOutcomeParams{ID: update.ID, Version: update.Version, State: string(update.State), NextAttemptAt: nullString(update.NextAttemptAt), ClaimedBy: nullString(update.ClaimedBy), LeaseUntil: nullString(update.LeaseUntil), OutcomeJson: string(update.Outcome), UnresolvedCount: update.UnresolvedCount, UpdatedAt: update.UpdatedAt})
+	current, err := journal.query.GetActionRun(ctx, update.ID)
+	if err != nil {
+		if isNoRows(err) {
+			return Action{}, ErrNotFound
+		}
+		return Action{}, err
+	}
+	preserved, err := outcomePreservingReservations(json.RawMessage(current.OutcomeJson), update.Outcome, update.State)
+	if err != nil {
+		return Action{}, err
+	}
+	run, err := journal.query.UpdateActionRunOutcome(ctx, &sqlc.UpdateActionRunOutcomeParams{ID: update.ID, Version: update.Version, State: string(update.State), NextAttemptAt: nullString(update.NextAttemptAt), ClaimedBy: nullString(update.ClaimedBy), LeaseUntil: nullString(update.LeaseUntil), OutcomeJson: string(preserved), UnresolvedCount: update.UnresolvedCount, UpdatedAt: update.UpdatedAt})
 	if err != nil {
 		return Action{}, err
 	}

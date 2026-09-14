@@ -164,7 +164,7 @@ func TestReconciliationMustProveNoEffectBeforeMutationRetry(t *testing.T) {
 			return DispatchResult{}, NewDispatchedFailure(FailureUncertain, errors.New("write response lost"))
 		},
 		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
-			return ReconcileResult{SafeToRetry: true, Evidence: []string{"target_absent"}}, nil
+			return ReconcileResult{SafeToRetry: true, Evidence: []string{"target_absent"}, Effects: []Effect{effect}}, nil
 		},
 	}
 	executor := newTestExecutor(t, journal, handler, executionClock())
@@ -508,6 +508,410 @@ func TestSQLJournalRecoveryPersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+func TestMemoryRecoverExpiredOnlyReclaimsExpiredLeases(t *testing.T) {
+	journal, expiredAction := newMemoryAction("expired-lease", domain.ActionFSCopy, domain.ActionRunning)
+	expiredAction.ClaimedBy = "old-worker"
+	expiredAction.LeaseUntil = "2026-09-14T11:59:00Z"
+	expiredAction.Version = 2
+	journal.putAction(expiredAction)
+	_, activeAction := newMemoryActionOnJournal(journal, "active-lease", domain.ActionFSCopy, domain.ActionRunning)
+	activeAction.ClaimedBy = "active-worker"
+	activeAction.LeaseUntil = "2026-09-14T12:01:00Z"
+	activeAction.Version = 2
+	journal.putAction(activeAction)
+
+	recovered, err := journal.RecoverExpired(context.Background(), executionFixtureTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].ID != expiredAction.ID {
+		t.Fatalf("recovered = %+v, want only expired lease", recovered)
+	}
+	if current := mustAction(t, journal, expiredAction.ID); current.State != domain.ActionReconciling || current.ClaimedBy != "" {
+		t.Fatalf("expired action = %+v, want unleased reconciliation", current)
+	}
+	if current := mustAction(t, journal, activeAction.ID); current.State != domain.ActionRunning || current.ClaimedBy != activeAction.ClaimedBy {
+		t.Fatalf("active action = %+v, want active lease preserved", current)
+	}
+}
+
+func TestNewRejectsNonTransactionalJournal(t *testing.T) {
+	journal, _ := newMemoryAction("non-transactional", domain.ActionFSCopy, domain.ActionQueued)
+	_, err := New(journalWithoutTransactions{Journal: journal}, Options{})
+	if !errors.Is(err, ErrInvalidJournal) {
+		t.Fatalf("New error = %v, want invalid journal", err)
+	}
+}
+
+func TestDispatchIntentTransactionRollsBackBeforeHandler(t *testing.T) {
+	journal, action := newMemoryAction("dispatch-rollback", domain.ActionFSCopy, domain.ActionQueued)
+	journal.failCreateEffect = true
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{executionEffect("copy", "payload.bin")}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			t.Fatal("dispatch called after intent transaction failure")
+			return DispatchResult{}, nil
+		},
+	}
+	result := newTestExecutor(t, journal, handler, executionClock()).RunAction(context.Background(), action.ID)
+	if result.Err == nil {
+		t.Fatal("dispatch rollback result = nil error, want transaction failure")
+	}
+	if handler.dispatchCalls() != 0 {
+		t.Fatalf("dispatch calls = %d, want zero", handler.dispatchCalls())
+	}
+	if attempts := mustAttempts(t, journal, action.ID); len(attempts) != 1 || attempts[0].Phase != AttemptObserve || attempts[0].State != domain.AttemptRunning {
+		t.Fatalf("attempts after rollback = %+v, want only the running observe attempt", attempts)
+	}
+	if effects := mustEffects(t, journal, action.ID); len(effects) != 0 {
+		t.Fatalf("effects after rollback = %+v, want no persisted effects", effects)
+	}
+}
+
+func TestDurableCancelCancelsInFlightHandler(t *testing.T) {
+	journal, action := newMemoryAction("cancel-in-flight", domain.ActionFSCopy, domain.ActionQueued)
+	started := make(chan struct{})
+	observedCancel := make(chan struct{})
+	var startOnce, cancelOnce sync.Once
+	effect := executionEffect("copy", "payload.bin")
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{effect}}, nil
+		},
+		dispatchFn: func(ctx context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			startOnce.Do(func() { close(started) })
+			<-ctx.Done()
+			cancelOnce.Do(func() { close(observedCancel) })
+			return DispatchResult{}, ctx.Err()
+		},
+	}
+	executor := newTestExecutor(t, journal, handler, executionClock())
+	done := make(chan Result, 1)
+	go func() { done <- executor.RunAction(context.Background(), action.ID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatch did not start")
+	}
+	if _, err := executor.Cancel(context.Background(), action.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-observedCancel:
+	case <-time.After(2 * time.Second):
+		t.Fatal("durable cancellation did not reach handler context")
+	}
+	select {
+	case result := <-done:
+		if result.State != domain.ActionCancelled {
+			t.Fatalf("cancelled result = %+v, want cancelled", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight action did not finish after cancellation")
+	}
+	if current := mustAction(t, journal, action.ID); current.State != domain.ActionCancelled {
+		t.Fatalf("persisted action = %+v, want cancelled", current)
+	}
+}
+
+func TestUnresolvedReservationPersistsAcrossExecutorRestart(t *testing.T) {
+	journal, first := newMemoryAction("reservation-persistent-first", domain.ActionFSCopy, domain.ActionQueued)
+	_, second := newMemoryActionOnJournal(journal, "reservation-persistent-second", domain.ActionFSCopy, domain.ActionQueued)
+	effect := executionEffect("copy", "payload.bin")
+	firstHandler := &scriptedHandler{
+		kind:        domain.ActionFSCopy,
+		reservation: []string{"root:library/show"},
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{effect}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{}, NewDispatchedFailure(FailureUncertain, errors.New("response lost"))
+		},
+	}
+	firstExecutor := newTestExecutor(t, journal, firstHandler, executionClock())
+	firstResult := firstExecutor.RunAction(context.Background(), first.ID)
+	if firstResult.State != domain.ActionReconciling {
+		t.Fatalf("first result = %+v, want unresolved reconciliation", firstResult)
+	}
+	current := mustAction(t, journal, first.ID)
+	keys, err := reservationKeysFromOutcome(current.Outcome)
+	if err != nil || !equalStrings(keys, []string{"root:library/show"}) {
+		t.Fatalf("persisted reservation keys = %v (%v), want first action key", keys, err)
+	}
+
+	secondHandler := &scriptedHandler{
+		kind:        domain.ActionFSCopy,
+		reservation: []string{"root:library/show/file.mkv"},
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{executionEffect("copy", "other.bin")}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+		},
+	}
+	// A fresh executor has no process-local reservation map. The durable
+	// action outcome still prevents a descendant reservation from dispatching.
+	secondExecutor := newTestExecutor(t, journal, secondHandler, executionClock())
+	secondResult := secondExecutor.RunAction(context.Background(), second.ID)
+	if secondResult.State != domain.ActionWaitingDependency {
+		t.Fatalf("overlapping restart result = %+v, want waiting dependency", secondResult)
+	}
+	if secondHandler.dispatchCalls() != 0 {
+		t.Fatalf("overlapping dispatch calls = %d, want zero", secondHandler.dispatchCalls())
+	}
+}
+
+func TestReadBackRejectsPartialAndChangedEffectSets(t *testing.T) {
+	tests := []struct {
+		name     string
+		readBack []Effect
+	}{
+		{
+			name:     "omitted target",
+			readBack: []Effect{executionEffect("copy", "one.bin")},
+		},
+		{
+			name: "changed target",
+			readBack: []Effect{{Ordinal: 0, TargetKind: "file", TargetID: "different.bin", EffectKind: "copy", State: EffectApplied, Evidence: json.RawMessage(`{}`), ObservedAt: executionFixtureTime},
+				{Ordinal: 1, TargetKind: "file", TargetID: "two.bin", EffectKind: "copy", State: EffectApplied, Evidence: json.RawMessage(`{}`), ObservedAt: executionFixtureTime}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			journal, action := newMemoryAction("effect-set-"+test.name, domain.ActionFSCopy, domain.ActionQueued)
+			first := executionEffect("copy", "one.bin")
+			second := executionEffect("copy", "two.bin")
+			second.Ordinal = 1
+			handler := &scriptedHandler{
+				kind: domain.ActionFSCopy,
+				observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
+					if call == 1 {
+						return Observation{State: ObserveNeedsAction, Effects: []Effect{first, second}}, nil
+					}
+					return Observation{State: ObserveSatisfied, Effects: test.readBack}, nil
+				},
+				dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+					return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+				},
+			}
+			result := mustRunOnce(t, newTestExecutor(t, journal, handler, executionClock()))
+			if len(result.Results) != 1 || result.Results[0].State != domain.ActionReconciling {
+				t.Fatalf("result = %+v, want unresolved reconciliation", result.Results)
+			}
+			if current := mustAction(t, journal, action.ID); current.State != domain.ActionReconciling {
+				t.Fatalf("persisted action = %+v, want reconciling", current)
+			}
+		})
+	}
+}
+
+func TestReconciliationRejectsChangedEffectIdentity(t *testing.T) {
+	journal, action := newMemoryAction("reconcile-effect-drift", domain.ActionFSCopy, domain.ActionQueued)
+	expected := executionEffect("copy", "payload.bin")
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{expected}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{}, NewDispatchedFailure(FailureUncertain, errors.New("response lost"))
+		},
+		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
+			return ReconcileResult{Outcome: domain.OutcomeApplied, Effects: []Effect{{Ordinal: 0, TargetKind: "file", TargetID: "other.bin", EffectKind: "copy", State: EffectApplied, Evidence: json.RawMessage(`{}`), ObservedAt: executionFixtureTime}}, Evidence: []string{"drift"}}, nil
+		},
+	}
+	executor := newTestExecutor(t, journal, handler, executionClock())
+	first := mustRunOnce(t, executor)
+	if first.Results[0].State != domain.ActionReconciling {
+		t.Fatalf("first result = %+v, want reconciliation", first.Results)
+	}
+	clockNow := executionTime().Add(10 * time.Second)
+	restarted := newTestExecutor(t, journal, handler, func() time.Time { return clockNow })
+	second := mustRunOnce(t, restarted)
+	if len(second.Results) != 1 || second.Results[0].State != domain.ActionNeedsReview {
+		t.Fatalf("reconciliation drift result = %+v, want needs review", second.Results)
+	}
+	if current := mustAction(t, journal, action.ID); current.State != domain.ActionNeedsReview {
+		t.Fatalf("persisted action = %+v, want needs review", current)
+	}
+}
+
+func TestValidateEffectsRejectsDuplicateTargetIdentity(t *testing.T) {
+	first := executionEffect("copy", "payload.bin")
+	second := executionEffect("copy", "payload.bin")
+	second.Ordinal = 1
+	if err := (Observation{State: ObserveNeedsAction, Effects: []Effect{first, second}}).validate("duplicate-effects"); !errors.Is(err, ErrInvalidJournal) {
+		t.Fatalf("duplicate validation error = %v, want invalid journal", err)
+	}
+}
+
+func TestSQLStaleWorkerCannotFinalizeRecoveredLease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stale-worker.sqlite")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	created := "2026-09-14T11:00:00Z"
+	planID, actionID, digest := "stale-plan", "stale-action", "stale-digest"
+	if _, err := store.Queries().CreateActionPlan(ctx, &sqlc.CreateActionPlanParams{ID: planID, Kind: string(domain.ActionFSCopy), State: "ready", CurrentRevision: 1, CurrentDigest: digest, CreatedAt: created, UpdatedAt: created}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionPlanRevision(ctx, &sqlc.CreateActionPlanRevisionParams{PlanID: planID, Revision: 1, Digest: digest, State: "ready", InputJson: `{}`, PreconditionsJson: `{}`, CapabilitiesJson: `[]`, ManifestJson: `[]`, CreatedAt: created, ExpiresAt: "2026-09-20T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionRun(ctx, &sqlc.CreateActionRunParams{ID: actionID, PlanID: planID, PlanRevision: 1, PlanDigest: digest, State: string(domain.ActionQueued), DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: created, UpdatedAt: created}); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := NewSQLJournal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			once.Do(func() { close(started) })
+			<-release
+			return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+		},
+	}
+	clock := executionClock()
+	worker, err := New(journal, Options{WorkerID: "stale-worker", Now: clock, LeaseDuration: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	resultDone := make(chan Result, 1)
+	go func() { resultDone <- worker.RunAction(ctx, actionID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stale worker dispatch did not start")
+	}
+	recovered, err := journal.RecoverExpired(ctx, "2026-09-14T12:00:02Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].State != domain.ActionReconciling {
+		t.Fatalf("recovered = %+v, want one reconciling action", recovered)
+	}
+	close(release)
+	select {
+	case result := <-resultDone:
+		if !errors.Is(result.Err, ErrLeaseLost) {
+			t.Fatalf("stale worker result = %+v, want lease loss", result)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("stale worker did not finish")
+	}
+	current, err := journal.GetAction(ctx, actionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != domain.ActionReconciling || current.ClaimedBy != "" {
+		t.Fatalf("recovered action after stale completion = %+v, want untouched reconciliation", current)
+	}
+}
+
+func TestSQLReadBackRejectsPartialEffectSet(t *testing.T) {
+	store, journal, action := newSQLExecutionFixture(t, "sql-effect-set")
+	defer store.Close()
+	first := executionEffect("copy", "one.bin")
+	second := executionEffect("copy", "two.bin")
+	second.Ordinal = 1
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
+			if call == 1 {
+				return Observation{State: ObserveNeedsAction, Effects: []Effect{first, second}}, nil
+			}
+			return Observation{State: ObserveSatisfied, Effects: []Effect{first}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+		},
+	}
+	executor, err := New(journal, Options{WorkerID: "sql-effect-worker", Now: executionClock(), LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	result := executor.RunAction(context.Background(), action.ID)
+	if result.State != domain.ActionReconciling {
+		t.Fatalf("SQL partial read-back result = %+v, want reconciling", result)
+	}
+	current, err := journal.GetAction(context.Background(), action.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != domain.ActionReconciling || current.UnresolvedCount != 1 {
+		t.Fatalf("SQL partial read-back action = %+v, want unresolved reconciliation", current)
+	}
+}
+
+func TestSQLReconciliationRejectsChangedEffectIdentity(t *testing.T) {
+	store, journal, action := newSQLExecutionFixture(t, "sql-reconcile-drift")
+	defer store.Close()
+	expected := executionEffect("copy", "payload.bin")
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: []Effect{expected}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{}, NewDispatchedFailure(FailureUncertain, errors.New("response lost"))
+		},
+		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
+			return ReconcileResult{Outcome: domain.OutcomeApplied, Effects: []Effect{{Ordinal: 0, TargetKind: "file", TargetID: "other.bin", EffectKind: "copy", State: EffectApplied, Evidence: json.RawMessage(`{}`), ObservedAt: executionFixtureTime}}}, nil
+		},
+	}
+	executor, err := New(journal, Options{WorkerID: "sql-reconcile-worker", Now: executionClock(), LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	first := executor.RunAction(context.Background(), action.ID)
+	if first.State != domain.ActionReconciling {
+		t.Fatalf("SQL uncertain result = %+v, want reconciliation", first)
+	}
+	clockNow := executionTime().Add(10 * time.Second)
+	restarted, err := New(journal, Options{WorkerID: "sql-reconcile-restart", Now: func() time.Time { return clockNow }, LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	second := restarted.RunAction(context.Background(), action.ID)
+	if second.State != domain.ActionNeedsReview {
+		t.Fatalf("SQL reconciliation drift result = %+v, want needs review", second)
+	}
+	current, err := journal.GetAction(context.Background(), action.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != domain.ActionNeedsReview {
+		t.Fatalf("SQL reconciliation drift action = %+v, want needs review", current)
+	}
+}
+
 func executionClock() func() time.Time {
 	value := executionTime()
 	return func() time.Time { return value }
@@ -516,6 +920,42 @@ func executionClock() func() time.Time {
 func executionTime() time.Time {
 	value, _ := time.Parse(time.RFC3339, executionFixtureTime)
 	return value
+}
+
+func newSQLExecutionFixture(t *testing.T, actionID string) (*storage.Store, *SQLJournal, Action) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), actionID+".sqlite")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := executionFixtureTime
+	planID := actionID + "-plan"
+	digest := actionID + "-digest"
+	ctx := context.Background()
+	if _, err := store.Queries().CreateActionPlan(ctx, &sqlc.CreateActionPlanParams{ID: planID, Kind: string(domain.ActionFSCopy), State: "ready", CurrentRevision: 1, CurrentDigest: digest, CreatedAt: created, UpdatedAt: created}); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionPlanRevision(ctx, &sqlc.CreateActionPlanRevisionParams{PlanID: planID, Revision: 1, Digest: digest, State: "ready", InputJson: `{}`, PreconditionsJson: `{}`, CapabilitiesJson: `[]`, ManifestJson: `[]`, CreatedAt: created, ExpiresAt: "2026-09-20T00:00:00Z"}); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	if _, err := store.Queries().CreateActionRun(ctx, &sqlc.CreateActionRunParams{ID: actionID, PlanID: planID, PlanRevision: 1, PlanDigest: digest, State: string(domain.ActionQueued), DesiredStateJson: `{}`, Version: 1, OutcomeJson: `{}`, CreatedAt: created, UpdatedAt: created}); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	journal, err := NewSQLJournal(store)
+	if err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	action, err := journal.GetAction(ctx, actionID)
+	if err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
+	return store, journal, action
 }
 
 func newTestExecutor(t *testing.T, journal *memoryJournal, handler *scriptedHandler, now func() time.Time) *Executor {
@@ -611,6 +1051,10 @@ type scriptedHandler struct {
 	reconcileCount int
 }
 
+type journalWithoutTransactions struct {
+	Journal
+}
+
 func (handler *scriptedHandler) Kind() domain.ActionKind { return handler.kind }
 
 func (handler *scriptedHandler) Reservations(Action) []string {
@@ -681,24 +1125,30 @@ type memoryJournal struct {
 	attempts         map[string][]Attempt
 	effects          map[string][]Effect
 	transactionCount int
+	revision         uint64
+	baseRevision     uint64
+	failCreateEffect bool
 }
 
 func (journal *memoryJournal) putPlan(plan Plan) {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 	journal.plans[plan.ID] = plan
+	journal.revision++
 }
 
 func (journal *memoryJournal) putAction(action Action) {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 	journal.actions[action.ID] = cloneAction(action)
+	journal.revision++
 }
 
 func (journal *memoryJournal) putAttempt(attempt Attempt) {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 	journal.attempts[attempt.ActionRunID] = append(journal.attempts[attempt.ActionRunID], cloneAttempt(attempt))
+	journal.revision++
 }
 
 func (journal *memoryJournal) transactionCalls() int {
@@ -798,6 +1248,7 @@ func (journal *memoryJournal) Claim(_ context.Context, id string, version int64,
 	action.Version++
 	action.UpdatedAt = now
 	journal.actions[id] = cloneAction(action)
+	journal.revision++
 	return cloneAction(action), nil
 }
 
@@ -816,6 +1267,7 @@ func (journal *memoryJournal) RecoverRunning(_ context.Context, now string) ([]A
 		action.Version++
 		action.UpdatedAt = now
 		journal.actions[id] = cloneAction(action)
+		journal.revision++
 		recovered = append(recovered, cloneAction(action))
 	}
 	return recovered, nil
@@ -830,7 +1282,7 @@ func (journal *memoryJournal) RecoverExpired(ctx context.Context, now string) ([
 	}
 	var recovered []Action
 	for id, action := range journal.actions {
-		if (action.State != domain.ActionRunning && !(action.State == domain.ActionReconciling && action.ClaimedBy != "")) || memoryLeaseAvailable(action, current) {
+		if (action.State != domain.ActionRunning && !(action.State == domain.ActionReconciling && action.ClaimedBy != "")) || action.ClaimedBy == "" || action.LeaseUntil == "" || !expired(action.LeaseUntil, current) {
 			continue
 		}
 		action.State = domain.ActionReconciling
@@ -840,6 +1292,7 @@ func (journal *memoryJournal) RecoverExpired(ctx context.Context, now string) ([
 		action.Version++
 		action.UpdatedAt = now
 		journal.actions[id] = cloneAction(action)
+		journal.revision++
 		recovered = append(recovered, cloneAction(action))
 	}
 	return recovered, nil
@@ -861,6 +1314,7 @@ func (journal *memoryJournal) RecoverRunningAttempts(_ context.Context) ([]Attem
 			recovered = append(recovered, cloneAttempt(attempts[index]))
 		}
 		journal.attempts[id] = attempts
+		journal.revision++
 	}
 	return recovered, nil
 }
@@ -879,6 +1333,7 @@ func (journal *memoryJournal) FinalizeCancelled(_ context.Context, now string) (
 		action.Version++
 		action.UpdatedAt = now
 		journal.actions[id] = cloneAction(action)
+		journal.revision++
 		finalized = append(finalized, cloneAction(action))
 	}
 	return finalized, nil
@@ -902,6 +1357,7 @@ func (journal *memoryJournal) FinalizeDeadline(_ context.Context, now string) ([
 		action.Version++
 		action.UpdatedAt = now
 		journal.actions[id] = cloneAction(action)
+		journal.revision++
 		finalized = append(finalized, cloneAction(action))
 	}
 	return finalized, nil
@@ -922,6 +1378,7 @@ func (journal *memoryJournal) RequestCancellation(_ context.Context, id, request
 		action.Version++
 		action.UpdatedAt = requestedAt
 		journal.actions[id] = cloneAction(action)
+		journal.revision++
 	}
 	return cloneAction(action), nil
 }
@@ -946,6 +1403,7 @@ func (journal *memoryJournal) CreateAttempt(_ context.Context, attempt Attempt) 
 		}
 	}
 	journal.attempts[attempt.ActionRunID] = append(journal.attempts[attempt.ActionRunID], cloneAttempt(attempt))
+	journal.revision++
 	return cloneAttempt(attempt), nil
 }
 
@@ -962,6 +1420,7 @@ func (journal *memoryJournal) UpdateAttempt(_ context.Context, attempt Attempt) 
 		}
 		attempts[index] = cloneAttempt(attempt)
 		journal.attempts[attempt.ActionRunID] = attempts
+		journal.revision++
 		return cloneAttempt(attempt), nil
 	}
 	return Attempt{}, ErrNotFound
@@ -981,6 +1440,9 @@ func (journal *memoryJournal) CreateEffect(_ context.Context, effect Effect) (Ef
 	}
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+	if journal.failCreateEffect {
+		return Effect{}, errors.New("injected effect journal failure")
+	}
 	for _, existing := range journal.effects[effect.ActionRunID] {
 		if existing.ID == effect.ID || existing.Ordinal == effect.Ordinal {
 			return Effect{}, fmt.Errorf("duplicate effect %s", effect.ID)
@@ -999,6 +1461,7 @@ func (journal *memoryJournal) CreateEffect(_ context.Context, effect Effect) (Ef
 		}
 	}
 	journal.effects[effect.ActionRunID] = append(journal.effects[effect.ActionRunID], cloneEffect(effect))
+	journal.revision++
 	return cloneEffect(effect), nil
 }
 
@@ -1015,6 +1478,7 @@ func (journal *memoryJournal) UpdateEffect(_ context.Context, effect Effect) (Ef
 		}
 		effects[index] = cloneEffect(effect)
 		journal.effects[effect.ActionRunID] = effects
+		journal.revision++
 		return cloneEffect(effect), nil
 	}
 	return Effect{}, ErrNotFound
@@ -1030,15 +1494,20 @@ func (journal *memoryJournal) UpdateOutcome(_ context.Context, update OutcomeUpd
 	if !ok || action.Version != update.Version {
 		return Action{}, sql.ErrNoRows
 	}
+	preserved, err := outcomePreservingReservations(action.Outcome, update.Outcome, update.State)
+	if err != nil {
+		return Action{}, err
+	}
 	action.State = update.State
 	action.NextAttemptAt = update.NextAttemptAt
 	action.ClaimedBy = update.ClaimedBy
 	action.LeaseUntil = update.LeaseUntil
-	action.Outcome = cloneRaw(update.Outcome)
+	action.Outcome = cloneRaw(preserved)
 	action.UnresolvedCount = update.UnresolvedCount
 	action.Version++
 	action.UpdatedAt = update.UpdatedAt
 	journal.actions[update.ID] = cloneAction(action)
+	journal.revision++
 	return cloneAction(action), nil
 }
 
@@ -1054,16 +1523,90 @@ func (journal *memoryJournal) InTx(_ context.Context, fn func(Journal) error) er
 	}
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
+	if journal.revision != transaction.baseRevision {
+		return ErrLeaseLost
+	}
 	journal.actions = transaction.actions
 	journal.plans = transaction.plans
 	journal.attempts = transaction.attempts
 	journal.effects = transaction.effects
+	journal.revision++
 	journal.transactionCount++
 	return nil
 }
 
+func (journal *memoryJournal) InTxClaimed(_ context.Context, fence ClaimFence, fn func(Journal) error) error {
+	if fn == nil {
+		return errors.New("claimed transaction callback is required")
+	}
+	journal.mu.Lock()
+	transaction := journal.cloneLocked()
+	journal.mu.Unlock()
+	if err := fn(transaction); err != nil {
+		return err
+	}
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if journal.revision != transaction.baseRevision {
+		return ErrLeaseLost
+	}
+	current, ok := journal.actions[fence.ActionID]
+	if !ok || !claimFenceMatches(current, fence) {
+		return ErrLeaseLost
+	}
+	journal.actions = transaction.actions
+	journal.plans = transaction.plans
+	journal.attempts = transaction.attempts
+	journal.effects = transaction.effects
+	journal.revision++
+	journal.transactionCount++
+	return nil
+}
+
+func (journal *memoryJournal) Reserve(_ context.Context, actionID string, keys []string) error {
+	keys = canonicalReservationKeys(keys)
+	var own Action
+	ownFound := false
+	for id, action := range journal.actions {
+		if action.State != domain.ActionRunning && action.State != domain.ActionReconciling && action.State != domain.ActionNeedsReview {
+			continue
+		}
+		candidate, err := reservationKeysFromOutcome(action.Outcome)
+		if err != nil {
+			return err
+		}
+		if id == actionID {
+			own = action
+			ownFound = true
+			continue
+		}
+		for _, requested := range keys {
+			for _, held := range candidate {
+				if reservationConflicts(requested, held) {
+					return fmt.Errorf("%w: %s", ErrReservationConflict, requested)
+				}
+			}
+		}
+	}
+	if !ownFound {
+		return ErrNotFound
+	}
+	existing, err := reservationKeysFromOutcome(own.Outcome)
+	if err != nil {
+		return err
+	}
+	merged, err := outcomeWithReservations(own.Outcome, append(existing, keys...))
+	if err != nil {
+		return err
+	}
+	own.Outcome = merged
+	journal.actions[actionID] = cloneAction(own)
+	journal.revision++
+	return nil
+}
+
 func (journal *memoryJournal) cloneLocked() *memoryJournal {
-	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects))}
+	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects)), revision: journal.revision, baseRevision: journal.revision, failCreateEffect: journal.failCreateEffect}
 	for id, action := range journal.actions {
 		clone.actions[id] = cloneAction(action)
 	}
@@ -1133,4 +1676,6 @@ func cloneEffects(effects []Effect) []Effect {
 
 var _ Journal = (*memoryJournal)(nil)
 var _ TransactionalJournal = (*memoryJournal)(nil)
+var _ FencedTransactionalJournal = (*memoryJournal)(nil)
+var _ ReservationJournal = (*memoryJournal)(nil)
 var _ Handler = (*scriptedHandler)(nil)
