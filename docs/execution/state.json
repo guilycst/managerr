@@ -1365,7 +1365,7 @@
       ]
     },
     "X-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -1383,18 +1383,18 @@
         "X-05 correction binds every fixture to executable probes, uses decoded Sonarr HTTP read-back, normalizes qBittorrent /delete with deleteFiles=false, and explicitly keeps runtime write capabilities blocked; focused/module/guardrail checks passed.",
         "1e0b5689f6f24bed067e47e1d55ab1a7b0df2412 X-05 independent review round two: changes requested",
         "2e98db6bc5f0fbe1c7db3ecb2ef76bdb7c0ed3f integrated X-05 review round two receipt",
-        "X-05 correction required: independently pin zero-speed/stalledUP and HTTP 202 fixture values; use Sonarr downloadFolderImported history enum."
+        "X-05 correction required: independently pin zero-speed/stalledUP and HTTP 202 fixture values; use Sonarr downloadFolderImported history enum.",
+        "165f22c2d81c4123d2ab31cf00d7613cdba87054 X-05 correction round three product",
+        "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8 X-05 correction round three handoff",
+        "X-05 correction independently pins stalledUP/upspeed=0 and HTTP 202, uses native downloadFolderImported enum, and preserves protocol-model/runtime capability blocks; focused/module/guardrail checks passed."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/x05_reviewer",
-        "commit": "1e0b5689f6f24bed067e47e1d55ab1a7b0df2412",
-        "findings": [
-          "P2: qBittorrent zero-speed/stalledUP and Jellyfin HTTP 202 fixture values are self-comparisons; assert the acceptance-defining literals independently before handler construction.",
-          "P2: Sonarr history uses invalid native eventType Downloaded; use and assert pinned downloadFolderImported while keeping decoded episode/file read-back authoritative."
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "leaseHistory": [
         {
@@ -1443,13 +1443,13 @@
         "correctionBaseSha": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
         "correctionReviewPath": "docs/execution/handoffs/X-05-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending",
+        "correctionImplementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
+        "correctionHandoffCommit": "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8",
         "reviewIntegrationCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
       },
-      "implementationCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
-      "handoffCommit": "5587ab87827d848d6de1b36391d54476f1beed3e",
-      "reviewSourceCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
+      "implementationCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
+      "handoffCommit": "949b07d5a6ca9b65df382ef49bbcc3c9f16b82f8",
+      "reviewSourceCommit": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
       "reviewHistory": [
         {
           "round": 1,
