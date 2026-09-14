@@ -2578,7 +2578,7 @@
       ]
     },
     "X-14": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "1c9ed7deb542afda76797d7899f33d2c29247241",
       "integratedSha": null,
@@ -2590,20 +2590,18 @@
         "X-14 handoff records standalone module tests/race/vet/mod verify, generation, lint, Linux amd64/arm64, root control seam, API/Vacuum, architecture, planning and full guardrail checks passed.",
         "0243a396e44a99a0c36f1d2c04721c8bc522564f X-14 independent review round one: changes requested",
         "e1a899060fe58e6af4fefa3d0cf516cc15629d1d integrated X-14 review receipt",
-        "X-14 correction required: reject the qBittorrent all sentinel, accept documented empty control responses, hide raw generated control transport, and preserve SID on SetLocation permission 403."
+        "X-14 correction required: reject the qBittorrent all sentinel, accept documented empty control responses, hide raw generated control transport, and preserve SID on SetLocation permission 403.",
+        "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4 X-14 correction round one product commit",
+        "c9dd654c9d831022a59876d5f350e631c894a45c X-14 correction round one handoff commit",
+        "X-14 correction handoff records reserved all-scope rejection, status-only empty control responses, module-internal generated transport, SetLocation permission handling, and full module/root guardrail checks."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/x05_reviewer",
-        "commit": "0243a396e44a99a0c36f1d2c04721c8bc522564f",
-        "findings": [
-          "P1: handwritten control hash validation accepts the qBittorrent all-torrents sentinel before dispatch.",
-          "P1: control HTTP 200 is modeled as Ok. body although qBittorrent 5.0 returns status-only empty success.",
-          "P1: public generated control helpers can encode hashes=all and deleteFiles=true outside guarded wrappers.",
-          "P2: SetLocation HTTP 403 is a target-directory permission failure and must not invalidate a valid SID or map to authentication."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2640,9 +2638,9 @@
           "X-07-review": "b8861b865e081a998d9ba1661476aea5113a1cb6",
           "X-07-integration": "5e2c0ff540a9f9c9a7bfe5b9aeaba92c6872226e"
         },
-        "implementationCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
-        "handoffCommit": "8e6b7831bfa5f1e1b84e0ad901c694e30d8623cc",
-        "reviewSourceCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
+        "implementationCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
+        "handoffCommit": "c9dd654c9d831022a59876d5f350e631c894a45c",
+        "reviewSourceCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
         "reviewCommit": "0243a396e44a99a0c36f1d2c04721c8bc522564f",
         "reviewIntegrationCommit": "e1a899060fe58e6af4fefa3d0cf516cc15629d1d",
         "correctionRound": 1,
@@ -2651,11 +2649,13 @@
         "correctionReviewPath": "docs/execution/handoffs/X-14-review-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionHandoffPath": "docs/execution/handoffs/X-14-correction-round1.md",
-        "correctionReviewCommit": "0243a396e44a99a0c36f1d2c04721c8bc522564f"
+        "correctionReviewCommit": "0243a396e44a99a0c36f1d2c04721c8bc522564f",
+        "correctionImplementationCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
+        "correctionHandoffCommit": "c9dd654c9d831022a59876d5f350e631c894a45c"
       },
-      "implementationCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
-      "handoffCommit": "8e6b7831bfa5f1e1b84e0ad901c694e30d8623cc",
-      "reviewSourceCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
+      "implementationCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
+      "handoffCommit": "c9dd654c9d831022a59876d5f350e631c894a45c",
+      "reviewSourceCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
       "reviewHistory": [
         {
           "round": 1,
@@ -2669,7 +2669,7 @@
       ]
     }
   },
-  "nextAction": "D-03 correction review and X-14 qBittorrent client correction round one are active; no client control integration until both exact products are approved.",
+  "nextAction": "D-03 correction round two and X-14 qBittorrent correction review round two are active; no root control integration until both reviews approve exact products.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
