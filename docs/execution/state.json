@@ -2402,8 +2402,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued",
+        "correctionDispatchCommit": "7437b60b9c9f4b4b45f6f0a7a0cc616bfeef6c0d",
+        "correctionStatus": "dispatched",
         "correctionProductCommits": [],
         "correctionReviewSourceCommit": null,
         "reviewerReroute": {
@@ -3416,7 +3416,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round three is queued to /root/x05_implementer for lease renewal, unresolved-count, barrier retry, and initial-observe cancellation fixes; F-05 remains capability-blocked; F-03 is complete.",
+  "nextAction": "W-02 correction round three is dispatched to /root/x05_implementer for lease renewal, unresolved-count, barrier retry, and initial-observe cancellation fixes; F-05 remains capability-blocked; F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
