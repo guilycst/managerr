@@ -713,15 +713,25 @@
       }
     },
     "D-02": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d02_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
       "evidence": [
         "dispatched from b1d0fed72128c73d565c2254b61fa5e38100fb97 after all listed dependencies passed",
-        "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a"
+        "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a",
+        "8ff358be55891e7b7a588e76a57bd3e7d8ce661c D-02 product commit",
+        "47b1dfa D-02 handoff commit",
+        "D-02 implementer reports focused credential, race, vet, mod verify, generation, architecture, lint, planning, and Linux amd64/arm64 checks passed; full CI-equivalent waits for concurrent X-05 fixture completion"
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/d02_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "leaseHistory": [
         {
           "owner": "implementer",
@@ -756,7 +766,10 @@
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         }
-      }
+      },
+      "implementationCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c",
+      "handoffCommit": "47b1dfa",
+      "reviewSourceCommit": "8ff358be55891e7b7a588e76a57bd3e7d8ce661c"
     },
     "D-03": {
       "status": "planned",
@@ -2269,7 +2282,7 @@
       ]
     }
   },
-  "nextAction": "D-02 and X-05 requeued from cf987d2 with independent implementers and reserved reviewers; await product and handoff receipts.",
+  "nextAction": "D-02 is in independent review at 8ff358be55891e7b7a588e76a57bd3e7d8ce661c; X-05 remains in implementation.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
