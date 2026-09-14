@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "F-04"
+    "F-04",
+    "F-02"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -1044,12 +1045,54 @@
       }
     },
     "F-02": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/d02_implementer",
+      "baseSha": "a8c91470f8a5e7aaf5bd014daee87a45341f52f4",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from a8c91470f8a5e7aaf5bd014daee87a45341f52f4 after approved D-03 and F-01 discovery prerequisites",
+        "F-02 will persist bounded directory observations and group video, subtitle, pack and ambiguous companion evidence without treating missing coverage as absence."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/d02_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "a8c91470f8a5e7aaf5bd014daee87a45341f52f4",
+        "ownedPaths": [
+          "internal/discovery/"
+        ],
+        "checkout": "shared",
+        "expectedChecks": [
+          "A-01",
+          "A-02",
+          "A-10",
+          "A-11",
+          "GOWORK=off focused tests/race/vet/mod-verify",
+          "persisted directory observations and media grouping",
+          "orphan provenance, stability versus client completion, partial and unknown coverage",
+          "subtitle, IDX/SUB, anime, multi-episode and season-pack ambiguity",
+          "trash/staging exclusion and unsupported-child evidence parsing",
+          "generation/API/architecture/planning/guardrails",
+          "Linux amd64/arm64 CGO-free compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/F-02-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/F-02.md",
+        "nextReviewer": "/root/d02_reviewer",
+        "dependencyCommits": {
+          "D-03": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
+          "D-03-integration": "a8c91470f8a5e7aaf5bd014daee87a45341f52f4",
+          "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
+        }
+      }
     },
     "F-03": {
       "status": "planned",
@@ -2782,7 +2825,7 @@
       ]
     }
   },
-  "nextAction": "F-04 placement remains under implementation and independent review. After F-04 approval, dispatch its dependent F-05 organize lane; D-04 and F-02 can start once their path ownership and review capacity are recorded. Keep nested client modules and root/UI/tools guardrails green.",
+  "nextAction": "F-02 discovery and F-04 placement are in parallel implementation. Each must commit a scoped handoff and pass independent review before integration. After F-04 approval, dispatch F-05; after F-02 approval, dispatch F-03. Keep nested client modules and root/UI/tools guardrails green.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
