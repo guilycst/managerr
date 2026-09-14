@@ -2196,7 +2196,7 @@
       "evidence": [
         "dispatched from 16ad883172e4ebac45ea6f67309bc111708fa405 after D-01 approval at 8098e2b552737e5e18848d27b665991fddce18bf and C-03 approval at 8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
         "W-02 owns internal/execution/ and implements durable action claiming, ordered attempt journaling, observe-before-write, uncertainty reconciliation, persisted backoff/deadlines, and cancellation dispatch boundaries without a generic DAG or duplicate outbox.",
-        "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031 W-02 product commit for durable action executor and cancellation; focused synthetic suite passed."
+        "a4b152e20f8f82d53ba6d3c901737804357cc807 W-02 product commit for durable action executor and cancellation; focused synthetic suite passed."
       ],
       "review": {
         "status": "pending",
@@ -2241,11 +2241,11 @@
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
         },
-        "implementationCommit": "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031",
+        "implementationCommit": "a4b152e20f8f82d53ba6d3c901737804357cc807",
         "handoffCommit": null,
-        "reviewSourceCommit": "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031",
+        "reviewSourceCommit": "a4b152e20f8f82d53ba6d3c901737804357cc807",
         "productCommits": [
-          "a4b152e4c24ec4e2f85e79a37dd84a2fb5a84031"
+          "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ]
       }
     },
