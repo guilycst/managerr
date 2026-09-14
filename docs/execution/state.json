@@ -17,7 +17,8 @@
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
     "F-05",
-    "F-03"
+    "F-03",
+    "W-02"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -2160,12 +2161,61 @@
       "review": null
     },
     "W-02": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "16ad883172e4ebac45ea6f67309bc111708fa405",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 16ad883172e4ebac45ea6f67309bc111708fa405 after D-01 approval at 8098e2b552737e5e18848d27b665991fddce18bf and C-03 approval at 8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
+        "W-02 owns internal/execution/ and implements durable action claiming, ordered attempt journaling, observe-before-write, uncertainty reconciliation, persisted backoff/deadlines, and cancellation dispatch boundaries without a generic DAG or duplicate outbox."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/d02_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 0
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "16ad883172e4ebac45ea6f67309bc111708fa405",
+        "ownedPaths": [
+          "internal/execution/"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-14",
+          "A-32",
+          "A-33",
+          "A-34",
+          "A-35",
+          "A-36",
+          "A-59",
+          "A-60",
+          "transaction/CAS work claiming and lease recovery",
+          "ordered attempt journal and observe-before-write",
+          "uncertain reconciliation before retry",
+          "persisted backoff/deadline and cancellation dispatch boundary",
+          "no generic DAG or duplicate outbox",
+          "GOWORK=off focused tests/race/vet/mod-verify",
+          "generation/API/Vacuum/architecture/planning/lint/guardrails",
+          "Linux amd64/arm64 CGO-free compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/W-02-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/W-02.md",
+        "nextReviewer": "/root/d02_reviewer",
+        "dependencyCommits": {
+          "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        },
+        "implementationCommit": null,
+        "handoffCommit": null,
+        "reviewSourceCommit": null
+      }
     },
     "W-03": {
       "status": "planned",
@@ -3143,7 +3193,7 @@
       ]
     }
   },
-  "nextAction": "F-03 scan scheduler and F-05 organize are active under separate ownership; await their product and handoff commits before review.",
+  "nextAction": "F-03 scan scheduler, F-05 organize review, and W-02 durable executor are active under separate ownership; await product/handoff commits and independent receipts.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
