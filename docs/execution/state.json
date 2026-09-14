@@ -1230,7 +1230,9 @@
         "00aabe31a596bd8933301aa614aa0afc7c166d65 F-03 handoff commit records product 50e5a3a32e2acf975e3c489e4c75839a0d73a87e, scoped/race/vet/root/module/guardrail checks and the unrelated storage race blocker.",
         "F-03 handoff is complete; independent review is now queued against the exact product tree.",
         "f73e7fd38eb78672a015c8d5a1186019038b0082 F-03 independent review round one requested changes against source 50e5a3a32e2acf975e3c489e4c75839a0d73a87e.",
-        "Review found P1 mixed scheduled/manual trigger coalescing and P1 missing ConfigRevision enforcement across reconfiguration/restart. The reported storage timeout was not reproduced in isolated race checks. Correction is required before integration."
+        "Review found P1 mixed scheduled/manual trigger coalescing and P1 missing ConfigRevision enforcement across reconfiguration/restart. The reported storage timeout was not reproduced in isolated race checks. Correction is required before integration.",
+        "ebdf5112c5be852fc992f337d47e4e0589f52b94 F-03 correction round one product commit closes mixed scheduled/manual follow-up coalescing and ConfigRevision fencing findings.",
+        "a84853ac3bf25886aadc69c625ad7b10f9327801 F-03 correction round one handoff records deterministic regression tests and focused/race/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; unrelated internal/storage timeout remains recorded as a separate blocker."
       ],
       "review": {
         "status": "changes_requested",
@@ -1283,12 +1285,17 @@
         "correctionRound": 1,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
-        "correctionDispatchCommit": "4e8d5a0cbff7f8319da8cb4ffd924643b6642eb7",
+        "correctionDispatchCommit": null,
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null
+        "correctionImplementationCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
+        "correctionHandoffCommit": "a84853ac3bf25886aadc69c625ad7b10f9327801",
+        "correctionProductCommits": [
+          "ebdf5112c5be852fc992f337d47e4e0589f52b94"
+        ],
+        "correctionStatus": "awaiting_independent_review",
+        "correctionReviewSourceCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94"
       },
       "reviewHistory": [
         {
@@ -3288,7 +3295,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction remains queued to /root/d02_implementer; F-05 correction remains active under /root/x05_implementer; W-02 round-one review is recorded and its correction is queued after F-05, with /root/d02_reviewer assigned for independent review.",
+  "nextAction": "F-03 correction product and handoff are ready for independent review by /root/x05_reviewer; F-05 correction remains active under /root/x05_implementer; W-02 correction remains queued behind F-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
