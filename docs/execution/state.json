@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-03"
+    "D-03",
+    "X-14"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -2578,15 +2579,54 @@
       ]
     },
     "X-14": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "1c9ed7deb542afda76797d7899f33d2c29247241",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 1c9ed7deb542afda76797d7899f33d2c29247241 after X-10, X-05, and X-07 approved client and adapter slices",
+        "X-14 extends the standalone qBittorrent compatibility contract for control operations without enabling runtime writes."
+      ],
+      "review": null,
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "1c9ed7deb542afda76797d7899f33d2c29247241",
+        "ownedPaths": [
+          "clients/qbittorrent/"
+        ],
+        "expectedChecks": [
+          "A-28",
+          "A-29",
+          "A-30",
+          "A-31",
+          "A-33",
+          "A-45",
+          "standalone qBittorrent module tests/race/vet/mod-verify",
+          "synthetic httptest request encoding, cookie authentication, deadlines, status and typed error normalization",
+          "generated output and reproducibility with pinned oapi-codegen",
+          "architecture check confirms no Mastarr root imports or generated DTO leakage",
+          "Linux amd64/arm64 CGO-free compile checks",
+          "guardrails, lint, planning and generation checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-14-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-14.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
+          "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
+          "X-05": "165f22c2d81c4123d2ab31cf00d7613cdba87054",
+          "X-05-review": "17b8f67b879be9d44174f1262bc31c46d086f82a",
+          "X-07": "7b74043b3d4a8e76993dd6ff511e3982cfa5d369",
+          "X-07-review": "b8861b865e081a998d9ba1661476aea5113a1cb6",
+          "X-07-integration": "5e2c0ff540a9f9c9a7bfe5b9aeaba92c6872226e"
+        }
+      }
     }
   },
-  "nextAction": "D-03 configuration and X-07 qBittorrent control are dispatched in parallel from 8e3536c; reviewers reserved.",
+  "nextAction": "D-03 configuration correction and X-14 qBittorrent control client are dispatched in parallel from 1c9ed7d; reviewers reserved.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
