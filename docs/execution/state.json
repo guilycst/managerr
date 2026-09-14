@@ -1501,7 +1501,10 @@
         "F-05 review rerouted from /root/d02_reviewer to /root/x05_reviewer after two pre-receipt platform-filter errors; no product files changed.",
         "F-05 correction review dispatch to /root/x05_reviewer is recorded against source 58ffe6ae5bb50f7693164a28a3749d8c21e65411.",
         "ae52758ef328bbd3f8fa6ab8acf84243b9115835 F-05 correction round two independent review requested changes against source 58ffe6ae5bb50f7693164a28a3749d8c21e65411.",
-        "Round-two review closed equal/nested/symlink root alias checks but found P1 validate-close-unlink races for delete and move cleanup, P1 cross-device hardlink witness mutation before source deletion, and P2 guard-construction cleanup leak. Correction round three is required before integration."
+        "Round-two review closed equal/nested/symlink root alias checks but found P1 validate-close-unlink races for delete and move cleanup, P1 cross-device hardlink witness mutation before source deletion, and P2 guard-construction cleanup leak. Correction round three is required before integration.",
+        "ffc11d8f4acf6267a763c060bac701004b805dbe F-05 correction round three product commit isolates quarantine cleanup, uses independent byte-copy destination guards, and rolls back partial guard setup.",
+        "ba03c61e0298a5ec9499945be5e5cc0eca3fcd1a F-05 correction round three handoff records deterministic mutation/retry tests and focused/race/vet/root/cross-build/planning/architecture/guardrail checks.",
+        "F-05 correction round three review dispatch will use /root/x05_reviewer against source ffc11d8f4acf6267a763c060bac701004b805dbe."
       ],
       "review": {
         "status": "changes_requested",
@@ -1556,8 +1559,8 @@
         "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "58ffe6ae5bb50f7693164a28a3749d8c21e65411",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
+        "correctionImplementationCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
+        "correctionHandoffCommit": "ba03c61e0298a5ec9499945be5e5cc0eca3fcd1a",
         "reviewCommit": "ae52758ef328bbd3f8fa6ab8acf84243b9115835",
         "correctionReviewPath": "docs/execution/handoffs/F-05-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
@@ -1565,10 +1568,12 @@
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": "9b9122a889a3cc540ac3877dabaa15be03290f1d",
-        "correctionProductCommits": [],
-        "correctionStatus": "dispatched",
-        "correctionReviewSourceCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionProductCommits": [
+          "ffc11d8f4acf6267a763c060bac701004b805dbe"
+        ],
+        "correctionStatus": "awaiting_independent_review",
+        "correctionReviewSourceCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "errored",
@@ -3349,7 +3354,7 @@
       ]
     }
   },
-  "nextAction": "F-03 is approved and complete. F-05 correction round three remains active under /root/x05_implementer and will return to independent review; W-02 correction remains queued behind F-05.",
+  "nextAction": "F-03 is approved and complete. F-05 correction round three is ready for independent review by /root/x05_reviewer against ffc11d8f; W-02 correction remains queued behind F-05.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
