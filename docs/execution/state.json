@@ -16,7 +16,6 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-03",
     "F-04"
   ],
   "featureLanesPaused": false,
@@ -823,10 +822,10 @@
       ]
     },
     "D-03": {
-      "status": "in_progress",
+      "status": "done",
       "owner": "/root/d02_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
-      "integratedSha": null,
+      "integratedSha": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
       "evidence": [
         "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after D-02 approval and C-03/D-01 dependencies passed",
         "3e86f117155753e7165f38e0f9290bdcc78bc322 D-03 product commit",
@@ -846,19 +845,20 @@
         "D-03 correction round two required: durable pending/rejected credential quarantine, candidate credential identity verification and stable static bindings, plus consumer-compatible source-prefix validation.",
         "8676667a9ce9cd7fb1aaf683dfd635457ddc8bd8 D-03 independent review round three: changes requested",
         "a493a8939d9f4d49a84f7d93fe5b82f2d7a50cca integrated D-03 round three review receipt",
-        "D-03 correction round three required: secret-backed static bindings, exact static candidate verification, and idempotent same-value managed replacement."
+        "D-03 correction round three required: secret-backed static bindings, exact static candidate verification, and idempotent same-value managed replacement.",
+        "9eea2a9e1f7c87da162b88b915cf3f565077b41b D-03 correction round three product commit",
+        "6fb0cf19b43c20e90bd58d7892909b13758814a4 D-03 correction round three handoff commit",
+        "b4a8ba852c1849e171154042e8b3b190277bde8f D-03 independent review round four approved",
+        "ed92927 integrated D-03 review round four receipt"
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/d02_reviewer",
-        "commit": "8676667a9ce9cd7fb1aaf683dfd635457ddc8bd8",
-        "findings": [
-          "P1: static credential revisions use a public document ID and key fingerprint to derive the HMAC key, enabling offline secret guessing from an exposed revision.",
-          "P1: static IdentityVerifier receives the old active secret rather than the exact parsed candidate during a static reload.",
-          "P1: same-value managed credential replacement reseals and writes instead of succeeding idempotently without a write or revision change."
-        ],
-        "round": 3
+        "commit": "b4a8ba852c1849e171154042e8b3b190277bde8f",
+        "findings": [],
+        "round": 4,
+        "correctionCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b"
       },
       "dispatch": {
         "assignedAt": "2026-09-13",
@@ -891,24 +891,24 @@
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf"
         },
-        "reviewSourceCommit": "bc7583175d11f6df78aa0ea7b867d077d26d5c5a",
-        "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
+        "reviewSourceCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
+        "handoffCommit": "6fb0cf19b43c20e90bd58d7892909b13758814a4",
         "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7",
         "correctionRound": 3,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "bc7583175d11f6df78aa0ea7b867d077d26d5c5a",
         "correctionReviewPath": "docs/execution/handoffs/D-03-review-round3.md",
         "correctionReviewer": "/root/d02_reviewer",
-        "correctionReviewCommit": "8676667a9ce9cd7fb1aaf683dfd635457ddc8bd8",
-        "reviewIntegrationCommit": "a493a8939d9f4d49a84f7d93fe5b82f2d7a50cca",
-        "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+        "correctionReviewCommit": "b4a8ba852c1849e171154042e8b3b190277bde8f",
+        "reviewIntegrationCommit": "ed92927",
+        "implementationCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
         "reviewCommit": "8676667a9ce9cd7fb1aaf683dfd635457ddc8bd8",
         "correctionHandoffPath": "docs/execution/handoffs/D-03-correction-round3.md",
         "correctionDispatchCommit": "433f8f0b6b7be3e4230e53510943746d24e566da"
       },
-      "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
-      "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
-      "reviewSourceCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+      "implementationCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
+      "handoffCommit": "6fb0cf19b43c20e90bd58d7892909b13758814a4",
+      "reviewSourceCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
       "reviewHistory": [
         {
           "round": 1,
@@ -936,6 +936,15 @@
           "sourceCommit": "bc7583175d11f6df78aa0ea7b867d077d26d5c5a",
           "receipt": "docs/execution/handoffs/D-03-review-round3.md",
           "integratedCommit": "a493a8939d9f4d49a84f7d93fe5b82f2d7a50cca"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/d02_reviewer",
+          "commit": "b4a8ba852c1849e171154042e8b3b190277bde8f",
+          "status": "approved",
+          "sourceCommit": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
+          "receipt": "docs/execution/handoffs/D-03-review-round4.md",
+          "integratedCommit": "ed92927"
         }
       ]
     },
@@ -2773,7 +2782,7 @@
       ]
     }
   },
-  "nextAction": "D-03 correction round three is under independent review; F-04 copy/hardlink placement is dispatched to /root/x05_implementer with /root/x05_reviewer reserved. X-14 is approved; root qBittorrent control integration remains gated on nested-module bootstrap and G-01/live capability evidence.",
+  "nextAction": "F-04 placement remains under implementation and independent review. After F-04 approval, dispatch its dependent F-05 organize lane; D-04 and F-02 can start once their path ownership and review capacity are recorded. Keep nested client modules and root/UI/tools guardrails green.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
