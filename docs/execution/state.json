@@ -1302,7 +1302,7 @@
         "correctionStatus": "approved",
         "correctionReviewSourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
         "correctionReviewCommit": "1f3f81a1367761861078f0ce400868452bcc49bb",
-        "correctionReviewIntegrationCommit": "da0005b"
+        "correctionReviewIntegrationCommit": "da0005bb9c440949c9f036fafeb5d04af2558ed6"
       },
       "reviewHistory": [
         {
@@ -1322,26 +1322,19 @@
           "receipt": "docs/execution/handoffs/F-03-review-round2.md"
         },
         {
-          "round": 2,
-          "reviewer": "/root/x05_reviewer",
-          "commit": "884a505a4820d475c16a1e034fd8680367ebf9d7",
-          "status": "changes_requested",
-          "sourceCommit": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
-          "receipt": "docs/execution/handoffs/F-03-review-round2.md"
-        },
-        {
           "round": 3,
           "reviewer": "/root/x05_reviewer",
           "commit": "1f3f81a1367761861078f0ce400868452bcc49bb",
           "status": "approved",
           "sourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
           "receipt": "docs/execution/handoffs/F-03-review-round3.md",
-          "integratedCommit": "da0005b"
+          "integratedCommit": "da0005bb9c440949c9f036fafeb5d04af2558ed6"
         }
       ],
-      "implementationCommit": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
-      "handoffCommit": "00aabe31a596bd8933301aa614aa0afc7c166d65",
-      "reviewSourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191"
+      "implementationCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
+      "handoffCommit": "74d8f233e269c2fc7bc5cc0f269980641ddbf616",
+      "reviewSourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
+      "reviewIntegrationCommit": "da0005bb9c440949c9f036fafeb5d04af2558ed6"
     },
     "F-04": {
       "status": "done",
