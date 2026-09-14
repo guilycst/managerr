@@ -47,6 +47,11 @@ func TestParseYAMLStrictlyValidatesSnapshotAndAliases(t *testing.T) {
 }
 
 func TestParseYAMLResolvesStaticReferencesOnceAndRedactsFailures(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x37}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
 	secretPath := filepath.Join(t.TempDir(), "radarr-key")
 	resolver := NewStaticResolver(map[string]string{"QBT_USER": "synthetic-user"}, map[string][]byte{secretPath: []byte("synthetic-file-secret")})
 	yaml := `version: 1
@@ -66,7 +71,7 @@ storageRoots:
     purpose: library
     path: /media/movies
 `
-	parsed, err := ParseYAML([]byte(yaml), ParseOptions{SecretResolver: resolver, StartupAt: testStartup})
+	parsed, err := ParseYAML([]byte(yaml), ParseOptions{SecretResolver: resolver, CredentialManager: crypt, StartupAt: testStartup})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +90,7 @@ connections:
     credentials:
       apiKey:
         env: MISSING
-`), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrCredentialUnavailable) {
+`), ParseOptions{SecretResolver: resolver, CredentialManager: crypt, StartupAt: testStartup}); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Fatalf("missing reference error = %v", err)
 	}
 	if _, err := ParseYAML([]byte(`version: 1
@@ -98,7 +103,7 @@ connections:
       apiKey:
         env: QBT_USER
         file: /run/secrets/nope
-`), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrCredentialInvalid) {
+`), ParseOptions{SecretResolver: resolver, CredentialManager: crypt, StartupAt: testStartup}); !errors.Is(err, ErrCredentialInvalid) {
 		t.Fatalf("ambiguous reference error = %v", err)
 	}
 }
@@ -554,6 +559,11 @@ func TestManagedCredentialFieldMembershipBlocksOrphans(t *testing.T) {
 }
 
 func TestStaticCredentialValueChangeRequiresVerificationOrInvalidation(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x38}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
 	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
 	if err := writeTestFile(secretPath, []byte("first-static")); err != nil {
 		t.Fatal(err)
@@ -567,7 +577,7 @@ connections:
     credentials:
       apiKey:
         file: ` + secretPath + "\n"
-	manager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml), CredentialManager: crypt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +603,8 @@ connections:
 	var changes []RevisionChange
 	manager2, err := New(Options{
 		Now: func() time.Time { return testStartup }, YAML: []byte(yaml),
-		Invalidator: func(_ context.Context, change RevisionChange) error { changes = append(changes, change); return nil },
+		CredentialManager: crypt,
+		Invalidator:       func(_ context.Context, change RevisionChange) error { changes = append(changes, change); return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -610,7 +621,141 @@ connections:
 	}
 }
 
+func TestParseYAMLStaticBindingRequiresCredentialManager(t *testing.T) {
+	data := []byte(`version: 1
+connections:
+  - id: radarr-main
+    kind: radarr
+    label: Movies
+    endpoint: http://radarr.invalid:7878
+    credentials:
+      apiKey:
+        env: RADARR_API_KEY
+`)
+	if _, err := ParseYAML(data, ParseOptions{
+		Environment: map[string]string{"RADARR_API_KEY": "synthetic-static-key"},
+		StartupAt:   testStartup,
+	}); !errors.Is(err, ErrCredentialManagerNeeded) {
+		t.Fatalf("static binding without credential manager error = %v", err)
+	}
+}
+
+func TestStaticCredentialVerifierReceivesParsedCandidate(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x3c}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
+	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
+	if err := writeTestFile(secretPath, []byte("first-static")); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+connections:
+  - id: radarr-main
+    kind: radarr
+    label: Movies
+    endpoint: http://radarr.invalid:7878
+    credentials:
+      apiKey:
+        file: ` + secretPath + "\n"
+	var matched bool
+	manager, err := New(Options{
+		Now:               func() time.Time { return testStartup },
+		YAML:              []byte(yaml),
+		CredentialManager: crypt,
+		CandidateIdentityVerifier: func(_ context.Context, _ domain.Connection, read CandidateCredentialReader) (IdentityVerification, error) {
+			value, readErr := read("apiKey")
+			if readErr != nil {
+				return IdentityUnknown, readErr
+			}
+			matched = bytes.Equal(value, []byte("second-static"))
+			zero(value)
+			return IdentityVerified, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if err := writeTestFile(secretPath, []byte("second-static")); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplyYAML(context.Background(), []byte(yaml)); err != nil {
+		t.Fatalf("static candidate reload = %v", err)
+	}
+	if !matched {
+		t.Fatal("static identity verifier did not receive parsed candidate")
+	}
+	resolved, err := manager.ResolveCredential(context.Background(), "radarr-main", "apiKey")
+	if err != nil || string(resolved) != "second-static" {
+		t.Fatalf("reloaded static candidate = %q, err %v", resolved, err)
+	}
+	zero(resolved)
+}
+
+func TestSameManagedCredentialReplacementIsIdempotent(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x3d}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
+	store := newFaultCredentialStore()
+	verifierCalls := 0
+	invalidatorCalls := 0
+	manager, err := New(Options{
+		Now:               func() time.Time { return testStartup },
+		CredentialManager: crypt,
+		CredentialStore:   store,
+		CandidateIdentityVerifier: func(_ context.Context, _ domain.Connection, read CandidateCredentialReader) (IdentityVerification, error) {
+			verifierCalls++
+			value, readErr := read("apiKey")
+			if readErr != nil {
+				return IdentityUnknown, readErr
+			}
+			zero(value)
+			return IdentityVerified, nil
+		},
+		Invalidator: func(_ context.Context, _ RevisionChange) error {
+			invalidatorCalls++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-idempotent", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("same-managed-key")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceCalls := store.replaceCalls
+	updated, err := manager.UpdateConnection(context.Background(), connection.ID, connection.Revision, ConnectionPatch{
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("same-managed-key")}},
+	})
+	if err != nil {
+		t.Fatalf("same managed credential update = %v", err)
+	}
+	if updated.Revision != connection.Revision {
+		t.Fatalf("same managed credential revision = %q, want %q", updated.Revision, connection.Revision)
+	}
+	if store.replaceCalls != replaceCalls {
+		t.Fatalf("same managed credential replace calls = %d, want %d", store.replaceCalls, replaceCalls)
+	}
+	if verifierCalls != 0 || invalidatorCalls != 0 {
+		t.Fatalf("same managed credential external calls = verifier %d invalidator %d", verifierCalls, invalidatorCalls)
+	}
+}
+
 func TestStaticCredentialChangeAcrossRestartGetsNewOpaqueRevision(t *testing.T) {
+	key := bytes.Repeat([]byte{0x39}, 32)
+	crypt, err := credentials.NewManager(key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
 	if err := writeTestFile(secretPath, []byte("restart-first")); err != nil {
 		t.Fatal(err)
@@ -624,7 +769,7 @@ connections:
     credentials:
       apiKey:
         file: ` + secretPath + "\n"
-	firstManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	firstManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml), CredentialManager: crypt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +778,11 @@ connections:
 		t.Fatal(err)
 	}
 	firstManager.Close()
-	secondManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	crypt2, err := credentials.NewManager(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml), CredentialManager: crypt2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +798,11 @@ connections:
 	if err := writeTestFile(secretPath, []byte("restart-second")); err != nil {
 		t.Fatal(err)
 	}
-	thirdManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	crypt3, err := credentials.NewManager(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml), CredentialManager: crypt3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,6 +893,11 @@ func TestQBTAndNZBMappingPrefixesUsePOSIXNamespaceContract(t *testing.T) {
 }
 
 func TestYAMLParseZeroesResolvedSecretsOnLaterFailure(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x3a}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
 	secret := []byte("tracked-secret")
 	resolver := &trackingResolver{secret: secret}
 	data := `version: 1
@@ -759,7 +917,7 @@ connections:
       apiKey:
         file: /synthetic/missing
 `
-	if _, err := ParseYAML([]byte(data), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrCredentialUnavailable) {
+	if _, err := ParseYAML([]byte(data), ParseOptions{SecretResolver: resolver, CredentialManager: crypt, StartupAt: testStartup}); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Fatalf("later YAML failure = %v", err)
 	}
 	if !allZero(secret) {
@@ -785,7 +943,7 @@ connections:
       apiKey:
         file: /synthetic/first
 `
-	if _, err := ParseYAML([]byte(duplicate), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrInvalidDocument) {
+	if _, err := ParseYAML([]byte(duplicate), ParseOptions{SecretResolver: resolver, CredentialManager: crypt, StartupAt: testStartup}); !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("duplicate YAML failure = %v", err)
 	}
 	if !allZero(secret) {
@@ -935,6 +1093,11 @@ func TestManagerSnapshotIsRaceSafeAndYAMLFileIsStartupOnly(t *testing.T) {
 }
 
 func TestStaticCredentialIsResolvedOnlyOnExplicitReload(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x3b}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypt.Close()
 	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
 	if err := writeTestFile(secretPath, []byte("first-secret")); err != nil {
 		t.Fatal(err)
@@ -949,9 +1112,15 @@ connections:
       apiKey:
         file: ` + secretPath + "\n"
 	manager, err := New(Options{
-		Now:  func() time.Time { return testStartup },
-		YAML: []byte(yaml),
-		IdentityVerifier: func(_ context.Context, _ domain.Connection) (IdentityVerification, error) {
+		Now:               func() time.Time { return testStartup },
+		YAML:              []byte(yaml),
+		CredentialManager: crypt,
+		CandidateIdentityVerifier: func(_ context.Context, _ domain.Connection, read CandidateCredentialReader) (IdentityVerification, error) {
+			value, readErr := read("apiKey")
+			if readErr != nil {
+				return IdentityUnknown, readErr
+			}
+			zero(value)
 			return IdentityVerified, nil
 		},
 	})

@@ -8,17 +8,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guilycst/mastarr/internal/credentials"
 	"github.com/guilycst/mastarr/internal/domain"
 )
 
 // ParseOptions controls one deterministic YAML parse. StartupAt is supplied by
 // the process boundary so source metadata remains stable for the process.
 type ParseOptions struct {
-	DocumentID       string
-	StartupAt        time.Time
-	Environment      map[string]string
-	SecretResolver   SecretResolver
-	MaxDocumentBytes int
+	DocumentID     string
+	StartupAt      time.Time
+	Environment    map[string]string
+	SecretResolver SecretResolver
+	// CredentialManager supplies the private key used to authenticate static
+	// secret bindings. Parsing a document containing static credentials without
+	// one fails closed.
+	CredentialManager *credentials.Manager
+	MaxDocumentBytes  int
 }
 
 // SecretResolver resolves references permitted by startup YAML. API mutation

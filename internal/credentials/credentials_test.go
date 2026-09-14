@@ -293,6 +293,55 @@ func TestEnvelopeBindsCredentialFieldAndAuthenticates(t *testing.T) {
 	}
 }
 
+func TestStaticBindingIsStableAndRequiresPrivateKeyMaterial(t *testing.T) {
+	material := bytes.Repeat([]byte{0x27}, keySize)
+	first, err := NewManager(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := NewManager(material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	binding, err := first.Bind("mastarr.yaml", []byte("synthetic-static-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedBinding, err := second.Bind("mastarr.yaml", []byte("synthetic-static-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding == "" || binding != restartedBinding {
+		t.Fatalf("stable binding = %q, restarted = %q", binding, restartedBinding)
+	}
+	otherNamespace, err := first.Bind("other.yaml", []byte("synthetic-static-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherNamespace == binding {
+		t.Fatal("static binding did not include its namespace")
+	}
+	otherKey, err := NewManager(bytes.Repeat([]byte{0x28}, keySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer otherKey.Close()
+	otherBinding, err := otherKey.Bind("mastarr.yaml", []byte("synthetic-static-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherBinding == binding {
+		t.Fatal("static binding did not use private key material")
+	}
+	first.Close()
+	if _, err := first.Bind("mastarr.yaml", []byte("synthetic-static-secret")); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("closed manager binding error = %v", err)
+	}
+}
+
 func TestKeyCheckMetadataAndRedaction(t *testing.T) {
 	manager, err := NewManager(bytes.Repeat([]byte{0xa5}, keySize))
 	if err != nil {

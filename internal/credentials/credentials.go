@@ -6,6 +6,7 @@ package credentials
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -300,6 +301,30 @@ func (manager *Manager) Open(envelope Envelope, connectionID, field string) ([]b
 		return nil, ErrAuthenticationFailed
 	}
 	return plaintext, nil
+}
+
+// Bind returns an opaque, domain-separated authenticator for a static
+// configuration secret. The HMAC key is the manager's private encryption key;
+// it is never returned or copied into a caller-visible object. Callers may
+// persist the resulting string as a revision input, but it cannot be
+// recomputed without this manager's key material.
+func (manager *Manager) Bind(namespace string, value []byte) (string, error) {
+	if err := manager.ready(); err != nil {
+		return "", err
+	}
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" || strings.ContainsRune(namespace, '\x00') {
+		return "", ErrCredentialBinding
+	}
+	mac := hmac.New(sha256.New, manager.material)
+	_, _ = mac.Write([]byte("mastarr static credential binding v1"))
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(namespace)))
+	_, _ = mac.Write(length[:])
+	_, _ = mac.Write([]byte(namespace))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write(value)
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // NewKeyCheck creates a non-secret envelope used to validate the active key

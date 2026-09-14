@@ -8,7 +8,6 @@ package configuration
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -268,7 +267,6 @@ type Manager struct {
 	credentialQuarantine map[domain.ConfigID]struct{}
 	pendingConnections   map[domain.ConfigID]struct{}
 	generation           uint64
-	bindingKey           []byte
 
 	policy                    Policy
 	snapshot                  domain.ConfigurationSnapshot
@@ -310,8 +308,6 @@ func New(options Options) (*Manager, error) {
 	if resolver == nil {
 		resolver = NewEnvironmentResolver(options.Environment)
 	}
-	bindingKey := stableBindingKey(documentID, options.CredentialManager)
-
 	manager := &Manager{
 		now:                       now,
 		startupAt:                 startupAt,
@@ -335,7 +331,6 @@ func New(options Options) (*Manager, error) {
 		credentialQuarantine:      make(map[domain.ConfigID]struct{}),
 		pendingConnections:        make(map[domain.ConfigID]struct{}),
 		generation:                1,
-		bindingKey:                bindingKey,
 		policy:                    Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
 		credentialManager:         options.CredentialManager,
 		credentialStore:           options.CredentialStore,
@@ -357,14 +352,14 @@ func New(options Options) (*Manager, error) {
 				StartupAt:        startupAt,
 				SecretResolver:   resolver,
 				MaxDocumentBytes: maxDocument,
-			}, manager.bindingKey)
+			}, manager.staticBinder())
 		} else {
 			parsed, err = parseYAML(options.YAML, ParseOptions{
 				DocumentID:       documentID,
 				StartupAt:        startupAt,
 				SecretResolver:   resolver,
 				MaxDocumentBytes: maxDocument,
-			}, manager.bindingKey)
+			}, manager.staticBinder())
 		}
 		if err != nil {
 			return nil, err
@@ -392,8 +387,6 @@ func (manager *Manager) Close() error {
 	}
 	crypt := manager.credentialManager
 	manager.credentialManager = nil
-	zero(manager.bindingKey)
-	manager.bindingKey = nil
 	manager.mu.Unlock()
 	manager.credentialMu.Lock()
 	if crypt != nil {
@@ -401,6 +394,25 @@ func (manager *Manager) Close() error {
 	}
 	manager.credentialMu.Unlock()
 	return nil
+}
+
+type staticBindingFunc func(namespace string, value []byte) (string, error)
+
+// staticBinder returns a parser callback backed by the credential manager's
+// private key. The manager pointer is snapshotted before taking credentialMu
+// so Close and parsing retain one lock order and cannot deadlock.
+func (manager *Manager) staticBinder() staticBindingFunc {
+	return func(namespace string, value []byte) (string, error) {
+		manager.mu.RLock()
+		crypt := manager.credentialManager
+		manager.mu.RUnlock()
+		if crypt == nil {
+			return "", ErrCredentialManagerNeeded
+		}
+		manager.credentialMu.Lock()
+		defer manager.credentialMu.Unlock()
+		return crypt.Bind(namespace, value)
+	}
 }
 
 // Snapshot returns a deep copy of the current effective non-secret view.
@@ -426,12 +438,16 @@ func (manager *Manager) Policy(ctx context.Context) (Policy, error) {
 // ParseYAML strictly decodes one complete startup document and resolves every
 // static credential reference before returning a candidate.
 func ParseYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
-	bindingKey := stableBindingKey(options.DocumentID, nil)
-	defer zero(bindingKey)
-	return parseYAML(data, options, bindingKey)
+	var binder staticBindingFunc
+	if options.CredentialManager != nil {
+		binder = func(namespace string, value []byte) (string, error) {
+			return options.CredentialManager.Bind(namespace, value)
+		}
+	}
+	return parseYAML(data, options, binder)
 }
 
-func parseYAML(data []byte, options ParseOptions, bindingKey []byte) (ParsedYAML, error) {
+func parseYAML(data []byte, options ParseOptions, bindStatic staticBindingFunc) (ParsedYAML, error) {
 	maxDocument := options.MaxDocumentBytes
 	if maxDocument <= 0 {
 		maxDocument = defaultMaxDocumentSize
@@ -494,7 +510,15 @@ func parseYAML(data []byte, options ParseOptions, bindingKey []byte) (ParsedYAML
 		for field, value := range values {
 			key := CredentialKey{ConnectionID: connection.ID, Field: field}
 			parsed.StaticCredentials[key] = value
-			binding := opaqueCredentialBinding(bindingKey, value)
+			if bindStatic == nil {
+				parsed.clearSecrets()
+				return ParsedYAML{}, ErrCredentialManagerNeeded
+			}
+			binding, bindErr := bindStatic(documentID, value)
+			if bindErr != nil {
+				parsed.clearSecrets()
+				return ParsedYAML{}, fmt.Errorf("%w: static credential binding", ErrCredentialManagerNeeded)
+			}
 			parsed.staticBindings[key] = binding
 			bindings = append(bindings, field+"="+binding)
 		}
@@ -552,12 +576,16 @@ func LoadYAMLFile(filePath string, options ParseOptions) (ParsedYAML, error) {
 	if strings.TrimSpace(options.DocumentID) == "" {
 		options.DocumentID = filepath.Base(strings.TrimSpace(filePath))
 	}
-	bindingKey := stableBindingKey(options.DocumentID, nil)
-	defer zero(bindingKey)
-	return loadYAMLFile(filePath, options, bindingKey)
+	var binder staticBindingFunc
+	if options.CredentialManager != nil {
+		binder = func(namespace string, value []byte) (string, error) {
+			return options.CredentialManager.Bind(namespace, value)
+		}
+	}
+	return loadYAMLFile(filePath, options, binder)
 }
 
-func loadYAMLFile(filePath string, options ParseOptions, bindingKey []byte) (ParsedYAML, error) {
+func loadYAMLFile(filePath string, options ParseOptions, bindStatic staticBindingFunc) (ParsedYAML, error) {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" || !filepath.IsAbs(filePath) {
 		return ParsedYAML{}, fmt.Errorf("%w: YAML file path must be absolute", ErrInvalidDocument)
@@ -578,7 +606,7 @@ func loadYAMLFile(filePath string, options ParseOptions, bindingKey []byte) (Par
 	if options.DocumentID == "" {
 		options.DocumentID = filepath.Base(filePath)
 	}
-	return parseYAML(data, options, bindingKey)
+	return parseYAML(data, options, bindStatic)
 }
 
 // ApplyYAML explicitly replaces the YAML source snapshot. It is the only
@@ -592,15 +620,13 @@ func (manager *Manager) ApplyYAML(ctx context.Context, data []byte) error {
 	maxDocument := manager.maxDocument
 	documentID := manager.documentID
 	startupAt := manager.startupAt
-	bindingKey := append([]byte(nil), manager.bindingKey...)
 	manager.mu.RUnlock()
 	parsed, err := parseYAML(data, ParseOptions{
 		DocumentID:       documentID,
 		StartupAt:        startupAt,
 		SecretResolver:   resolver,
 		MaxDocumentBytes: maxDocument,
-	}, bindingKey)
-	zero(bindingKey)
+	}, manager.staticBinder())
 	if err != nil {
 		return err
 	}
@@ -618,15 +644,13 @@ func (manager *Manager) ApplyYAMLFile(ctx context.Context, filePath string) erro
 	maxDocument := manager.maxDocument
 	documentID := manager.documentID
 	startupAt := manager.startupAt
-	bindingKey := append([]byte(nil), manager.bindingKey...)
 	manager.mu.RUnlock()
 	parsed, err := loadYAMLFile(filePath, ParseOptions{
 		DocumentID:       documentID,
 		StartupAt:        startupAt,
 		SecretResolver:   resolver,
 		MaxDocumentBytes: maxDocument,
-	}, bindingKey)
-	zero(bindingKey)
+	}, manager.staticBinder())
 	if err != nil {
 		return err
 	}
@@ -786,7 +810,7 @@ func (manager *Manager) activateYAML(ctx context.Context, parsed ParsedYAML) err
 		parsed.clearSecrets()
 		return err
 	}
-	if err := manager.runRevisionChanges(ctx, prepared.changes, prepared.connections); err != nil {
+	if err := manager.runRevisionChangesWithCandidates(ctx, prepared.changes, prepared.connections, nil, staticCredentialCandidates(parsed)); err != nil {
 		parsed.clearSecrets()
 		return err
 	}
@@ -806,6 +830,26 @@ type yamlActivation struct {
 	mappings    map[domain.ConfigID]domain.PathMapping
 	candidate   domain.ConfigurationSnapshot
 	changes     []RevisionChange
+}
+
+// staticCredentialCandidates indexes the exact values resolved during one
+// YAML parse. Empty entries are retained for credential-bearing connections
+// whose candidate clears all fields, so verification cannot silently fall
+// back to the active value.
+func staticCredentialCandidates(parsed ParsedYAML) map[domain.ConfigID]map[string][]byte {
+	candidates := make(map[domain.ConfigID]map[string][]byte)
+	for _, connection := range parsed.Snapshot.Connections {
+		candidates[connection.ID] = make(map[string][]byte, len(connection.Credentials))
+	}
+	for key, value := range parsed.StaticCredentials {
+		fields := candidates[key.ConnectionID]
+		if fields == nil {
+			fields = make(map[string][]byte)
+			candidates[key.ConnectionID] = fields
+		}
+		fields[key.Field] = value
+	}
+	return candidates
 }
 
 func (manager *Manager) prepareYAMLActivationLocked(parsed ParsedYAML) (yamlActivation, error) {
@@ -995,10 +1039,10 @@ func (manager *Manager) yamlChangesLocked(newConnections map[domain.ConfigID]dom
 }
 
 func (manager *Manager) runRevisionChanges(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection) error {
-	return manager.runRevisionChangesWithCandidates(ctx, changes, newConnections, nil)
+	return manager.runRevisionChangesWithCandidates(ctx, changes, newConnections, nil, nil)
 }
 
-func (manager *Manager) runRevisionChangesWithCandidates(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection, candidateCredentials map[domain.ConfigID]map[string]credentials.Envelope) error {
+func (manager *Manager) runRevisionChangesWithCandidates(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection, candidateCredentials map[domain.ConfigID]map[string]credentials.Envelope, staticCandidates map[domain.ConfigID]map[string][]byte) error {
 	for _, original := range changes {
 		if err := contextError(ctx); err != nil {
 			return err
@@ -1015,7 +1059,11 @@ func (manager *Manager) runRevisionChangesWithCandidates(ctx context.Context, ch
 		if candidateCredentials != nil {
 			candidate = candidateCredentials[change.ID]
 		}
-		if err := manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, candidate); err != nil {
+		var staticCandidate map[string][]byte
+		if staticCandidates != nil {
+			staticCandidate = staticCandidates[change.ID]
+		}
+		if err := manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, candidate, staticCandidate); err != nil {
 			return err
 		}
 	}
@@ -1023,10 +1071,10 @@ func (manager *Manager) runRevisionChangesWithCandidates(ctx context.Context, ch
 }
 
 func (manager *Manager) authorizeRevisionChange(ctx context.Context, change RevisionChange, connection *domain.Connection) error {
-	return manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, nil)
+	return manager.authorizeRevisionChangeWithCandidate(ctx, change, connection, nil, nil)
 }
 
-func (manager *Manager) authorizeRevisionChangeWithCandidate(ctx context.Context, change RevisionChange, connection *domain.Connection, candidate map[string]credentials.Envelope) error {
+func (manager *Manager) authorizeRevisionChangeWithCandidate(ctx context.Context, change RevisionChange, connection *domain.Connection, candidate map[string]credentials.Envelope, staticCandidate map[string][]byte) error {
 	manager.mu.RLock()
 	verifier := manager.identityVerifier
 	candidateVerifier := manager.candidateIdentityVerifier
@@ -1036,13 +1084,14 @@ func (manager *Manager) authorizeRevisionChangeWithCandidate(ctx context.Context
 	if change.Kind == ResourceConnection && connection != nil && !change.AuthorityChanged && containsAny(change.ChangedFields, "credentials") {
 		status := IdentityUnknown
 		var verifyErr error
-		// Managed API credential changes must be checked with the exact
-		// candidate set. The legacy verifier has no way to observe candidate
-		// plaintext, so it is intentionally ignored for this path. YAML static
-		// values remain internal to this package and retain the legacy seam.
+		// Managed API and static YAML credential changes must be checked with
+		// the exact candidate set. The legacy verifier has no way to observe
+		// candidate plaintext, so it is intentionally ignored for either path.
 		if candidate != nil && candidateVerifier != nil && crypt != nil {
 			status, verifyErr = manager.verifyCandidateIdentity(ctx, *connection, candidate, crypt, candidateVerifier)
-		} else if candidate == nil && verifier != nil {
+		} else if candidate == nil && staticCandidate != nil && candidateVerifier != nil {
+			status, verifyErr = manager.verifyStaticCandidateIdentity(ctx, *connection, staticCandidate, candidateVerifier)
+		} else if candidate == nil && staticCandidate == nil && verifier != nil {
 			status, verifyErr = verifier(ctx, *connection)
 		}
 		if verifyErr == nil && status == IdentityVerified {
@@ -1092,6 +1141,38 @@ func (manager *Manager) verifyCandidateIdentity(ctx context.Context, connection 
 		resolved = append(resolved, value)
 		resolvedMu.Unlock()
 		return value, nil
+	})
+	return verifier(ctx, connection, reader)
+}
+
+func (manager *Manager) verifyStaticCandidateIdentity(ctx context.Context, connection domain.Connection, candidate map[string][]byte, verifier CandidateIdentityVerifier) (IdentityVerification, error) {
+	if verifier == nil {
+		return IdentityUnknown, nil
+	}
+	var resolvedMu sync.Mutex
+	resolved := make([][]byte, 0, len(candidate))
+	defer func() {
+		resolvedMu.Lock()
+		deferred := resolved
+		resolved = nil
+		resolvedMu.Unlock()
+		for _, value := range deferred {
+			zero(value)
+		}
+	}()
+	reader := CandidateCredentialReader(func(field string) ([]byte, error) {
+		if validateCredentialField(field) != nil {
+			return nil, ErrCredentialInvalid
+		}
+		value, exists := candidate[field]
+		if !exists {
+			return nil, ErrCredentialUnavailable
+		}
+		copyValue := append([]byte(nil), value...)
+		resolvedMu.Lock()
+		resolved = append(resolved, copyValue)
+		resolvedMu.Unlock()
+		return copyValue, nil
 	})
 	return verifier(ctx, connection, reader)
 }
@@ -1653,6 +1734,7 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 	var preparedCredentials map[string]credentials.Envelope
 	var previousCredentials map[string]credentials.Envelope
 	var store ManagedCredentialStore
+	credentialsMaterialized := patch.Credentials != nil
 	if patch.Credentials != nil {
 		manager.mu.RLock()
 		store = manager.credentialStore
@@ -1665,16 +1747,38 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 		if err != nil {
 			return domain.Connection{}, ErrCredentialUnavailable
 		}
-		preparedCredentials, err = manager.prepareManagedCredentials(ctx, id, patch.Credentials)
-		if err != nil {
-			return domain.Connection{}, err
+		manager.mu.RLock()
+		crypt := manager.credentialManager
+		manager.mu.RUnlock()
+		same, compareErr := manager.managedCredentialValuesEqual(ctx, id, patch.Credentials, previousCredentials, crypt)
+		if compareErr != nil {
+			return domain.Connection{}, compareErr
 		}
-		changed = append(changed, "credentials")
+		if same {
+			credentialsMaterialized = false
+		} else {
+			preparedCredentials, err = manager.prepareManagedCredentials(ctx, id, patch.Credentials)
+			if err != nil {
+				return domain.Connection{}, err
+			}
+			changed = append(changed, "credentials")
+		}
+	}
+	if len(changed) == 0 && patch.Credentials != nil && !credentialsMaterialized {
+		manager.mu.Lock()
+		currentNow, exists := manager.apiConnections[id]
+		if !exists || manager.generation != baseGeneration || currentNow.Revision != current.Revision {
+			manager.mu.Unlock()
+			return domain.Connection{}, ErrRevisionMismatch
+		}
+		result := cloneConnection(currentNow)
+		manager.mu.Unlock()
+		return result, nil
 	}
 	var fields map[string]struct{}
 	digest := ""
 	manager.mu.RLock()
-	if patch.Credentials == nil {
+	if !credentialsMaterialized {
 		fields = cloneFieldSet(manager.managedFields[id])
 		digest = manager.managedDigests[id]
 	} else {
@@ -1701,13 +1805,13 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 		return domain.Connection{}, err
 	}
 	var candidateCredentials map[domain.ConfigID]map[string]credentials.Envelope
-	if patch.Credentials != nil {
+	if credentialsMaterialized {
 		candidateCredentials = map[domain.ConfigID]map[string]credentials.Envelope{id: cloneEnvelopeSet(preparedCredentials)}
 	}
-	if err := manager.runRevisionChangesWithCandidates(ctx, []RevisionChange{change}, map[domain.ConfigID]domain.Connection{id: updated}, candidateCredentials); err != nil {
+	if err := manager.runRevisionChangesWithCandidates(ctx, []RevisionChange{change}, map[domain.ConfigID]domain.Connection{id: updated}, candidateCredentials, nil); err != nil {
 		return domain.Connection{}, err
 	}
-	if patch.Credentials != nil {
+	if credentialsMaterialized {
 		outcome := writeCredentialSet(ctx, store, id, preparedCredentials, previousCredentials, true)
 		if !outcome.matched {
 			if outcome.unknown {
@@ -1720,14 +1824,14 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 	}
 	manager.mu.Lock()
 	if manager.generation != baseGeneration || manager.apiConnections[id].Revision != current.Revision {
-		if patch.Credentials != nil {
+		if credentialsMaterialized {
 			manager.credentialQuarantine[id] = struct{}{}
 		}
 		manager.mu.Unlock()
 		return domain.Connection{}, ErrRevisionMismatch
 	}
 	manager.apiConnections[id] = cloneConnection(updated)
-	if patch.Credentials != nil {
+	if credentialsMaterialized {
 		manager.managedFields[id] = cloneFieldSet(fields)
 		manager.managedDigests[id] = digest
 	}
@@ -2237,6 +2341,54 @@ func (manager *Manager) prepareManagedCredentials(ctx context.Context, id domain
 	return envelopes, nil
 }
 
+// managedCredentialValuesEqual authenticates the currently persisted complete
+// envelope set and compares it with a requested plaintext set. It performs no
+// encryption and never writes. An authenticated equal set is already
+// materialized, so the caller can return the current revision without invoking
+// verification or invalidation.
+func (manager *Manager) managedCredentialValuesEqual(ctx context.Context, id domain.ConfigID, inputs map[string]CredentialInput, current map[string]credentials.Envelope, crypt *credentials.Manager) (bool, error) {
+	if len(inputs) != len(current) {
+		return false, nil
+	}
+	if len(inputs) == 0 {
+		return true, nil
+	}
+	manager.mu.RLock()
+	expectedDigest := manager.managedDigests[id]
+	manager.mu.RUnlock()
+	if expectedDigest != "" && credentialEnvelopeDigest(current) != expectedDigest {
+		return false, ErrCredentialUnavailable
+	}
+	if crypt == nil {
+		return false, ErrCredentialManagerNeeded
+	}
+	for field, input := range inputs {
+		if validateCredentialField(field) != nil || input.Reference != nil || len(input.Value) == 0 {
+			return false, ErrCredentialInvalid
+		}
+		envelope, exists := current[field]
+		if !exists {
+			return false, nil
+		}
+		manager.credentialMu.Lock()
+		value, err := crypt.Open(envelope, id.String(), field)
+		manager.credentialMu.Unlock()
+		if err != nil {
+			zero(value)
+			return false, ErrCredentialUnavailable
+		}
+		equal := bytes.Equal(value, input.Value)
+		zero(value)
+		if !equal {
+			return false, nil
+		}
+		if err := contextError(ctx); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
 type credentialWriteOutcome struct {
 	matched   bool
 	unchanged bool
@@ -2438,34 +2590,6 @@ func digestValue(value any) string {
 	}
 	hash := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(hash[:])
-}
-
-// stableBindingKey derives the private HMAC key used for static secret
-// bindings. A persistent credential key fingerprint scopes the binding when
-// one is configured; the document identity is the stable fallback for YAML
-// parsing before credential storage is wired. This keeps identical YAML and
-// resolved bytes stable across restarts while a key rotation or document
-// identity change produces a new binding namespace. The returned key is
-// package-owned and must be zeroed when its owner closes.
-func stableBindingKey(documentID string, crypt *credentials.Manager) []byte {
-	documentID = strings.TrimSpace(documentID)
-	if documentID == "" {
-		documentID = defaultDocumentID
-	}
-	scope := "mastarr/static-credential-binding/v2\x00" + documentID
-	if crypt != nil && crypt.Fingerprint() != "" {
-		scope += "\x00credential-key:" + crypt.Fingerprint()
-	} else {
-		scope += "\x00document-only"
-	}
-	key := sha256.Sum256([]byte(scope))
-	return append([]byte(nil), key[:]...)
-}
-
-func opaqueCredentialBinding(key, value []byte) string {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write(value)
-	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func connectionRevision(connection domain.Connection) string {
