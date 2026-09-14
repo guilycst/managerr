@@ -1109,7 +1109,9 @@
       "integratedSha": null,
       "evidence": [
         "dispatched from 6fb0cf19b43c20e90bd58d7892909b13758814a4 after D-01 and F-01 approved storage and filesystem observation slices",
-        "F-04 implements exact-plan copy and hardlink placement with exclusive staging, sync, atomic no-replace publication and per-file effect journaling through frozen ports."
+        "F-04 implements exact-plan copy and hardlink placement with exclusive staging, sync, atomic no-replace publication and per-file effect journaling through frozen ports.",
+        "1733a0998e86bf4c71250fab11e17b41857bbc85 F-04 product follow-up commit with final directory recheck and safety bounds",
+        "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5 F-04 product handoff with checks and outstanding native-environment limits"
       ],
       "review": {
         "status": "pending",
@@ -1148,8 +1150,19 @@
         "dependencyCommits": {
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
           "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
-        }
-      }
+        },
+        "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
+        "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
+        "reviewSourceCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
+        "reviewer": "/root/x05_reviewer",
+        "productCommits": [
+          "c7c5418f6121f16429c49da45dc15e7fcea3eccd",
+          "1733a0998e86bf4c71250fab11e17b41857bbc85"
+        ]
+      },
+      "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
+      "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
+      "reviewSourceCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85"
     },
     "F-05": {
       "status": "planned",
@@ -2825,7 +2838,7 @@
       ]
     }
   },
-  "nextAction": "F-02 discovery and F-04 placement are in parallel implementation. Each must commit a scoped handoff and pass independent review before integration. After F-04 approval, dispatch F-05; after F-02 approval, dispatch F-03. Keep nested client modules and root/UI/tools guardrails green.",
+  "nextAction": "F-04 product is complete and awaiting independent review; F-02 discovery remains in parallel implementation. After F-04 review approval, dispatch F-05. After F-02 approval, dispatch F-03. Keep nested client modules and root/UI/tools guardrails green.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
