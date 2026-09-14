@@ -823,7 +823,7 @@
       ]
     },
     "D-03": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d02_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -840,14 +840,21 @@
         "D-03 correction required: reconcile uncertain credential-store writes, bind secret rotation to target identity, reject unusable mapping prefixes, zero all parse-failure buffers, and move external callbacks/storage I/O outside the manager lock.",
         "754410462c38c0fb2b95b33c4c5af82634f0fd90 D-03 correction product commit",
         "fe1a9e784b63902a1e11454219d361100e18dcad D-03 correction handoff commit",
-        "D-03 correction handoff records focused/race/root/module/lint/generation/API/architecture/planning/guardrail and Linux amd64/arm64 checks passed."
+        "D-03 correction handoff records focused/race/root/module/lint/generation/API/architecture/planning/guardrail and Linux amd64/arm64 checks passed.",
+        "a1e643b562365245def8f2d665ad15c86ac6d79b D-03 independent review round two: changes requested",
+        "e7fb6238fd1012b422c6d5dd5a56dd4df6e9a2b5 integrated D-03 round two review receipt",
+        "D-03 correction round two required: durable pending/rejected credential quarantine, candidate credential identity verification and stable static bindings, plus consumer-compatible source-prefix validation."
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d02_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "a1e643b562365245def8f2d665ad15c86ac6d79b",
+        "findings": [
+          "P1: pending or CAS-rejected managed credential writes remain readable and can become active after restart without durable envelope/revision binding.",
+          "P1: IdentityVerifier cannot verify the candidate managed credential and static secret bindings change on unchanged restart.",
+          "P1: accepted Windows mappings are rejected by qBittorrent/NZBGet consumers and drive-letter case aliases bypass ambiguity checks."
+        ],
         "round": 2
       },
       "dispatch": {
@@ -881,15 +888,16 @@
         "reviewSourceCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
         "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
         "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7",
-        "correctionRound": 1,
+        "correctionRound": 2,
         "correctionOwner": "/root/d02_implementer",
-        "correctionBaseSha": "3e86f117155753e7165f38e0f9290bdcc78bc322",
-        "correctionReviewPath": "docs/execution/handoffs/D-03-review-round1.md",
+        "correctionBaseSha": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+        "correctionReviewPath": "docs/execution/handoffs/D-03-review-round2.md",
         "correctionReviewer": "/root/d02_reviewer",
-        "correctionReviewCommit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
-        "reviewIntegrationCommit": null,
+        "correctionReviewCommit": "a1e643b562365245def8f2d665ad15c86ac6d79b",
+        "reviewIntegrationCommit": "e7fb6238fd1012b422c6d5dd5a56dd4df6e9a2b5",
         "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
-        "reviewCommit": null
+        "reviewCommit": "a1e643b562365245def8f2d665ad15c86ac6d79b",
+        "correctionHandoffPath": "docs/execution/handoffs/D-03-correction-round2.md"
       },
       "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
       "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
@@ -903,6 +911,15 @@
           "sourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
           "receipt": "docs/execution/handoffs/D-03-review-round1.md",
           "integratedCommit": "06abd25fc8123ea541ed6e8aea65d9773dc3ce66"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/d02_reviewer",
+          "commit": "a1e643b562365245def8f2d665ad15c86ac6d79b",
+          "status": "changes_requested",
+          "sourceCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+          "receipt": "docs/execution/handoffs/D-03-review-round2.md",
+          "integratedCommit": "e7fb6238fd1012b422c6d5dd5a56dd4df6e9a2b5"
         }
       ]
     },
@@ -2669,7 +2686,7 @@
       ]
     }
   },
-  "nextAction": "D-03 correction round two and X-14 qBittorrent correction review round two are active; no root control integration until both reviews approve exact products.",
+  "nextAction": "D-03 correction round two and X-14 qBittorrent correction review round two are active; root integration remains blocked by unresolved P1 findings.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
