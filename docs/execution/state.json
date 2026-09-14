@@ -2324,7 +2324,8 @@
         "beab28bdfb7cf0aa19870b4c032de3327ed06229 W-02 handoff commit records focused/race/vet/module, root/nested, compile, generation, API/Vacuum, lint, architecture, planning and guardrail checks.",
         "beab28bdfb7cf0aa19870b4c032de3327ed06229 W-02 handoff commit records product a4b152e20f8f82d53ba6d3c901737804357cc807, focused/race/vet/module/root/nested/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks.",
         "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34 W-02 independent review round one requested changes against source a4b152e20f8f82d53ba6d3c901737804357cc807.",
-        "Review found P1 stale lease-generation fencing, P1 unresolved reservation retention, P1 exact effect identity/completeness, P1 cooperative in-flight cancellation, P2 mandatory transaction capability, and P2 inverted memory expired-lease fixture. Correction is queued after the current F-05 correction."
+        "Review found P1 stale lease-generation fencing, P1 unresolved reservation retention, P1 exact effect identity/completeness, P1 cooperative in-flight cancellation, P2 mandatory transaction capability, and P2 inverted memory expired-lease fixture. Correction is queued after the current F-05 correction.",
+        "W-02 correction review ownership rerouted to /root/x05_reviewer because /root/d02_reviewer was unavailable after two platform-filter errors; correction dispatch uses exact base a4b152e20f8f82d53ba6d3c901737804357cc807."
       ],
       "review": {
         "status": "changes_requested",
@@ -2388,12 +2389,20 @@
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "a4b152e20f8f82d53ba6d3c901737804357cc807",
         "correctionReviewPath": "docs/execution/handoffs/W-02-review-round2.md",
-        "correctionReviewer": "/root/d02_reviewer",
+        "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued_after_F-05"
+        "correctionDispatchCommit": "a0876e6e4341fc441faea010d791f9af0c67a81f",
+        "correctionStatus": "dispatched",
+        "correctionProductCommits": [],
+        "correctionReviewSourceCommit": null,
+        "reviewerReroute": {
+          "previousReviewer": "/root/d02_reviewer",
+          "status": "rerouted_before_dispatch",
+          "reason": "previously selected reviewer was unavailable after two platform-filter errors on the F-05 review lane",
+          "newReviewer": "/root/x05_reviewer"
+        }
       },
       "reviewHistory": [
         {
@@ -3382,7 +3391,7 @@
       ]
     }
   },
-  "nextAction": "F-05 is review-approved but capability-blocked for pending filesystem mutation until a reviewed inode-bound removal primitive exists. W-02 correction can proceed independently under /root/x05_implementer; F-03 is complete.",
+  "nextAction": "W-02 correction round one is dispatched to /root/x05_implementer against a4b152e; /root/x05_reviewer will independently review the correction. F-05 is review-approved but capability-blocked; F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
