@@ -823,14 +823,25 @@
       ]
     },
     "D-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d02_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
       "evidence": [
-        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after D-02 approval and C-03/D-01 dependencies passed"
+        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after D-02 approval and C-03/D-01 dependencies passed",
+        "3e86f117155753e7165f38e0f9290bdcc78bc322 D-03 product commit",
+        "66527605f437c97886c0234c71e423ef7575350b D-03 initial handoff",
+        "17e623cddbe307fa96879b5bdfc7aa56b8bfd711 D-03 handoff identity correction",
+        "D-03 handoff records the coordinator-owned direct gopkg.in/yaml.v3@v3.0.1 dependency as the remaining root-module blocker."
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/d02_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-13",
         "model": "gpt-5.6-luna",
@@ -858,8 +869,13 @@
           "D-02-review": "05c88f40e6907f148767a2e5e1ad4ef8125006fa",
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf"
-        }
-      }
+        },
+        "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+        "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711"
+      },
+      "implementationCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+      "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
+      "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322"
     },
     "D-04": {
       "status": "planned",
@@ -1535,7 +1551,7 @@
       "review": null
     },
     "X-07": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -1547,18 +1563,18 @@
         "X-07 handoff records read-only nested qBittorrent client blocker; runtime mutation wiring remains deferred to a client-owned contract lane.",
         "2c26b06fe083372432889901f84d98246ab761be X-07 independent review round one: changes requested",
         "feee6445c3195d97728899f522264b61e5cf3f25 integrated X-07 review receipt",
-        "X-07 correction required: distinguish qBittorrent save location from final content path and add destination-vacancy/full-payload read-back checks; split operation-specific capability gates."
+        "X-07 correction required: distinguish qBittorrent save location from final content path and add destination-vacancy/full-payload read-back checks; split operation-specific capability gates.",
+        "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df X-07 correction round one product commit",
+        "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef X-07 correction round one handoff",
+        "X-07 correction adds final-content relocation semantics, fail-closed destination vacancy evidence, full payload read-back and operation-specific capability gates."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/x05_reviewer",
-        "commit": "2c26b06fe083372432889901f84d98246ab761be",
-        "findings": [
-          "P1: Relocate uses the final content path as qBittorrent setLocation location, lacks destination-vacancy evidence, and does not verify every final payload path.",
-          "P1: one qbt.control capability state authorizes stop, relocation, both renames and metadata removal without operation-specific evidence."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-13",
@@ -1591,18 +1607,21 @@
           "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af"
         },
-        "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a",
-        "handoffCommit": "36212b350469504dee689958215609ed1040c949",
+        "reviewSourceCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
+        "handoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
         "correctionRound": 1,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "a51e51945bde229265163707261483fa7edce06a",
         "correctionReviewPath": "docs/execution/handoffs/X-07-review-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "reviewIntegrationCommit": "feee6445c3195d97728899f522264b61e5cf3f25"
+        "reviewIntegrationCommit": "feee6445c3195d97728899f522264b61e5cf3f25",
+        "correctionImplementationCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
+        "correctionHandoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
+        "correctionReviewCommit": "2c26b06fe083372432889901f84d98246ab761be"
       },
-      "implementationCommit": "a51e51945bde229265163707261483fa7edce06a",
-      "handoffCommit": "36212b350469504dee689958215609ed1040c949",
-      "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a",
+      "implementationCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
+      "handoffCommit": "24c4b7e10cbb1b97237d40f8a7f9435e0daa65ef",
+      "reviewSourceCommit": "ac8d0a3b61d5ad6b3bb16e67d5bd1d25359859df",
       "reviewHistory": [
         {
           "round": 1,
