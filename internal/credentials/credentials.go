@@ -463,7 +463,21 @@ func readKeyFile(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, ErrInvalidKey
 	}
-	contents, err := readBoundedFile(path)
+	// Keep the pre-open check so a stable FIFO is rejected before os.Open can
+	// block. The descriptor check below binds type validation and reading to the
+	// same object, including when a projected Secret link changes meanwhile.
+	// A hostile replacement between os.Stat and os.Open remains a portable race:
+	// os.Open follows the replacement and may block if it becomes a FIFO. This
+	// package does not claim a cross-platform no-follow/nonblocking primitive.
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrKeyUnavailable
+		}
+		return nil, errors.New("open credential key failed")
+	}
+	defer file.Close()
+	contents, err := readBoundedDescriptor(file)
 	if err != nil {
 		return nil, err
 	}
@@ -571,6 +585,25 @@ func readBoundedFile(path string) ([]byte, error) {
 		return nil, errors.New("open credential key failed")
 	}
 	defer file.Close()
+	return readBoundedDescriptor(file)
+}
+
+// readBoundedDescriptor validates and reads one already-open descriptor. The
+// caller must perform any path-level precheck needed to avoid blocking on a
+// stable special file before opening it. Once open, f.Stat and the bounded
+// read deliberately use the same object so a path replacement cannot make
+// validation and consumption drift apart.
+func readBoundedDescriptor(file *os.File) ([]byte, error) {
+	if file == nil {
+		return nil, ErrInvalidKey
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return nil, errors.New("stat credential key failed")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, ErrInvalidKey
+	}
 	contents, err := io.ReadAll(io.LimitReader(file, maxKeyFileBytes+1))
 	if err != nil {
 		return nil, errors.New("read credential key failed")
