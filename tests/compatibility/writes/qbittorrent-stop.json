@@ -1,0 +1,14 @@
+{
+  "upstream": "qBittorrent WebUI API v2",
+  "hash": "0123456789abcdef0123456789abcdef01234567",
+  "initial": {
+    "state": "stalledUP",
+    "upspeed": 0
+  },
+  "stop": {
+    "endpoint": "/api/v2/torrents/stop",
+    "lostResponse": true,
+    "externalResume": "stalledUP"
+  },
+  "expected": "read back state before any payload mutation"
+}

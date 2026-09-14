@@ -1,0 +1,14 @@
+{
+  "upstream": "qBittorrent WebUI API v2",
+  "hash": "0123456789abcdef0123456789abcdef01234567",
+  "files": [
+    "/synthetic/downloads/Synthetic Pack/episode-one.mkv",
+    "/synthetic/downloads/Synthetic Pack/episode-two.mkv",
+    "/synthetic/downloads/Synthetic Pack/sample.txt"
+  ],
+  "operations": [
+    {"endpoint": "/api/v2/torrents/renameFolder", "oldPath": "Synthetic Pack", "newPath": "Renamed Pack"},
+    {"endpoint": "/api/v2/torrents/delete", "deleteFiles": false}
+  ],
+  "expected": "whole torrent scope only; metadata removal preserves every payload file"
+}

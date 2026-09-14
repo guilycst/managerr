@@ -1,0 +1,9 @@
+{
+  "upstream": "Jellyfin library refresh candidate",
+  "scope": "library",
+  "endpoint": "/Library/Refresh",
+  "acceptedStatus": 202,
+  "initialAvailability": "absent",
+  "laterAvailability": "present",
+  "expected": "refresh acceptance and item availability remain separate observations"
+}

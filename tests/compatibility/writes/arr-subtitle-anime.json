@@ -1,0 +1,16 @@
+{
+  "upstream": "Radarr/Sonarr v3 manual import",
+  "video": {
+    "path": "/synthetic/downloads/Synthetic Anime S01E01-E02.mkv",
+    "episodeIds": ["401", "402"],
+    "absoluteNumbers": [1, 2]
+  },
+  "subtitles": [
+    {"path": "/synthetic/downloads/Synthetic Anime S01E01.en.forced.srt", "language": "en", "forced": true, "episodeIds": ["401"]},
+    {"path": "/synthetic/downloads/Synthetic Anime S01E01.en.sdh.srt", "language": "en", "hearingImpaired": true, "episodeIds": ["401"]},
+    {"path": "/synthetic/downloads/Synthetic Anime S01E01.pt.idx", "language": "pt", "pair": "/synthetic/downloads/Synthetic Anime S01E01.pt.sub", "episodeIds": ["401"]},
+    {"path": "/synthetic/downloads/Synthetic Anime S01E01.pt.sub", "language": "pt", "episodeIds": ["401"]},
+    {"path": "/synthetic/downloads/unmatched.srt", "language": "ja", "episodeIds": []}
+  ],
+  "expected": "explicit episode and subtitle associations survive; unmatched companion stays unresolved"
+}

@@ -1,0 +1,14 @@
+{
+  "upstream": "Radarr/Sonarr v3 manual import",
+  "source": "/synthetic/downloads/Synthetic Film (2024).mkv",
+  "destination": "/synthetic/library/Synthetic Film (2024).mkv",
+  "preview": {
+    "path": "/synthetic/downloads/Synthetic Film (2024).mkv",
+    "rejections": []
+  },
+  "race": {
+    "externalReplacement": "external-writer-bytes",
+    "nativeCommand": "ManualImport"
+  },
+  "expected": "blocked: preview and command are not an atomic no-overwrite operation"
+}
