@@ -16,7 +16,8 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-03"
+    "D-03",
+    "F-04"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -1050,12 +1051,53 @@
       "review": null
     },
     "F-04": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "6fb0cf19b43c20e90bd58d7892909b13758814a4",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched from 6fb0cf19b43c20e90bd58d7892909b13758814a4 after D-01 and F-01 approved storage and filesystem observation slices",
+        "F-04 implements exact-plan copy and hardlink placement with exclusive staging, sync, atomic no-replace publication and per-file effect journaling through frozen ports."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-14",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "6fb0cf19b43c20e90bd58d7892909b13758814a4",
+        "ownedPaths": [
+          "internal/filesystem/placement/"
+        ],
+        "expectedChecks": [
+          "A-18",
+          "A-19",
+          "A-20",
+          "A-22",
+          "A-59",
+          "GOWORK=off focused tests/race/vet/mod-verify",
+          "exact-plan content checks and exclusive staging",
+          "copy sync and atomic no-replace publication",
+          "hardlink identity proof with no copy fallback",
+          "per-file effect journal and reconciliation through frozen ports",
+          "generation/API/architecture/planning/guardrails",
+          "Linux amd64/arm64 CGO-free compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/F-04-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/F-04.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
+          "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
+        }
+      }
     },
     "F-05": {
       "status": "planned",
@@ -2731,7 +2773,7 @@
       ]
     }
   },
-  "nextAction": "D-03 correction round three dispatched to /root/d02_implementer with /root/d02_reviewer reserved for independent review; X-14 is approved. Root qBittorrent control integration remains gated on published nested-module bootstrap and G-01/live capability evidence.",
+  "nextAction": "D-03 correction round three is under independent review; F-04 copy/hardlink placement is dispatched to /root/x05_implementer with /root/x05_reviewer reserved. X-14 is approved; root qBittorrent control integration remains gated on nested-module bootstrap and G-01/live capability evidence.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
