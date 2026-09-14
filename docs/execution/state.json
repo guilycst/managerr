@@ -2339,20 +2339,19 @@
         "Round-three review closed all five prior blockers but found P1 unrenewed lease causing a false handler timeout without DeadlineAt, P2 aggregate unresolved count underreports multiple unknown effects, P2 transient releaseDispatchBarrier failure is ignored, and P2 cross-executor cancellation does not reach initial Observe. Correction round three is required before integration.",
         "d10bcb6bba9bc59ba80819950991b45cb05bce99 W-02 correction round three product commit adds lease renewal/fence synchronization, exact unresolved-effect counts, durable dispatch-barrier retry, and initial Observe cancellation across executors.",
         "f402eec6f9c308313399d1c471c73d48a68009f4 W-02 correction round three handoff records deterministic/race coverage, focused/root/nested/module/vet/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks, and G-01 remains open.",
-        "W-02 correction round three review dispatch will use /root/x05_reviewer against source d10bcb6bba9bc59ba80819950991b45cb05bce99."
+        "W-02 correction round three review dispatch will use /root/x05_reviewer against source d10bcb6bba9bc59ba80819950991b45cb05bce99.",
+        "ef07140a8d41696c4e4514e6860e47e6211b8814 W-02 correction round three independent review requested changes against source d10bcb6bba9bc59ba80819950991b45cb05bce99.",
+        "Round-four review closed no-deadline lease renewal/fencing, exact four-effect unresolved count, and cross-executor initial Observe cancellation. One P2 remains: durable barrier recovery stops after 32 process-local marker retries and later executors do not reconcile until broad startup recovery if all marker writes fail. Correction round four is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "6f0fec3d84f7b88e25609bd5066a185268c27adc",
+        "commit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
         "findings": [
-          "P1: handler context lease is not renewed and becomes an implicit timeout without DeadlineAt",
-          "P2: multiple unknown effects persist an aggregate unresolved count of one",
-          "P2: transient releaseDispatchBarrier failure is ignored and not retried in-process",
-          "P2: cross-executor cancellation does not reach the initial Observe phase"
+          "P2: durable dispatch-barrier retry intent is lost after bounded marker-write failures, leaving later executors unable to reconcile"
         ],
-        "round": 3
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2396,21 +2395,19 @@
           "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ],
         "reviewer": "/root/x05_reviewer",
-        "reviewCommit": "6f0fec3d84f7b88e25609bd5066a185268c27adc",
-        "correctionRound": 3,
+        "reviewCommit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
+        "correctionRound": 4,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "04c2e245a9624287417522c9f876056090016b83",
-        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round4.md",
+        "correctionBaseSha": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
+        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round5.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
-        "correctionHandoffCommit": "f402eec6f9c308313399d1c471c73d48a68009f4",
-        "correctionDispatchCommit": "8a3a1b62757f1cd79c2efdde663024a572a793a1",
-        "correctionStatus": "review_dispatched",
-        "correctionProductCommits": [
-          "d10bcb6bba9bc59ba80819950991b45cb05bce99"
-        ],
-        "correctionReviewSourceCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionStatus": "queued",
+        "correctionProductCommits": [],
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -2442,6 +2439,14 @@
           "status": "changes_requested",
           "sourceCommit": "04c2e245a9624287417522c9f876056090016b83",
           "receipt": "docs/execution/handoffs/W-02-review-round3.md"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
+          "status": "changes_requested",
+          "sourceCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
+          "receipt": "docs/execution/handoffs/W-02-review-round4.md"
         }
       ]
     },
@@ -3421,7 +3426,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round three review is dispatched to /root/x05_reviewer against d10bcb6b; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round four is queued to /root/x05_implementer for durable barrier retry intent after marker-write outages; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
