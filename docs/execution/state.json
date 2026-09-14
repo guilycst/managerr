@@ -1207,7 +1207,10 @@
         "Interrupted /root/x05_reviewer provisional scan reported three additional candidate issues for replacement review: successful-copy hidden stage hardlink, replacement-directory cleanup deletion, and fs_other cross-platform compile; no receipt commit exists, so /root/d02_reviewer was asked to verify them.",
         "c97485684d93f32f6197fc9f8dc43ed98dd04dcb F-04 independent review round two changes requested",
         "9c39e1d7e024b06548c81ab994af608327463afc docs(review): integrate F-04 correction review receipt",
-        "F-04 round-two review confirms round-one findings closed and three Linux P1 placement blockers remain; fs_other.go compile issue is deferred to v0.1.0 candidate."
+        "F-04 round-two review confirms round-one findings closed and three Linux P1 placement blockers remain; fs_other.go compile issue is deferred to v0.1.0 candidate.",
+        "2621343dcd3b80c259f5cec808dadb7bfbb0434d F-04 correction round two product",
+        "f3dd6498f207a0a0283f9503d62ff5bab67d1299 F-04 correction round two handoff",
+        "F-04 correction round two anonymous staging, descriptor-bound publication, replacement-safe directory handling and cross-platform fallback checks passed."
       ],
       "review": {
         "status": "changes_requested",
@@ -1254,13 +1257,14 @@
         },
         "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
         "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
-        "reviewSourceCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
+        "reviewSourceCommit": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
         "reviewer": "/root/x05_reviewer",
         "productCommits": [
           "c7c5418f6121f16429c49da45dc15e7fcea3eccd",
           "1733a0998e86bf4c71250fab11e17b41857bbc85",
           "149ec74d674d542a93acfcf900bb7344b64675d2",
-          "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb"
+          "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
+          "2621343dcd3b80c259f5cec808dadb7bfbb0434d"
         ],
         "reviewCommit": "821d01a133981ca147e04838ee1a9cc230149e61",
         "reviewIntegrationCommit": "337d61b73cc7331cec724a7b9cbcb425fc22e523",
@@ -1273,8 +1277,8 @@
         "correctionReviewCommit": "c97485684d93f32f6197fc9f8dc43ed98dd04dcb",
         "correctionDispatchCommit": "9c39e1d7e024b06548c81ab994af608327463afc",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
-        "correctionHandoffCommit": "408f0707cff2d753811ae4c879487f8973c52836",
+        "correctionImplementationCommit": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
+        "correctionHandoffCommit": "f3dd6498f207a0a0283f9503d62ff5bab67d1299",
         "reviewerReroute": {
           "previousReviewer": "/root/x05_reviewer",
           "status": "interrupted",
@@ -1289,7 +1293,7 @@
       },
       "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
       "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
-      "reviewSourceCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
+      "reviewSourceCommit": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
       "reviewHistory": [
         {
           "round": 1,
@@ -1309,6 +1313,13 @@
           "receipt": "docs/execution/handoffs/F-04-review-round2.md",
           "integratedCommit": "9c39e1d7e024b06548c81ab994af608327463afc"
         }
+      ],
+      "productCommits": [
+        "c7c5418f6121f16429c49da45dc15e7fcea3eccd",
+        "1733a0998e86bf4c71250fab11e17b41857bbc85",
+        "149ec74d674d542a93acfcf900bb7344b64675d2",
+        "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
+        "2621343dcd3b80c259f5cec808dadb7bfbb0434d"
       ]
     },
     "F-05": {
@@ -2985,7 +2996,7 @@
       ]
     }
   },
-  "nextAction": "F-02 correction round three is queued for strict subtitle/video pairing and bracketed flags; F-04 correction round two remains active in placement. Await exact product and handoff commits before review.",
+  "nextAction": "F-04 correction round two product and handoff are recorded; independent review of 2621343 is pending with /root/x05_reviewer. F-02 correction round three remains active with /root/d02_implementer.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
