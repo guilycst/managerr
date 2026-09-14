@@ -16,8 +16,7 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "D-03",
-    "X-14"
+    "D-03"
   ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
@@ -2595,10 +2594,10 @@
       ]
     },
     "X-14": {
-      "status": "in_review",
+      "status": "done",
       "owner": "/root",
       "baseSha": "1c9ed7deb542afda76797d7899f33d2c29247241",
-      "integratedSha": null,
+      "integratedSha": "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa",
       "evidence": [
         "dispatched from 1c9ed7deb542afda76797d7899f33d2c29247241 after X-10, X-05, and X-07 approved client and adapter slices",
         "X-14 extends the standalone qBittorrent compatibility contract for control operations without enabling runtime writes.",
@@ -2615,13 +2614,16 @@
         "9f2dff6780ab166258be8892e8f192f0fb6c0bbe integrated X-14 correction review receipt",
         "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa coordinator generator-path correction product commit",
         "fea793d67c88970e58337b435cc499495febad2a coordinator generator-path correction handoff commit",
-        "X-14 correction round two fixes aggregate generation to use the module-internal qBittorrent output unconditionally; missing-artifact write probe passes without recreating a public raw client."
+        "X-14 correction round two fixes aggregate generation to use the module-internal qBittorrent output unconditionally; missing-artifact write probe passes without recreating a public raw client.",
+        "4a1bd775a468e0dad0be366f5609d2727ba11ecd X-14 independent review round three: approved",
+        "d579039edd04737385e8a24142691f576c5a2349 integrated X-14 round three review receipt",
+        "docs/execution/handoffs/X-14-review-round3.md"
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
+        "commit": "4a1bd775a468e0dad0be366f5609d2727ba11ecd",
         "findings": [],
         "round": 3
       },
@@ -2650,7 +2652,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-14-review-round1.md",
         "handoffPath": "docs/execution/handoffs/X-14.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af",
           "X-10-review": "6b15c0b4862c8c1e6a4f64530f3614f788504b44",
@@ -2662,18 +2664,22 @@
         },
         "implementationCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
         "handoffCommit": "c9dd654c9d831022a59876d5f350e631c894a45c",
-        "reviewSourceCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
-        "reviewCommit": "4208c1c5ce32699e5fa78ce8fd33d4f5d639c329",
-        "reviewIntegrationCommit": "9f2dff6780ab166258be8892e8f192f0fb6c0bbe",
+        "reviewSourceCommit": "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa",
+        "reviewCommit": "4a1bd775a468e0dad0be366f5609d2727ba11ecd",
+        "reviewIntegrationCommit": "d579039edd04737385e8a24142691f576c5a2349",
         "correctionRound": 2,
         "correctionOwner": "/root",
         "correctionBaseSha": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
-        "correctionReviewPath": "docs/execution/handoffs/X-14-review-round2.md",
+        "correctionReviewPath": "docs/execution/handoffs/X-14-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionHandoffPath": "docs/execution/handoffs/X-14-correction-round2.md",
-        "correctionReviewCommit": "4208c1c5ce32699e5fa78ce8fd33d4f5d639c329",
+        "correctionReviewCommit": "4a1bd775a468e0dad0be366f5609d2727ba11ecd",
         "correctionImplementationCommit": "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa",
-        "correctionHandoffCommit": "fea793d67c88970e58337b435cc499495febad2a"
+        "correctionHandoffCommit": "fea793d67c88970e58337b435cc499495febad2a",
+        "productCommits": [
+          "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
+          "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa"
+        ]
       },
       "implementationCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
       "handoffCommit": "c9dd654c9d831022a59876d5f350e631c894a45c",
@@ -2696,11 +2702,20 @@
           "sourceCommit": "08cbb20b68aeb284673e0d19c40c0ea9e5f4f3c4",
           "receipt": "docs/execution/handoffs/X-14-review-round2.md",
           "integratedCommit": "9f2dff6780ab166258be8892e8f192f0fb6c0bbe"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "4a1bd775a468e0dad0be366f5609d2727ba11ecd",
+          "status": "approved",
+          "sourceCommit": "0d3cc2ead00c26237d8b24f0c8f269da0a974bfa",
+          "receipt": "docs/execution/handoffs/X-14-review-round3.md",
+          "integratedCommit": "d579039edd04737385e8a24142691f576c5a2349"
         }
       ]
     }
   },
-  "nextAction": "D-03 correction round two and X-14 generator-path correction review round three are active; no root control integration until reviewers approve exact products.",
+  "nextAction": "D-03 correction round two is under independent review; X-14 is approved. Keep root qBittorrent control integration gated on published nested-module bootstrap and G-01/live capability evidence.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
