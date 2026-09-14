@@ -28,6 +28,9 @@ const (
 	// DefaultBufferSize bounds the memory used while copying or hashing one
 	// file. A copy never reads an entire payload into memory.
 	DefaultBufferSize = 1 << 20
+	// MaxBufferSize keeps a caller-supplied chunk bound from turning one action
+	// into an unexpectedly large allocation.
+	MaxBufferSize = 16 << 20
 	// DefaultStagePrefix identifies files created by this package. Cleanup is
 	// always scoped to a name generated for the current operation.
 	DefaultStagePrefix = ".mastarr-stage"
@@ -138,6 +141,9 @@ var _ ports.FilesystemActionPort = (*Placer)(nil)
 func New(roots []Root, options Options) (*Placer, error) {
 	if options.BufferSize <= 0 {
 		options.BufferSize = DefaultBufferSize
+	}
+	if options.BufferSize > MaxBufferSize {
+		return nil, fmt.Errorf("%w: buffer size exceeds %d bytes", ErrInvalidPlan, MaxBufferSize)
 	}
 	if options.StagePrefix == "" {
 		options.StagePrefix = DefaultStagePrefix
@@ -568,6 +574,10 @@ func (p *Placer) verifyDirectoriesStable(directories []directorySnapshot) error 
 			source.close()
 			return fmt.Errorf("%w: source directory %q changed during copy", ErrSourceChanged, directory.source.RelativePath)
 		}
+		if err := verifyDirectoryChildren(source.file, directory.source); err != nil {
+			source.close()
+			return err
+		}
 		source.close()
 	}
 	return nil
@@ -781,8 +791,12 @@ func copyAndDigest(ctx context.Context, source *os.File, sourceInfo fs.FileInfo,
 			if _, err := hasher.Write(buffer[:read]); err != nil {
 				return "", err
 			}
-			if _, err := stage.Write(buffer[:read]); err != nil {
+			written, err := stage.Write(buffer[:read])
+			if err != nil {
 				return "", fmt.Errorf("write staging file: %w", err)
+			}
+			if written != read {
+				return "", io.ErrShortWrite
 			}
 		}
 		if readErr == io.EOF {
@@ -1240,7 +1254,12 @@ func (p *Placer) newOperationID() (string, error) {
 	return id.String(), nil
 }
 
-func (p *Placer) now() time.Time { return p.opts.Clock().UTC() }
+func (p *Placer) now() time.Time {
+	if p.opts.Clock == nil {
+		return time.Now().UTC()
+	}
+	return p.opts.Clock().UTC()
+}
 
 func validateOperationID(value string) error {
 	if strings.TrimSpace(value) == "" || len(value) > 128 || strings.ContainsAny(value, `/\\`) || strings.ContainsRune(value, 0) {

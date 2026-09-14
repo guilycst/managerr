@@ -16,8 +16,9 @@ import (
 )
 
 type recordingJournal struct {
-	records []FileEffect
-	err     error
+	records  []FileEffect
+	err      error
+	onAppend func(FileEffect)
 }
 
 func (journal *recordingJournal) Append(_ context.Context, effect FileEffect) error {
@@ -25,6 +26,9 @@ func (journal *recordingJournal) Append(_ context.Context, effect FileEffect) er
 		return journal.err
 	}
 	journal.records = append(journal.records, effect)
+	if journal.onAppend != nil {
+		journal.onAppend(effect)
+	}
 	return nil
 }
 
@@ -210,6 +214,43 @@ func TestCopyDirectoryUsesOnlyExactManifestChildren(t *testing.T) {
 	}
 	if _, err := placer.CopyWithOperation(context.Background(), "directory-changed", request); !errors.Is(err, ErrSourceChanged) {
 		t.Fatalf("changed directory error = %v, want source changed", err)
+	}
+}
+
+func TestCopyRechecksDirectoryChildrenAfterPublication(t *testing.T) {
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	pack := filepath.Join(sourceRoot, "pack")
+	if err := os.Mkdir(pack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "movie.mkv"), []byte("movie"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	movie := fileEntry(t, rootID, sourceRoot, "pack/movie.mkv", domain.ManifestFile)
+	packEntry := directoryEntry(t, rootID, sourceRoot, "pack", []domain.FileManifestEntry{movie})
+	journal := &recordingJournal{}
+	journal.onAppend = func(_ FileEffect) {
+		if err := os.WriteFile(filepath.Join(pack, "late.txt"), []byte("late child"), 0o640); err != nil {
+			t.Fatalf("add late child: %v", err)
+		}
+	}
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{Journal: journal})
+	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+		Source: packEntry, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Example Film"},
+	}}}
+	effect, err := placer.CopyWithOperation(context.Background(), "late-directory-child", request)
+	if !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("late directory child error = %v, want source changed", err)
+	}
+	if len(effect.Affected) != 1 || effect.Outcome != domain.OutcomeApplied {
+		t.Fatalf("late directory child effect = %#v, want partial applied effect", effect)
+	}
+	assertFileBytes(t, filepath.Join(destinationRoot, "Example Film", "movie.mkv"), "movie")
+	if _, err := os.Stat(filepath.Join(destinationRoot, "Example Film", "late.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("late unreviewed destination = %v, want absent", err)
 	}
 }
 
@@ -430,5 +471,8 @@ func TestOperationAndStageNamesAreBounded(t *testing.T) {
 		if validStagePrefix(value) {
 			t.Fatalf("stage prefix %q was accepted", value)
 		}
+	}
+	if _, err := New(nil, Options{BufferSize: MaxBufferSize + 1}); !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("oversized buffer error = %v, want invalid plan", err)
 	}
 }
