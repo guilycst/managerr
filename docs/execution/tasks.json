@@ -443,6 +443,30 @@
       "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
     },
     {
+      "id": "X-14",
+      "lane": "X",
+      "title": "Extend standalone qBittorrent client for control operations",
+      "dependsOn": [
+        "X-10",
+        "X-05",
+        "X-07"
+      ],
+      "ownedPaths": [
+        "clients/qbittorrent/"
+      ],
+      "acceptance": [
+        "A-28",
+        "A-29",
+        "A-30",
+        "A-31",
+        "A-33",
+        "A-45"
+      ],
+      "deliverable": "Extend the independent qBittorrent compatibility contract with the control routes reached by X-07: stop, setLocation, renameFile, renameFolder and metadata-only delete. Regenerate typed client code with the pinned oapi-codegen tool; keep cookie authentication, deadlines and typed upstream errors inside the module; cover request encoding, status normalization and synthetic httptest behavior. Do not import Mastarr root packages or enable runtime writes without versioned upstream evidence.",
+      "handoff": "docs/execution/handoffs/X-14.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
       "id": "X-05",
       "lane": "X",
       "title": "Prove upstream write safety in disposable fixtures",

@@ -322,6 +322,23 @@ unpublished-module bootstrap blocker instead of adding a local replace.
 - Handoff: `docs/execution/handoffs/X-13.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
 
+### X-14: Extend standalone qBittorrent client for control operations
+
+Lane X. Dependencies: X-10, X-05, X-07.
+
+Extend the independent qBittorrent compatibility contract with the control
+routes reached by X-07: stop, setLocation, renameFile, renameFolder and
+metadata-only delete. Regenerate typed client code with the pinned oapi-codegen
+tool. Keep cookie authentication, deadlines and typed upstream errors inside the
+module. Cover request encoding, status normalization and synthetic httptest
+behavior. Do not import Mastarr root packages or enable runtime writes without
+versioned upstream evidence.
+
+- Owned paths: `clients/qbittorrent/`.
+- Acceptance contributions: A-28, A-29, A-30, A-31, A-33, A-45.
+- Handoff: `docs/execution/handoffs/X-14.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
 ### X-05: Prove upstream write safety in disposable fixtures
 
 Lane X. Dependencies: C-00, X-12, X-13, X-03, X-04, F-01.
