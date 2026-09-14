@@ -508,6 +508,50 @@ func TestMediaAndSubtitleClassificationRejectsYearAsAnimeAndLabelAsLanguage(t *t
 	}
 }
 
+func TestSubtitleLanguageComesOnlyFromMatchedVideoSuffix(t *testing.T) {
+	tests := []struct {
+		name            string
+		subtitle        string
+		video           string
+		language        string
+		forced          bool
+		hearingImpaired bool
+	}{
+		{name: "short title and forced", subtitle: "Up.forced.en.srt", video: "Up.mkv", language: "en", forced: true},
+		{name: "short title and SDH", subtitle: "The.Movie.sdh.pt.srt", video: "The.Movie.mkv", language: "pt", hearingImpaired: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := subtitleFor(test.subtitle, []string{test.video})
+			if got.Language != test.language || got.Forced != test.forced || got.HearingImpaired != test.hearingImpaired || got.Confidence != ConfidenceExact {
+				t.Fatalf("subtitle metadata parsed from title instead of suffix: got=%+v", got)
+			}
+		})
+	}
+	ambiguous := subtitleFor("Up.en.srt", []string{"Up.mkv", "Up.mp4"})
+	if ambiguous.Language != "" || ambiguous.Confidence != ConfidenceAmbiguous {
+		t.Fatalf("ambiguous subtitle relationship yielded language metadata: %+v", ambiguous)
+	}
+	fallback := subtitleFor("captions.en.srt", []string{"Up.mkv"})
+	if fallback.Language != "" {
+		t.Fatalf("unmatched subtitle fallback yielded language metadata: %+v", fallback)
+	}
+
+	idx, subtitles, companions, _ := classifyFiles([]domain.FileManifestEntry{
+		fixtureFile(testRoot, "The.Movie.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie"),
+		fixtureFile(testRoot, "The.Movie.sdh.pt.idx", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "idx"),
+		fixtureFile(testRoot, "The.Movie.sdh.pt.sub", domain.ManifestSubtitle, domain.RoleSubtitle, 1, "sub"),
+	})
+	if len(idx) != 1 || len(subtitles) != 2 || len(companions) != 0 {
+		t.Fatalf("IDX/SUB fixture was not retained as a paired subtitle set: videos=%+v subtitles=%+v companions=%+v", idx, subtitles, companions)
+	}
+	for _, subtitle := range subtitles {
+		if subtitle.Language != "pt" || !subtitle.HearingImpaired || subtitle.PairID != "The.Movie.sdh.pt" || subtitle.Confidence != ConfidenceExact {
+			t.Fatalf("IDX/SUB metadata was not preserved: %+v", subtitle)
+		}
+	}
+}
+
 func TestMemoryStoreDeepClonesPointerBearingEvidence(t *testing.T) {
 	clock := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
 	filesystem := newFixtureFilesystem(testRoot, clock)

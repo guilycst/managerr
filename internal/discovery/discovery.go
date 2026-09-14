@@ -1033,14 +1033,7 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 	}
 	forced := containsToken(base, "forced")
 	hearingImpaired := containsToken(base, "sdh") || containsToken(base, "hi") || containsToken(base, "hearing impaired")
-	language := ""
-	for _, token := range strings.Fields(strings.NewReplacer(".", " ", "_", " ", "-", " ").Replace(strings.ToLower(base))) {
-		if len(token) < 2 || len(token) > 3 || !isASCIIWord(token) || isSubtitleLabel(token) {
-			continue
-		}
-		language = token
-		break
-	}
+	language := subtitleLanguage(base, candidates)
 	pairID := ""
 	if extension := strings.ToLower(path.Ext(relativePath)); extension == ".idx" || extension == ".sub" {
 		pairID = strings.TrimSuffix(relativePath, path.Ext(relativePath))
@@ -1059,6 +1052,44 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 	return result
 }
 
+func subtitleLanguage(base string, candidates []string) string {
+	if len(candidates) != 1 {
+		return ""
+	}
+	suffix, matched := subtitleSuffixAfterVideoStem(base, candidates[0])
+	if !matched {
+		return ""
+	}
+	for _, token := range subtitleTokens(suffix) {
+		if len(token) < 2 || len(token) > 3 || !isASCIIWord(token) || isSubtitleLabel(token) {
+			continue
+		}
+		return token
+	}
+	return ""
+}
+
+func subtitleSuffixAfterVideoStem(base string, videoPath string) (string, bool) {
+	subtitle := subtitleTokens(base)
+	videoBase := strings.TrimSuffix(path.Base(videoPath), path.Ext(videoPath))
+	video := subtitleTokens(videoBase)
+	if len(video) == 0 || len(subtitle) < len(video) {
+		return "", false
+	}
+	for index, token := range video {
+		if subtitle[index] != token {
+			return "", false
+		}
+	}
+	return strings.Join(subtitle[len(video):], " "), true
+}
+
+func subtitleTokens(value string) []string {
+	value = strings.ToLower(value)
+	value = strings.NewReplacer(".", " ", "_", " ", "-", " ", "[", " ", "]", " ", "(", " ", ")", " ").Replace(value)
+	return strings.Fields(value)
+}
+
 func isSubtitleLabel(value string) bool {
 	switch strings.ToLower(value) {
 	case "forced", "sdh", "hi":
@@ -1069,14 +1100,7 @@ func isSubtitleLabel(value string) bool {
 }
 
 func normalizeStem(value string) string {
-	value = strings.ToLower(value)
-	value = strings.ReplaceAll(value, "_", " ")
-	value = strings.ReplaceAll(value, ".", " ")
-	value = strings.Join(strings.Fields(value), " ")
-	for _, token := range []string{"forced", "sdh", "hearing impaired", "hi"} {
-		value = strings.ReplaceAll(value, token, " ")
-	}
-	return strings.Join(strings.Fields(value), " ")
+	return strings.Join(subtitleTokens(value), " ")
 }
 
 func containsToken(value, token string) bool {
