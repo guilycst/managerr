@@ -3,18 +3,19 @@ info:
   title: Mastarr qBittorrent WebUI compatibility API
   version: 0.0.1
   description: |
-    Mastarr-owned compatibility contract for the read surface of the
-    qBittorrent WebUI API v2. It is intentionally versioned separately from
-    the Mastarr HTTP API. The compatibility candidate is qBittorrent 5.0+
-    with WebAPI v2.x; the connected product build remains runtime evidence.
-    Authentication is cookie based. No OpenAPI security scheme is declared so
-    the generated surface cannot be mistaken for Mastarr application auth.
+    Mastarr-owned compatibility contract for the narrow read and control
+    surface of the qBittorrent WebUI API v2. It is intentionally versioned
+    separately from the Mastarr HTTP API. The compatibility candidate is
+    qBittorrent 5.0+ with WebAPI v2.x; the connected product build remains
+    runtime evidence. Authentication is cookie based. No OpenAPI security
+    scheme is declared so the generated surface cannot be mistaken for Mastarr
+    application auth.
   x-mastarr-compatibility:
     upstream: qBittorrent WebUI API v2
     candidateProductVersions: qBittorrent 5.0+
     candidateWebAPIVersions: 2.x
     contractVersion: 0.0.1
-    readOnly: true
+    readOnly: false
     evidence: docs/research/upstream-evidence.md
     upstreamDocumentation: https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-5.0)?oldformat=true
 paths:
@@ -403,6 +404,186 @@ paths:
         default:
           $ref: '#/components/responses/UpstreamFailure'
 
+  /api/v2/torrents/stop:
+    post:
+      tags: [torrents]
+      operationId: StopTorrents
+      summary: Stop one or more torrents
+      description: |
+        Stop the explicitly named torrent hashes. The compatibility client
+        never uses an empty hash list, which would broaden this request to
+        every torrent in qBittorrent.
+      x-mastarr-control: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StopTorrentsRequest'
+      responses:
+        '200':
+          description: The named torrent stop command was accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Ok.]
+              example: Ok.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/setLocation:
+    post:
+      tags: [torrents]
+      operationId: SetTorrentLocation
+      summary: Move one or more torrents to a containing directory
+      description: |
+        The location is qBittorrent's containing download directory. A
+        caller must derive it from the approved final content path and
+        reconcile the resulting content path separately.
+      x-mastarr-control: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetTorrentLocationRequest'
+      responses:
+        '200':
+          description: The containing-directory move command was accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Ok.]
+              example: Ok.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/renameFile:
+    post:
+      tags: [torrents]
+      operationId: RenameTorrentFile
+      summary: Rename one file inside a torrent
+      description: |
+        Rename exactly one native torrent file. The caller must perform
+        collision and scope checks before dispatch and verify the final file
+        path after the command.
+      x-mastarr-control: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RenameTorrentFileRequest'
+      responses:
+        '200':
+          description: The file rename command was accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Ok.]
+              example: Ok.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/renameFolder:
+    post:
+      tags: [torrents]
+      operationId: RenameTorrentFolder
+      summary: Rename one folder inside a torrent
+      description: |
+        Rename exactly one native torrent folder. The caller must verify that
+        the reviewed whole-torrent scope permits the operation and reconcile
+        every resulting file path.
+      x-mastarr-control: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RenameTorrentFolderRequest'
+      responses:
+        '200':
+          description: The folder rename command was accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Ok.]
+              example: Ok.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v2/torrents/delete:
+    post:
+      tags: [torrents]
+      operationId: DeleteTorrents
+      summary: Remove torrent metadata without deleting payload files
+      description: |
+        Remove the explicitly named torrent records. The compatibility
+        contract freezes deleteFiles to false; deleting payload files is not
+        exposed by this module.
+      x-mastarr-control: true
+      parameters:
+        - $ref: '#/components/parameters/CookieHeader'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DeleteTorrentsRequest'
+      responses:
+        '200':
+          description: The metadata-only removal command was accepted.
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [Ok.]
+              example: Ok.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
 components:
   parameters:
     CookieHeader:
@@ -436,6 +617,12 @@ components:
         text/plain:
           schema:
             type: string
+    Conflict:
+      description: The requested control operation conflicts with current upstream state.
+      content:
+        text/plain:
+          schema:
+            type: string
     NotFound:
       description: The requested torrent hash does not exist.
       content:
@@ -463,6 +650,79 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
+
+    StopTorrentsRequest:
+      type: object
+      additionalProperties: false
+      required: [hashes]
+      properties:
+        hashes:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    SetTorrentLocationRequest:
+      type: object
+      additionalProperties: false
+      required: [hashes, location]
+      properties:
+        hashes:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        location:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    RenameTorrentFileRequest:
+      type: object
+      additionalProperties: false
+      required: [hash, oldPath, newPath]
+      properties:
+        hash:
+          type: string
+          minLength: 1
+          maxLength: 128
+        oldPath:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        newPath:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    RenameTorrentFolderRequest:
+      type: object
+      additionalProperties: false
+      required: [hash, oldPath, newPath]
+      properties:
+        hash:
+          type: string
+          minLength: 1
+          maxLength: 128
+        oldPath:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        newPath:
+          type: string
+          minLength: 1
+          maxLength: 4096
+
+    DeleteTorrentsRequest:
+      type: object
+      additionalProperties: false
+      required: [hashes, deleteFiles]
+      properties:
+        hashes:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        deleteFiles:
+          type: boolean
+          enum: [false]
 
     TorrentInfo:
       type: object

@@ -15,6 +15,21 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for DeleteTorrentsRequestDeleteFiles.
+const (
+	False DeleteTorrentsRequestDeleteFiles = false
+)
+
+// Valid indicates whether the value is a known member of the DeleteTorrentsRequestDeleteFiles enum.
+func (e DeleteTorrentsRequestDeleteFiles) Valid() bool {
+	switch e {
+	case False:
+		return true
+	default:
+		return false
+	}
+}
+
 // Category defines model for Category.
 type Category struct {
 	Name     string `json:"name"`
@@ -24,10 +39,44 @@ type Category struct {
 // CategoryMap defines model for CategoryMap.
 type CategoryMap map[string]Category
 
+// DeleteTorrentsRequest defines model for DeleteTorrentsRequest.
+type DeleteTorrentsRequest struct {
+	DeleteFiles DeleteTorrentsRequestDeleteFiles `json:"deleteFiles"`
+	Hashes      string                           `json:"hashes"`
+}
+
+// DeleteTorrentsRequestDeleteFiles defines model for DeleteTorrentsRequest.DeleteFiles.
+type DeleteTorrentsRequestDeleteFiles bool
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	Password string `json:"password"`
 	Username string `json:"username"`
+}
+
+// RenameTorrentFileRequest defines model for RenameTorrentFileRequest.
+type RenameTorrentFileRequest struct {
+	Hash    string `json:"hash"`
+	NewPath string `json:"newPath"`
+	OldPath string `json:"oldPath"`
+}
+
+// RenameTorrentFolderRequest defines model for RenameTorrentFolderRequest.
+type RenameTorrentFolderRequest struct {
+	Hash    string `json:"hash"`
+	NewPath string `json:"newPath"`
+	OldPath string `json:"oldPath"`
+}
+
+// SetTorrentLocationRequest defines model for SetTorrentLocationRequest.
+type SetTorrentLocationRequest struct {
+	Hashes   string `json:"hashes"`
+	Location string `json:"location"`
+}
+
+// StopTorrentsRequest defines model for StopTorrentsRequest.
+type StopTorrentsRequest struct {
+	Hashes string `json:"hashes"`
 }
 
 // TorrentFile defines model for TorrentFile.
@@ -159,6 +208,12 @@ type GetCategoriesParams struct {
 	Cookie *CookieHeader `json:"Cookie,omitempty"`
 }
 
+// DeleteTorrentsParams defines parameters for DeleteTorrents.
+type DeleteTorrentsParams struct {
+	// Cookie SID cookie set by the login response; the handwritten client manages it.
+	Cookie *CookieHeader `json:"Cookie,omitempty"`
+}
+
 // GetTorrentFilesParams defines parameters for GetTorrentFiles.
 type GetTorrentFilesParams struct {
 	// Hash A nonempty qBittorrent hash, at most 128 characters, with no pipe, whitespace, control byte or invalid UTF-8.
@@ -207,6 +262,30 @@ type GetTorrentPropertiesParams struct {
 	Cookie *CookieHeader `json:"Cookie,omitempty"`
 }
 
+// RenameTorrentFileParams defines parameters for RenameTorrentFile.
+type RenameTorrentFileParams struct {
+	// Cookie SID cookie set by the login response; the handwritten client manages it.
+	Cookie *CookieHeader `json:"Cookie,omitempty"`
+}
+
+// RenameTorrentFolderParams defines parameters for RenameTorrentFolder.
+type RenameTorrentFolderParams struct {
+	// Cookie SID cookie set by the login response; the handwritten client manages it.
+	Cookie *CookieHeader `json:"Cookie,omitempty"`
+}
+
+// SetTorrentLocationParams defines parameters for SetTorrentLocation.
+type SetTorrentLocationParams struct {
+	// Cookie SID cookie set by the login response; the handwritten client manages it.
+	Cookie *CookieHeader `json:"Cookie,omitempty"`
+}
+
+// StopTorrentsParams defines parameters for StopTorrents.
+type StopTorrentsParams struct {
+	// Cookie SID cookie set by the login response; the handwritten client manages it.
+	Cookie *CookieHeader `json:"Cookie,omitempty"`
+}
+
 // GetTagsParams defines parameters for GetTags.
 type GetTagsParams struct {
 	// Cookie SID cookie set by the login response; the handwritten client manages it.
@@ -215,6 +294,21 @@ type GetTagsParams struct {
 
 // LoginFormdataRequestBody defines body for Login for application/x-www-form-urlencoded ContentType.
 type LoginFormdataRequestBody = LoginRequest
+
+// DeleteTorrentsFormdataRequestBody defines body for DeleteTorrents for application/x-www-form-urlencoded ContentType.
+type DeleteTorrentsFormdataRequestBody = DeleteTorrentsRequest
+
+// RenameTorrentFileFormdataRequestBody defines body for RenameTorrentFile for application/x-www-form-urlencoded ContentType.
+type RenameTorrentFileFormdataRequestBody = RenameTorrentFileRequest
+
+// RenameTorrentFolderFormdataRequestBody defines body for RenameTorrentFolder for application/x-www-form-urlencoded ContentType.
+type RenameTorrentFolderFormdataRequestBody = RenameTorrentFolderRequest
+
+// SetTorrentLocationFormdataRequestBody defines body for SetTorrentLocation for application/x-www-form-urlencoded ContentType.
+type SetTorrentLocationFormdataRequestBody = SetTorrentLocationRequest
+
+// StopTorrentsFormdataRequestBody defines body for StopTorrents for application/x-www-form-urlencoded ContentType.
+type StopTorrentsFormdataRequestBody = StopTorrentsRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -329,6 +423,28 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v2/torrents/categories (the `GetCategories` operationId).
 	GetCategories(ctx context.Context, params *GetCategoriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteTorrentsWithBody Remove torrent metadata without deleting payload files
+	//
+	// Remove the explicitly named torrent records. The compatibility
+	// contract freezes deleteFiles to false; deleting payload files is not
+	// exposed by this module.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+	DeleteTorrentsWithBody(ctx context.Context, params *DeleteTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteTorrentsWithFormdataBody Remove torrent metadata without deleting payload files
+	//
+	// Remove the explicitly named torrent records. The compatibility
+	// contract freezes deleteFiles to false; deleting payload files is not
+	// exposed by this module.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+	DeleteTorrentsWithFormdataBody(ctx context.Context, params *DeleteTorrentsParams, body DeleteTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetTorrentFiles Read files contained by one torrent
 	//
 	// Corresponds with GET /api/v2/torrents/files (the `GetTorrentFiles` operationId).
@@ -348,6 +464,94 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v2/torrents/properties (the `GetTorrentProperties` operationId).
 	GetTorrentProperties(ctx context.Context, params *GetTorrentPropertiesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameTorrentFileWithBody Rename one file inside a torrent
+	//
+	// Rename exactly one native torrent file. The caller must perform
+	// collision and scope checks before dispatch and verify the final file
+	// path after the command.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+	RenameTorrentFileWithBody(ctx context.Context, params *RenameTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameTorrentFileWithFormdataBody Rename one file inside a torrent
+	//
+	// Rename exactly one native torrent file. The caller must perform
+	// collision and scope checks before dispatch and verify the final file
+	// path after the command.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+	RenameTorrentFileWithFormdataBody(ctx context.Context, params *RenameTorrentFileParams, body RenameTorrentFileFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameTorrentFolderWithBody Rename one folder inside a torrent
+	//
+	// Rename exactly one native torrent folder. The caller must verify that
+	// the reviewed whole-torrent scope permits the operation and reconcile
+	// every resulting file path.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+	RenameTorrentFolderWithBody(ctx context.Context, params *RenameTorrentFolderParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameTorrentFolderWithFormdataBody Rename one folder inside a torrent
+	//
+	// Rename exactly one native torrent folder. The caller must verify that
+	// the reviewed whole-torrent scope permits the operation and reconcile
+	// every resulting file path.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+	RenameTorrentFolderWithFormdataBody(ctx context.Context, params *RenameTorrentFolderParams, body RenameTorrentFolderFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTorrentLocationWithBody Move one or more torrents to a containing directory
+	//
+	// The location is qBittorrent's containing download directory. A
+	// caller must derive it from the approved final content path and
+	// reconcile the resulting content path separately.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+	SetTorrentLocationWithBody(ctx context.Context, params *SetTorrentLocationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTorrentLocationWithFormdataBody Move one or more torrents to a containing directory
+	//
+	// The location is qBittorrent's containing download directory. A
+	// caller must derive it from the approved final content path and
+	// reconcile the resulting content path separately.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+	SetTorrentLocationWithFormdataBody(ctx context.Context, params *SetTorrentLocationParams, body SetTorrentLocationFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopTorrentsWithBody Stop one or more torrents
+	//
+	// Stop the explicitly named torrent hashes. The compatibility client
+	// never uses an empty hash list, which would broaden this request to
+	// every torrent in qBittorrent.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+	StopTorrentsWithBody(ctx context.Context, params *StopTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopTorrentsWithFormdataBody Stop one or more torrents
+	//
+	// Stop the explicitly named torrent hashes. The compatibility client
+	// never uses an empty hash list, which would broaden this request to
+	// every torrent in qBittorrent.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+	StopTorrentsWithFormdataBody(ctx context.Context, params *StopTorrentsParams, body StopTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetTags Read all torrent tags
 	//
@@ -444,6 +648,48 @@ func (c *Client) GetCategories(ctx context.Context, params *GetCategoriesParams,
 	return c.Client.Do(req)
 }
 
+// DeleteTorrentsWithBody Remove torrent metadata without deleting payload files
+//
+// Remove the explicitly named torrent records. The compatibility
+// contract freezes deleteFiles to false; deleting payload files is not
+// exposed by this module.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+func (c *Client) DeleteTorrentsWithBody(ctx context.Context, params *DeleteTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTorrentsRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteTorrentsWithFormdataBody Remove torrent metadata without deleting payload files
+//
+// Remove the explicitly named torrent records. The compatibility
+// contract freezes deleteFiles to false; deleting payload files is not
+// exposed by this module.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+func (c *Client) DeleteTorrentsWithFormdataBody(ctx context.Context, params *DeleteTorrentsParams, body DeleteTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTorrentsRequestWithFormdataBody(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetTorrentFiles Read files contained by one torrent
 //
 // Corresponds with GET /api/v2/torrents/files (the `GetTorrentFiles` operationId).
@@ -484,6 +730,174 @@ func (c *Client) ListTorrents(ctx context.Context, params *ListTorrentsParams, r
 // Corresponds with GET /api/v2/torrents/properties (the `GetTorrentProperties` operationId).
 func (c *Client) GetTorrentProperties(ctx context.Context, params *GetTorrentPropertiesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetTorrentPropertiesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameTorrentFileWithBody Rename one file inside a torrent
+//
+// Rename exactly one native torrent file. The caller must perform
+// collision and scope checks before dispatch and verify the final file
+// path after the command.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+func (c *Client) RenameTorrentFileWithBody(ctx context.Context, params *RenameTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameTorrentFileRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameTorrentFileWithFormdataBody Rename one file inside a torrent
+//
+// Rename exactly one native torrent file. The caller must perform
+// collision and scope checks before dispatch and verify the final file
+// path after the command.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+func (c *Client) RenameTorrentFileWithFormdataBody(ctx context.Context, params *RenameTorrentFileParams, body RenameTorrentFileFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameTorrentFileRequestWithFormdataBody(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameTorrentFolderWithBody Rename one folder inside a torrent
+//
+// Rename exactly one native torrent folder. The caller must verify that
+// the reviewed whole-torrent scope permits the operation and reconcile
+// every resulting file path.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+func (c *Client) RenameTorrentFolderWithBody(ctx context.Context, params *RenameTorrentFolderParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameTorrentFolderRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameTorrentFolderWithFormdataBody Rename one folder inside a torrent
+//
+// Rename exactly one native torrent folder. The caller must verify that
+// the reviewed whole-torrent scope permits the operation and reconcile
+// every resulting file path.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+func (c *Client) RenameTorrentFolderWithFormdataBody(ctx context.Context, params *RenameTorrentFolderParams, body RenameTorrentFolderFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameTorrentFolderRequestWithFormdataBody(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTorrentLocationWithBody Move one or more torrents to a containing directory
+//
+// The location is qBittorrent's containing download directory. A
+// caller must derive it from the approved final content path and
+// reconcile the resulting content path separately.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+func (c *Client) SetTorrentLocationWithBody(ctx context.Context, params *SetTorrentLocationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTorrentLocationRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTorrentLocationWithFormdataBody Move one or more torrents to a containing directory
+//
+// The location is qBittorrent's containing download directory. A
+// caller must derive it from the approved final content path and
+// reconcile the resulting content path separately.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+func (c *Client) SetTorrentLocationWithFormdataBody(ctx context.Context, params *SetTorrentLocationParams, body SetTorrentLocationFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTorrentLocationRequestWithFormdataBody(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StopTorrentsWithBody Stop one or more torrents
+//
+// Stop the explicitly named torrent hashes. The compatibility client
+// never uses an empty hash list, which would broaden this request to
+// every torrent in qBittorrent.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+func (c *Client) StopTorrentsWithBody(ctx context.Context, params *StopTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopTorrentsRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StopTorrentsWithFormdataBody Stop one or more torrents
+//
+// Stop the explicitly named torrent hashes. The compatibility client
+// never uses an empty hash list, which would broaden this request to
+// every torrent in qBittorrent.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+func (c *Client) StopTorrentsWithFormdataBody(ctx context.Context, params *StopTorrentsParams, body StopTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopTorrentsRequestWithFormdataBody(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -656,6 +1070,61 @@ func NewGetCategoriesRequest(server string, params *GetCategoriesParams) (*http.
 	if err != nil {
 		return nil, err
 	}
+
+	if params != nil {
+
+		if params.Cookie != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Cookie", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewDeleteTorrentsRequestWithFormdataBody calls the generic DeleteTorrents builder with application/x-www-form-urlencoded body
+func NewDeleteTorrentsRequestWithFormdataBody(server string, params *DeleteTorrentsParams, body DeleteTorrentsFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewDeleteTorrentsRequestWithBody(server, params, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewDeleteTorrentsRequestWithBody constructs an http.Request for the DeleteTorrents method, with any body, and a specified content type
+func NewDeleteTorrentsRequestWithBody(server string, params *DeleteTorrentsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/torrents/delete")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -970,6 +1439,226 @@ func NewGetTorrentPropertiesRequest(server string, params *GetTorrentPropertiesP
 	return req, nil
 }
 
+// NewRenameTorrentFileRequestWithFormdataBody calls the generic RenameTorrentFile builder with application/x-www-form-urlencoded body
+func NewRenameTorrentFileRequestWithFormdataBody(server string, params *RenameTorrentFileParams, body RenameTorrentFileFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewRenameTorrentFileRequestWithBody(server, params, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewRenameTorrentFileRequestWithBody constructs an http.Request for the RenameTorrentFile method, with any body, and a specified content type
+func NewRenameTorrentFileRequestWithBody(server string, params *RenameTorrentFileParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/torrents/renameFile")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Cookie != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Cookie", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRenameTorrentFolderRequestWithFormdataBody calls the generic RenameTorrentFolder builder with application/x-www-form-urlencoded body
+func NewRenameTorrentFolderRequestWithFormdataBody(server string, params *RenameTorrentFolderParams, body RenameTorrentFolderFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewRenameTorrentFolderRequestWithBody(server, params, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewRenameTorrentFolderRequestWithBody constructs an http.Request for the RenameTorrentFolder method, with any body, and a specified content type
+func NewRenameTorrentFolderRequestWithBody(server string, params *RenameTorrentFolderParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/torrents/renameFolder")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Cookie != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Cookie", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewSetTorrentLocationRequestWithFormdataBody calls the generic SetTorrentLocation builder with application/x-www-form-urlencoded body
+func NewSetTorrentLocationRequestWithFormdataBody(server string, params *SetTorrentLocationParams, body SetTorrentLocationFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewSetTorrentLocationRequestWithBody(server, params, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewSetTorrentLocationRequestWithBody constructs an http.Request for the SetTorrentLocation method, with any body, and a specified content type
+func NewSetTorrentLocationRequestWithBody(server string, params *SetTorrentLocationParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/torrents/setLocation")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Cookie != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Cookie", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewStopTorrentsRequestWithFormdataBody calls the generic StopTorrents builder with application/x-www-form-urlencoded body
+func NewStopTorrentsRequestWithFormdataBody(server string, params *StopTorrentsParams, body StopTorrentsFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewStopTorrentsRequestWithBody(server, params, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewStopTorrentsRequestWithBody constructs an http.Request for the StopTorrents method, with any body, and a specified content type
+func NewStopTorrentsRequestWithBody(server string, params *StopTorrentsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v2/torrents/stop")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.Cookie != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Cookie", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewGetTagsRequest constructs an http.Request for the GetTags method
 func NewGetTagsRequest(server string, params *GetTagsParams) (*http.Request, error) {
 	var err error
@@ -1101,6 +1790,28 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v2/torrents/categories (the `GetCategories` operationId).
 	GetCategoriesWithResponse(ctx context.Context, params *GetCategoriesParams, reqEditors ...RequestEditorFn) (*GetCategoriesResponse, error)
 
+	// DeleteTorrentsWithBodyWithResponse Remove torrent metadata without deleting payload files
+	//
+	// Remove the explicitly named torrent records. The compatibility
+	// contract freezes deleteFiles to false; deleting payload files is not
+	// exposed by this module.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+	DeleteTorrentsWithBodyWithResponse(ctx context.Context, params *DeleteTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteTorrentsResponse, error)
+
+	// DeleteTorrentsWithFormdataBodyWithResponse Remove torrent metadata without deleting payload files
+	//
+	// Remove the explicitly named torrent records. The compatibility
+	// contract freezes deleteFiles to false; deleting payload files is not
+	// exposed by this module.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+	DeleteTorrentsWithFormdataBodyWithResponse(ctx context.Context, params *DeleteTorrentsParams, body DeleteTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*DeleteTorrentsResponse, error)
+
 	// GetTorrentFilesWithResponse Read files contained by one torrent
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -1126,6 +1837,94 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/v2/torrents/properties (the `GetTorrentProperties` operationId).
 	GetTorrentPropertiesWithResponse(ctx context.Context, params *GetTorrentPropertiesParams, reqEditors ...RequestEditorFn) (*GetTorrentPropertiesResponse, error)
+
+	// RenameTorrentFileWithBodyWithResponse Rename one file inside a torrent
+	//
+	// Rename exactly one native torrent file. The caller must perform
+	// collision and scope checks before dispatch and verify the final file
+	// path after the command.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+	RenameTorrentFileWithBodyWithResponse(ctx context.Context, params *RenameTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameTorrentFileResponse, error)
+
+	// RenameTorrentFileWithFormdataBodyWithResponse Rename one file inside a torrent
+	//
+	// Rename exactly one native torrent file. The caller must perform
+	// collision and scope checks before dispatch and verify the final file
+	// path after the command.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+	RenameTorrentFileWithFormdataBodyWithResponse(ctx context.Context, params *RenameTorrentFileParams, body RenameTorrentFileFormdataRequestBody, reqEditors ...RequestEditorFn) (*RenameTorrentFileResponse, error)
+
+	// RenameTorrentFolderWithBodyWithResponse Rename one folder inside a torrent
+	//
+	// Rename exactly one native torrent folder. The caller must verify that
+	// the reviewed whole-torrent scope permits the operation and reconcile
+	// every resulting file path.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+	RenameTorrentFolderWithBodyWithResponse(ctx context.Context, params *RenameTorrentFolderParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameTorrentFolderResponse, error)
+
+	// RenameTorrentFolderWithFormdataBodyWithResponse Rename one folder inside a torrent
+	//
+	// Rename exactly one native torrent folder. The caller must verify that
+	// the reviewed whole-torrent scope permits the operation and reconcile
+	// every resulting file path.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+	RenameTorrentFolderWithFormdataBodyWithResponse(ctx context.Context, params *RenameTorrentFolderParams, body RenameTorrentFolderFormdataRequestBody, reqEditors ...RequestEditorFn) (*RenameTorrentFolderResponse, error)
+
+	// SetTorrentLocationWithBodyWithResponse Move one or more torrents to a containing directory
+	//
+	// The location is qBittorrent's containing download directory. A
+	// caller must derive it from the approved final content path and
+	// reconcile the resulting content path separately.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+	SetTorrentLocationWithBodyWithResponse(ctx context.Context, params *SetTorrentLocationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTorrentLocationResponse, error)
+
+	// SetTorrentLocationWithFormdataBodyWithResponse Move one or more torrents to a containing directory
+	//
+	// The location is qBittorrent's containing download directory. A
+	// caller must derive it from the approved final content path and
+	// reconcile the resulting content path separately.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+	SetTorrentLocationWithFormdataBodyWithResponse(ctx context.Context, params *SetTorrentLocationParams, body SetTorrentLocationFormdataRequestBody, reqEditors ...RequestEditorFn) (*SetTorrentLocationResponse, error)
+
+	// StopTorrentsWithBodyWithResponse Stop one or more torrents
+	//
+	// Stop the explicitly named torrent hashes. The compatibility client
+	// never uses an empty hash list, which would broaden this request to
+	// every torrent in qBittorrent.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+	StopTorrentsWithBodyWithResponse(ctx context.Context, params *StopTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StopTorrentsResponse, error)
+
+	// StopTorrentsWithFormdataBodyWithResponse Stop one or more torrents
+	//
+	// Stop the explicitly named torrent hashes. The compatibility client
+	// never uses an empty hash list, which would broaden this request to
+	// every torrent in qBittorrent.
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+	StopTorrentsWithFormdataBodyWithResponse(ctx context.Context, params *StopTorrentsParams, body StopTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*StopTorrentsResponse, error)
 
 	// GetTagsWithResponse Read all torrent tags
 	//
@@ -1278,6 +2077,40 @@ func (r GetCategoriesResponse) ContentType() string {
 	return ""
 }
 
+type DeleteTorrentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteTorrentsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteTorrentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteTorrentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteTorrentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetTorrentFilesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1401,6 +2234,142 @@ func (r GetTorrentPropertiesResponse) ContentType() string {
 	return ""
 }
 
+type RenameTorrentFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r RenameTorrentFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenameTorrentFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenameTorrentFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenameTorrentFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RenameTorrentFolderResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r RenameTorrentFolderResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenameTorrentFolderResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenameTorrentFolderResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenameTorrentFolderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetTorrentLocationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r SetTorrentLocationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetTorrentLocationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetTorrentLocationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetTorrentLocationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StopTorrentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r StopTorrentsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StopTorrentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StopTorrentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StopTorrentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetTagsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1517,6 +2486,40 @@ func (c *ClientWithResponses) GetCategoriesWithResponse(ctx context.Context, par
 	return ParseGetCategoriesResponse(rsp)
 }
 
+// DeleteTorrentsWithBodyWithResponse Remove torrent metadata without deleting payload files
+//
+// Remove the explicitly named torrent records. The compatibility
+// contract freezes deleteFiles to false; deleting payload files is not
+// exposed by this module.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+func (c *ClientWithResponses) DeleteTorrentsWithBodyWithResponse(ctx context.Context, params *DeleteTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteTorrentsResponse, error) {
+	rsp, err := c.DeleteTorrentsWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTorrentsResponse(rsp)
+}
+
+// DeleteTorrentsWithFormdataBodyWithResponse Remove torrent metadata without deleting payload files
+//
+// Remove the explicitly named torrent records. The compatibility
+// contract freezes deleteFiles to false; deleting payload files is not
+// exposed by this module.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/delete (the `DeleteTorrents` operationId).
+func (c *ClientWithResponses) DeleteTorrentsWithFormdataBodyWithResponse(ctx context.Context, params *DeleteTorrentsParams, body DeleteTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*DeleteTorrentsResponse, error) {
+	rsp, err := c.DeleteTorrentsWithFormdataBody(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTorrentsResponse(rsp)
+}
+
 // GetTorrentFilesWithResponse Read files contained by one torrent
 //
 // Returns a wrapper object for the known response body format(s).
@@ -1559,6 +2562,142 @@ func (c *ClientWithResponses) GetTorrentPropertiesWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseGetTorrentPropertiesResponse(rsp)
+}
+
+// RenameTorrentFileWithBodyWithResponse Rename one file inside a torrent
+//
+// Rename exactly one native torrent file. The caller must perform
+// collision and scope checks before dispatch and verify the final file
+// path after the command.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+func (c *ClientWithResponses) RenameTorrentFileWithBodyWithResponse(ctx context.Context, params *RenameTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameTorrentFileResponse, error) {
+	rsp, err := c.RenameTorrentFileWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameTorrentFileResponse(rsp)
+}
+
+// RenameTorrentFileWithFormdataBodyWithResponse Rename one file inside a torrent
+//
+// Rename exactly one native torrent file. The caller must perform
+// collision and scope checks before dispatch and verify the final file
+// path after the command.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/renameFile (the `RenameTorrentFile` operationId).
+func (c *ClientWithResponses) RenameTorrentFileWithFormdataBodyWithResponse(ctx context.Context, params *RenameTorrentFileParams, body RenameTorrentFileFormdataRequestBody, reqEditors ...RequestEditorFn) (*RenameTorrentFileResponse, error) {
+	rsp, err := c.RenameTorrentFileWithFormdataBody(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameTorrentFileResponse(rsp)
+}
+
+// RenameTorrentFolderWithBodyWithResponse Rename one folder inside a torrent
+//
+// Rename exactly one native torrent folder. The caller must verify that
+// the reviewed whole-torrent scope permits the operation and reconcile
+// every resulting file path.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+func (c *ClientWithResponses) RenameTorrentFolderWithBodyWithResponse(ctx context.Context, params *RenameTorrentFolderParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameTorrentFolderResponse, error) {
+	rsp, err := c.RenameTorrentFolderWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameTorrentFolderResponse(rsp)
+}
+
+// RenameTorrentFolderWithFormdataBodyWithResponse Rename one folder inside a torrent
+//
+// Rename exactly one native torrent folder. The caller must verify that
+// the reviewed whole-torrent scope permits the operation and reconcile
+// every resulting file path.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/renameFolder (the `RenameTorrentFolder` operationId).
+func (c *ClientWithResponses) RenameTorrentFolderWithFormdataBodyWithResponse(ctx context.Context, params *RenameTorrentFolderParams, body RenameTorrentFolderFormdataRequestBody, reqEditors ...RequestEditorFn) (*RenameTorrentFolderResponse, error) {
+	rsp, err := c.RenameTorrentFolderWithFormdataBody(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameTorrentFolderResponse(rsp)
+}
+
+// SetTorrentLocationWithBodyWithResponse Move one or more torrents to a containing directory
+//
+// The location is qBittorrent's containing download directory. A
+// caller must derive it from the approved final content path and
+// reconcile the resulting content path separately.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+func (c *ClientWithResponses) SetTorrentLocationWithBodyWithResponse(ctx context.Context, params *SetTorrentLocationParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTorrentLocationResponse, error) {
+	rsp, err := c.SetTorrentLocationWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTorrentLocationResponse(rsp)
+}
+
+// SetTorrentLocationWithFormdataBodyWithResponse Move one or more torrents to a containing directory
+//
+// The location is qBittorrent's containing download directory. A
+// caller must derive it from the approved final content path and
+// reconcile the resulting content path separately.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/setLocation (the `SetTorrentLocation` operationId).
+func (c *ClientWithResponses) SetTorrentLocationWithFormdataBodyWithResponse(ctx context.Context, params *SetTorrentLocationParams, body SetTorrentLocationFormdataRequestBody, reqEditors ...RequestEditorFn) (*SetTorrentLocationResponse, error) {
+	rsp, err := c.SetTorrentLocationWithFormdataBody(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTorrentLocationResponse(rsp)
+}
+
+// StopTorrentsWithBodyWithResponse Stop one or more torrents
+//
+// Stop the explicitly named torrent hashes. The compatibility client
+// never uses an empty hash list, which would broaden this request to
+// every torrent in qBittorrent.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+func (c *ClientWithResponses) StopTorrentsWithBodyWithResponse(ctx context.Context, params *StopTorrentsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StopTorrentsResponse, error) {
+	rsp, err := c.StopTorrentsWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopTorrentsResponse(rsp)
+}
+
+// StopTorrentsWithFormdataBodyWithResponse Stop one or more torrents
+//
+// Stop the explicitly named torrent hashes. The compatibility client
+// never uses an empty hash list, which would broaden this request to
+// every torrent in qBittorrent.
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v2/torrents/stop (the `StopTorrents` operationId).
+func (c *ClientWithResponses) StopTorrentsWithFormdataBodyWithResponse(ctx context.Context, params *StopTorrentsParams, body StopTorrentsFormdataRequestBody, reqEditors ...RequestEditorFn) (*StopTorrentsResponse, error) {
+	rsp, err := c.StopTorrentsWithFormdataBody(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopTorrentsResponse(rsp)
 }
 
 // GetTagsWithResponse Read all torrent tags
@@ -1648,6 +2787,22 @@ func ParseGetCategoriesResponse(rsp *http.Response) (*GetCategoriesResponse, err
 	return response, nil
 }
 
+// ParseDeleteTorrentsResponse parses an HTTP response from a DeleteTorrentsWithResponse call
+func ParseDeleteTorrentsResponse(rsp *http.Response) (*DeleteTorrentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteTorrentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
 // ParseGetTorrentFilesResponse parses an HTTP response from a GetTorrentFilesWithResponse call
 func ParseGetTorrentFilesResponse(rsp *http.Response) (*GetTorrentFilesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1721,6 +2876,70 @@ func ParseGetTorrentPropertiesResponse(rsp *http.Response) (*GetTorrentPropertie
 		}
 		response.JSON200 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseRenameTorrentFileResponse parses an HTTP response from a RenameTorrentFileWithResponse call
+func ParseRenameTorrentFileResponse(rsp *http.Response) (*RenameTorrentFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenameTorrentFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseRenameTorrentFolderResponse parses an HTTP response from a RenameTorrentFolderWithResponse call
+func ParseRenameTorrentFolderResponse(rsp *http.Response) (*RenameTorrentFolderResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenameTorrentFolderResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseSetTorrentLocationResponse parses an HTTP response from a SetTorrentLocationWithResponse call
+func ParseSetTorrentLocationResponse(rsp *http.Response) (*SetTorrentLocationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetTorrentLocationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseStopTorrentsResponse parses an HTTP response from a StopTorrentsWithResponse call
+func ParseStopTorrentsResponse(rsp *http.Response) (*StopTorrentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StopTorrentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil

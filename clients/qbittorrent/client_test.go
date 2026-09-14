@@ -335,6 +335,203 @@ func TestResponseBoundsAndHTTPErrors(t *testing.T) {
 	}
 }
 
+func TestControlOperationsEncodeFormsAndUseSID(t *testing.T) {
+	type formExpectation struct {
+		path string
+		form map[string]string
+	}
+	expectations := []formExpectation{
+		{path: apiStop, form: map[string]string{"hashes": testHash}},
+		{path: apiSetLocation, form: map[string]string{"hashes": testHash, "location": "/synthetic/relocated dir"}},
+		{path: apiRenameFile, form: map[string]string{"hash": testHash, "oldPath": "Synthetic Pack/one file.mkv", "newPath": "Synthetic Pack/renamed file.mkv"}},
+		{path: apiRenameFolder, form: map[string]string{"hash": testHash, "oldPath": "Synthetic Pack", "newPath": "Renamed Pack"}},
+		{path: apiDelete, form: map[string]string{"hashes": testHash, "deleteFiles": "false"}},
+	}
+	var controlIndex atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			if r.Method != http.MethodPost {
+				t.Errorf("login method = %s, want POST", r.Method)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Errorf("login form: %v", err)
+			}
+			if r.PostForm.Get("username") != testUsername || r.PostForm.Get("password") != testPassword {
+				t.Errorf("login form = %#v, want synthetic credentials", r.PostForm)
+			}
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		index := int(controlIndex.Add(1)) - 1
+		if index < 0 || index >= len(expectations) {
+			t.Errorf("unexpected control request %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		expectation := expectations[index]
+		if r.Method != http.MethodPost || r.URL.Path != expectation.path {
+			t.Errorf("control request = %s %s, want POST %s", r.Method, r.URL.Path, expectation.path)
+		}
+		cookie, err := r.Cookie("SID")
+		if err != nil || cookie.Value != testSID {
+			t.Errorf("SID cookie = %v, want %q", cookie, testSID)
+		}
+		if got, want := r.Header.Get("Origin"), server.URL; got != want {
+			t.Errorf("Origin = %q, want %q", got, want)
+		}
+		if got, want := r.Header.Get("Referer"), server.URL+"/"; got != want {
+			t.Errorf("Referer = %q, want %q", got, want)
+		}
+		if got := r.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/x-www-form-urlencoded") {
+			t.Errorf("Content-Type = %q, want form encoding", got)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("control form: %v", err)
+			return
+		}
+		if len(r.PostForm) != len(expectation.form) {
+			t.Errorf("%s form = %#v, want exactly %#v", expectation.path, r.PostForm, expectation.form)
+		}
+		for key, want := range expectation.form {
+			values, ok := r.PostForm[key]
+			if !ok || len(values) != 1 || values[0] != want {
+				t.Errorf("%s form[%q] = %#v, want %q", expectation.path, key, values, want)
+			}
+		}
+		_, _ = io.WriteString(w, "Ok.")
+	}))
+	defer server.Close()
+
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := client.Stop(context.Background(), testHash); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := client.SetLocation(context.Background(), testHash, "/synthetic/relocated dir"); err != nil {
+		t.Fatalf("SetLocation: %v", err)
+	}
+	if err := client.RenameFile(context.Background(), testHash, "Synthetic Pack/one file.mkv", "Synthetic Pack/renamed file.mkv"); err != nil {
+		t.Fatalf("RenameFile: %v", err)
+	}
+	if err := client.RenameFolder(context.Background(), testHash, "Synthetic Pack", "Renamed Pack"); err != nil {
+		t.Fatalf("RenameFolder: %v", err)
+	}
+	if err := client.Delete(context.Background(), testHash, false); err != nil {
+		t.Fatalf("Delete metadata: %v", err)
+	}
+	if got := int(controlIndex.Load()); got != len(expectations) {
+		t.Fatalf("control request count = %d, want %d", got, len(expectations))
+	}
+}
+
+func TestDeleteRejectsPayloadRemovalFlagBeforeDispatch(t *testing.T) {
+	client, err := New(Config{Endpoint: "http://synthetic.invalid", Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = client.Delete(context.Background(), testHash, true)
+	if err == nil || !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("Delete(true) error = %v, want invalid input", err)
+	}
+	if strings.Contains(err.Error(), "deleteFiles") {
+		t.Fatalf("Delete(true) error exposes request details: %v", err)
+	}
+}
+
+func TestControlStatusErrorsAreTypedAndSanitized(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		status    int
+		wantCode  ErrorCode
+		wantRetry bool
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, wantCode: ErrorUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden, wantCode: ErrorUnauthorized},
+		{name: "conflict", status: http.StatusConflict, wantCode: ErrorConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var controlCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == apiLogin {
+					http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+					_, _ = io.WriteString(w, "Ok.")
+					return
+				}
+				controlCalls.Add(1)
+				w.WriteHeader(test.status)
+				_, _ = io.WriteString(w, "synthetic private upstream response")
+			}))
+			defer server.Close()
+
+			client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			err = client.Stop(context.Background(), testHash)
+			var upstream UpstreamError
+			if !errors.As(err, &upstream) || upstream.Code != test.wantCode || upstream.Status != test.status || upstream.Operation != "qbit.torrents.stop" || upstream.Retryable != test.wantRetry {
+				t.Fatalf("Stop error = %#v, want code=%s status=%d retryable=%t", err, test.wantCode, test.status, test.wantRetry)
+			}
+			if strings.Contains(err.Error(), "synthetic private upstream response") {
+				t.Fatalf("Stop error leaked upstream body: %v", err)
+			}
+			if got := controlCalls.Load(); got != 1 {
+				t.Fatalf("control calls = %d, want one without mutation retry", got)
+			}
+		})
+	}
+}
+
+func TestControlSuccessRequiresExactOKBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		_, _ = io.WriteString(w, "accepted but not the frozen response")
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = client.Stop(context.Background(), testHash)
+	if err == nil || !IsCode(err, ErrorUnknown) {
+		t.Fatalf("Stop malformed success error = %v, want typed unknown", err)
+	}
+}
+
+func TestControlTransportTimeoutIsTyped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+	client, err := New(Config{
+		Endpoint:   server.URL,
+		Username:   testUsername,
+		Password:   testPassword,
+		HTTPClient: &http.Client{Timeout: 20 * time.Millisecond},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = client.Stop(context.Background(), testHash)
+	var upstream UpstreamError
+	if !errors.As(err, &upstream) || upstream.Code != ErrorUnavailable || !upstream.Retryable || upstream.Operation != "qbit.torrents.stop" {
+		t.Fatalf("Stop timeout error = %#v, want retryable unavailable", err)
+	}
+}
+
 func TestContextCancellationAndTransportTimeout(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,10 +1,10 @@
-# Mastarr qBittorrent read client
+# Mastarr qBittorrent client
 
 This directory is an independent Go module at
 `github.com/guilycst/mastarr/clients/qbittorrent`. It freezes the small
-qBittorrent WebUI API v2 compatibility surface needed by Mastarr inventory
-work. It does not import the Mastarr root module or any domain, port, storage,
-workflow or adapter package.
+qBittorrent WebUI API v2 compatibility surface needed by Mastarr inventory and
+explicitly gated control work. It does not import the Mastarr root module or
+any domain, port, storage, workflow or adapter package.
 
 The compatibility candidate is qBittorrent **5.0+** with WebAPI **2.x**. The
 connected qBittorrent product build is still runtime evidence; this module does
@@ -14,14 +14,32 @@ evidence recorded in `docs/research/upstream-evidence.md` (wiki page commit
 `cc6579ab58f534d03b40ae0deba5755c4a342319`, blob
 `82f67b6f5aa73ef54d4c88dcd38c695ae1191b72`).
 
-The handwritten client exposes only these operations:
+The handwritten client exposes these operations:
 
 - cookie login through `POST /api/v2/auth/login`;
 - application and WebAPI version reads;
 - torrent inventory with qBittorrent's filter, category, tag, sort, reverse,
   limit, offset and hashes query fields;
 - generic properties and file contents for one torrent hash;
-- all categories and all tags.
+- all categories and all tags;
+- stop one named torrent;
+- move one named torrent to a containing download directory;
+- rename one named torrent file or folder;
+- remove one named torrent record while retaining payload files.
+
+Control methods are deliberately narrow. Every request names one nonempty
+hash, and callers cannot pass a pipe-separated all-torrents value. `SetLocation`
+accepts qBittorrent's containing directory; the root adapter derives that
+directory from an approved final content path and verifies the resulting paths
+afterward. Rename methods preserve qBittorrent's native `oldPath` and
+`newPath` fields; collision, scope and read-back checks belong to the root
+adapter. The module does not provide resume, recheck, category/tag mutation,
+torrent creation or any other mutation surface.
+
+`Delete` is metadata-only. Its `deleteFiles` argument is retained for the root
+control-port shape, but `true` is rejected before authentication or dispatch;
+the only wire value this module can send is `deleteFiles=false`. No helper can
+request payload deletion.
 
 Login accepts the upstream `Ok.` body only when the response also establishes a
 nonempty, usable `SID` cookie for the configured origin. A client requires a
@@ -37,8 +55,9 @@ failures are classified by the typed `UpstreamError` codes
 `unavailable`, `rate_limited`, `unauthorized`, `invalid_input`, `conflict`,
 `unsupported` and `unknown`.
 
-Only the documented HTTP 200 response is accepted for login and each read;
-other 2xx statuses are typed as unsupported before body decoding. JSON
+Only the documented HTTP 200 response is accepted for login, each read and
+each control command; other 2xx statuses are typed as unsupported before body
+decoding. Control success also requires the exact upstream `Ok.` body. JSON
 responses are decoded with exact case-sensitive field names, duplicate-member
 rejection, raw UTF-8 validation, unknown-field rejection, trailing-data checks,
 and presence validation for every OpenAPI-required member of inventory,
@@ -113,8 +132,11 @@ GOWORK=off go vet ./...
 GOWORK=off go mod verify
 ```
 
-Mutation routes such as stop, resume, relocation, rename, category/tag
-changes, deletion and torrent creation are intentionally absent. Descriptor
-export, client-specific scope translation and the Mastarr root adapter remain
-separate migration work; this module supplies only typed, read-only upstream
-evidence.
+The generated control models and request builders are compatibility artifacts;
+the handwritten client keeps cookie authentication, deadlines, status
+normalization and typed upstream errors in this module. A 401 or 403 on a
+control request invalidates the selected session and returns without retrying
+the mutation, so callers must reconcile before any later attempt. Descriptor
+export, client-specific scope translation and Mastarr root runtime capability
+gates remain separate migration work; adding these methods to this module does
+not enable writes in the root application.

@@ -1,7 +1,7 @@
-// Package qbittorrent implements the small, read-only qBittorrent WebUI
-// compatibility boundary used by Mastarr. It owns its HTTP session, cookie
-// handling and upstream DTOs so the client can be tested and versioned without
-// importing Mastarr's root module.
+// Package qbittorrent implements the small qBittorrent WebUI compatibility
+// boundary used by Mastarr inventory and explicitly gated control work. It
+// owns its HTTP session, cookie handling and upstream DTOs so the client can be
+// tested and versioned without importing Mastarr's root module.
 package qbittorrent
 
 import (
@@ -41,17 +41,23 @@ const (
 	maxCategoryChars              = 512
 	maxTagChars                   = 512
 	maxSortChars                  = 64
+	maxControlPathChars           = 4096
 )
 
 const (
-	apiLogin       = "/api/v2/auth/login"
-	apiAppVersion  = "/api/v2/app/version"
-	apiWebAPI      = "/api/v2/app/webapiVersion"
-	apiTorrentInfo = "/api/v2/torrents/info"
-	apiProperties  = "/api/v2/torrents/properties"
-	apiFiles       = "/api/v2/torrents/files"
-	apiCategories  = "/api/v2/torrents/categories"
-	apiTags        = "/api/v2/torrents/tags"
+	apiLogin        = "/api/v2/auth/login"
+	apiAppVersion   = "/api/v2/app/version"
+	apiWebAPI       = "/api/v2/app/webapiVersion"
+	apiTorrentInfo  = "/api/v2/torrents/info"
+	apiProperties   = "/api/v2/torrents/properties"
+	apiFiles        = "/api/v2/torrents/files"
+	apiCategories   = "/api/v2/torrents/categories"
+	apiTags         = "/api/v2/torrents/tags"
+	apiStop         = "/api/v2/torrents/stop"
+	apiSetLocation  = "/api/v2/torrents/setLocation"
+	apiRenameFile   = "/api/v2/torrents/renameFile"
+	apiRenameFolder = "/api/v2/torrents/renameFolder"
+	apiDelete       = "/api/v2/torrents/delete"
 )
 
 var (
@@ -124,7 +130,9 @@ type Config struct {
 	MaxFiles int
 }
 
-// Client is a cookie-authenticated, read-only qBittorrent WebUI client.
+// Client is a cookie-authenticated qBittorrent WebUI client. Read operations
+// and the narrow control methods share this transport, while control callers
+// remain responsible for their own capability and safety gates.
 type Client struct {
 	endpoint *url.URL
 	http     *http.Client
@@ -345,8 +353,8 @@ func New(config Config) (*Client, error) {
 // NewClient is an explicit constructor alias.
 func NewClient(config Config) (*Client, error) { return New(config) }
 
-// Login establishes the qBittorrent SID session. It is the sole POST made by
-// this module; all other methods are GET-only reads.
+// Login establishes the qBittorrent SID session. Control methods use the same
+// session for their explicitly named, form-encoded POST requests.
 func (c *Client) Login(ctx context.Context) error {
 	return c.ensureSession(ctx)
 }
@@ -526,6 +534,134 @@ func (c *Client) Tags(ctx context.Context) ([]string, error) {
 
 // GetTags is a method-name alias for Tags.
 func (c *Client) GetTags(ctx context.Context) ([]string, error) { return c.Tags(ctx) }
+
+// Stop sends the explicitly named torrent stop command. An empty or
+// pipe-separated hash is rejected so this method cannot broaden the native
+// request to all torrents.
+func (c *Client) Stop(ctx context.Context, hash string) error {
+	form, err := controlHashForm(hash, "qbit.torrents.stop")
+	if err != nil {
+		return err
+	}
+	return c.postControl(ctx, "qbit.torrents.stop", apiStop, form)
+}
+
+// SetLocation moves the explicitly named torrent to a containing download
+// directory. The caller remains responsible for deriving that directory from
+// its approved final content path and reconciling the resulting content path.
+func (c *Client) SetLocation(ctx context.Context, hash, location string) error {
+	form, err := controlHashForm(hash, "qbit.torrents.set_location")
+	if err != nil {
+		return err
+	}
+	if err := validateControlPath(location, "qbit.torrents.set_location"); err != nil {
+		return err
+	}
+	form.Set("location", location)
+	return c.postControl(ctx, "qbit.torrents.set_location", apiSetLocation, form)
+}
+
+// RenameFile renames one explicitly named native torrent file. Scope and
+// collision checks belong to the root adapter; this module validates bounded
+// wire text and preserves the exact upstream field names.
+func (c *Client) RenameFile(ctx context.Context, hash, oldPath, newPath string) error {
+	hash, err := controlHashValue(hash, "qbit.torrents.rename_file")
+	if err != nil {
+		return err
+	}
+	if err := validateControlPath(oldPath, "qbit.torrents.rename_file"); err != nil {
+		return err
+	}
+	if err := validateControlPath(newPath, "qbit.torrents.rename_file"); err != nil {
+		return err
+	}
+	form := url.Values{"hash": {hash}}
+	form.Set("oldPath", oldPath)
+	form.Set("newPath", newPath)
+	return c.postControl(ctx, "qbit.torrents.rename_file", apiRenameFile, form)
+}
+
+// RenameFolder renames one explicitly named native torrent folder. Scope and
+// collision checks belong to the root adapter.
+func (c *Client) RenameFolder(ctx context.Context, hash, oldPath, newPath string) error {
+	hash, err := controlHashValue(hash, "qbit.torrents.rename_folder")
+	if err != nil {
+		return err
+	}
+	if err := validateControlPath(oldPath, "qbit.torrents.rename_folder"); err != nil {
+		return err
+	}
+	if err := validateControlPath(newPath, "qbit.torrents.rename_folder"); err != nil {
+		return err
+	}
+	form := url.Values{"hash": {hash}}
+	form.Set("oldPath", oldPath)
+	form.Set("newPath", newPath)
+	return c.postControl(ctx, "qbit.torrents.rename_folder", apiRenameFolder, form)
+}
+
+// Delete removes torrent metadata while retaining payload files. The boolean
+// is kept for compatibility with the root control port, but true is rejected
+// before authentication or dispatch; this module has no payload-delete
+// helper.
+func (c *Client) Delete(ctx context.Context, hash string, deleteFiles bool) error {
+	if deleteFiles {
+		return invalidInput("qbit.torrents.delete")
+	}
+	form, err := controlHashForm(hash, "qbit.torrents.delete")
+	if err != nil {
+		return err
+	}
+	form.Set("deleteFiles", "false")
+	return c.postControl(ctx, "qbit.torrents.delete", apiDelete, form)
+}
+
+func (c *Client) postControl(ctx context.Context, operation, endpoint string, form url.Values) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	credential, err := c.currentSession(ctx)
+	if err != nil {
+		return err
+	}
+	body, status, _, _, err := c.requestOnce(ctx, operation, http.MethodPost, endpoint, nil, credential.sid, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		c.invalidateSession(credential.generation)
+		return statusError(operation, status)
+	}
+	if status != 0 && status != http.StatusOK {
+		return statusError(operation, status)
+	}
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
+		return malformed(operation)
+	}
+	return nil
+}
+
+func controlHashForm(hash, operation string) (url.Values, error) {
+	hash, err := controlHashValue(hash, operation)
+	if err != nil {
+		return nil, err
+	}
+	return url.Values{"hashes": {hash}}, nil
+}
+
+func controlHashValue(hash, operation string) (string, error) {
+	if !validBoundedText(hash, maxHashChars, true) || strings.Contains(hash, "|") || strings.IndexFunc(hash, unicode.IsSpace) >= 0 {
+		return "", invalidInput(operation)
+	}
+	return hash, nil
+}
+
+func validateControlPath(value, operation string) error {
+	if !validBoundedText(value, maxControlPathChars, true) {
+		return invalidInput(operation)
+	}
+	return nil
+}
 
 func (c *Client) readVersion(ctx context.Context, operation, endpoint string) (string, error) {
 	body, err := c.get(ctx, operation, endpoint, nil)
