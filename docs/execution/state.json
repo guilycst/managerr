@@ -1289,7 +1289,7 @@
         "correctionRound": 2,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
-        "correctionDispatchCommit": null,
+        "correctionDispatchCommit": "c9cc3ab",
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
@@ -1298,7 +1298,7 @@
         "correctionProductCommits": [
           "ebdf5112c5be852fc992f337d47e4e0589f52b94"
         ],
-        "correctionStatus": "queued",
+        "correctionStatus": "dispatched",
         "correctionReviewSourceCommit": null
       },
       "reviewHistory": [
