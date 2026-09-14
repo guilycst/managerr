@@ -2228,15 +2228,24 @@
         "W-02 owns internal/execution/ and implements durable action claiming, ordered attempt journaling, observe-before-write, uncertainty reconciliation, persisted backoff/deadlines, and cancellation dispatch boundaries without a generic DAG or duplicate outbox.",
         "a4b152e20f8f82d53ba6d3c901737804357cc807 W-02 product commit for durable action executor and cancellation; focused synthetic suite passed.",
         "beab28bdfb7cf0aa19870b4c032de3327ed06229 W-02 handoff commit records focused/race/vet/module, root/nested, compile, generation, API/Vacuum, lint, architecture, planning and guardrail checks.",
-        "beab28bdfb7cf0aa19870b4c032de3327ed06229 W-02 handoff commit records product a4b152e20f8f82d53ba6d3c901737804357cc807, focused/race/vet/module/root/nested/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks."
+        "beab28bdfb7cf0aa19870b4c032de3327ed06229 W-02 handoff commit records product a4b152e20f8f82d53ba6d3c901737804357cc807, focused/race/vet/module/root/nested/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks.",
+        "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34 W-02 independent review round one requested changes against source a4b152e20f8f82d53ba6d3c901737804357cc807.",
+        "Review found P1 stale lease-generation fencing, P1 unresolved reservation retention, P1 exact effect identity/completeness, P1 cooperative in-flight cancellation, P2 mandatory transaction capability, and P2 inverted memory expired-lease fixture. Correction is queued after the current F-05 correction."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
-        "round": 0
+        "commit": "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34",
+        "findings": [
+          "P1: stale worker can finalize success after lease recovery and generation change",
+          "P1: unresolved action releases overlap reservation before reconciliation",
+          "P1: changed or omitted per-target read-back effects still yield applied success",
+          "P1: durable cancellation does not signal an in-flight handler context",
+          "P2: transactional journal support is optional at the executor boundary",
+          "P2: in-memory expired-lease fixture predicate is inverted"
+        ],
+        "round": 1
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2279,8 +2288,29 @@
         "productCommits": [
           "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ],
-        "reviewer": "/root/x05_reviewer"
-      }
+        "reviewer": "/root/x05_reviewer",
+        "reviewCommit": "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34",
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "a4b152e20f8f82d53ba6d3c901737804357cc807",
+        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round2.md",
+        "correctionReviewer": "/root/d02_reviewer",
+        "correctionCheckout": "shared main",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionStatus": "queued_after_F-05"
+      },
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34",
+          "status": "changes_requested",
+          "sourceCommit": "a4b152e20f8f82d53ba6d3c901737804357cc807",
+          "receipt": "docs/execution/handoffs/W-02-review-round1.md"
+        }
+      ]
     },
     "W-03": {
       "status": "planned",
@@ -3258,7 +3288,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction is queued to /root/d02_implementer; F-05 correction is active under /root/x05_implementer; W-02 review is pending with /root/x05_reviewer.",
+  "nextAction": "F-03 correction remains queued to /root/d02_implementer; F-05 correction remains active under /root/x05_implementer; W-02 round-one review is recorded and its correction is queued after F-05, with /root/d02_reviewer assigned for independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
