@@ -1051,7 +1051,9 @@
       "integratedSha": null,
       "evidence": [
         "dispatched from a8c91470f8a5e7aaf5bd014daee87a45341f52f4 after approved D-03 and F-01 discovery prerequisites",
-        "F-02 will persist bounded directory observations and group video, subtitle, pack and ambiguous companion evidence without treating missing coverage as absence."
+        "F-02 will persist bounded directory observations and group video, subtitle, pack and ambiguous companion evidence without treating missing coverage as absence.",
+        "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0 F-02 product commit for persisted discovery observations and grouping",
+        "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785 F-02 product handoff with checks and downstream ObservationStore note"
       ],
       "review": {
         "status": "pending",
@@ -1091,8 +1093,15 @@
           "D-03": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
           "D-03-integration": "a8c91470f8a5e7aaf5bd014daee87a45341f52f4",
           "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
-        }
-      }
+        },
+        "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+        "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
+        "reviewSourceCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+        "reviewer": "/root/d02_reviewer"
+      },
+      "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
+      "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
+      "reviewSourceCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0"
     },
     "F-03": {
       "status": "planned",
@@ -2867,7 +2876,7 @@
       ]
     }
   },
-  "nextAction": "F-04 correction round one is queued for placement safety: bind hardlink reconciliation to the approved source manifest, make stage cleanup inode-safe, and fsync containing parents for created directories. F-02 discovery remains in parallel implementation. Do not mark F-04 done until correction review approves.",
+  "nextAction": "F-02 is awaiting independent review while F-04 correction round one fixes placement P1s. After each approval, integrate the receipt and dispatch the next dependency lane: F-03 after F-02, F-05 after F-04.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
