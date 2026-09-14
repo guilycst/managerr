@@ -2336,7 +2336,10 @@
         "23d1fecb1ff7ff95a24f871acb4847def9fef0a6 W-02 correction round two handoff records deterministic five-finding tests and focused/race/vet/root/nested/module/API/Vacuum/lint/architecture/planning/guardrail/cross-compile checks; G-01 remains open.",
         "W-02 correction round two review dispatch will use /root/x05_reviewer against source 04c2e245a9624287417522c9f876056090016b83.",
         "6f0fec3d84f7b88e25609bd5066a185268c27adc W-02 correction round two independent review requested changes against source 04c2e245a9624287417522c9f876056090016b83.",
-        "Round-three review closed all five prior blockers but found P1 unrenewed lease causing a false handler timeout without DeadlineAt, P2 aggregate unresolved count underreports multiple unknown effects, P2 transient releaseDispatchBarrier failure is ignored, and P2 cross-executor cancellation does not reach initial Observe. Correction round three is required before integration."
+        "Round-three review closed all five prior blockers but found P1 unrenewed lease causing a false handler timeout without DeadlineAt, P2 aggregate unresolved count underreports multiple unknown effects, P2 transient releaseDispatchBarrier failure is ignored, and P2 cross-executor cancellation does not reach initial Observe. Correction round three is required before integration.",
+        "d10bcb6bba9bc59ba80819950991b45cb05bce99 W-02 correction round three product commit adds lease renewal/fence synchronization, exact unresolved-effect counts, durable dispatch-barrier retry, and initial Observe cancellation across executors.",
+        "f402eec6f9c308313399d1c471c73d48a68009f4 W-02 correction round three handoff records deterministic/race coverage, focused/root/nested/module/vet/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks, and G-01 remains open.",
+        "W-02 correction round three review dispatch will use /root/x05_reviewer against source d10bcb6bba9bc59ba80819950991b45cb05bce99."
       ],
       "review": {
         "status": "changes_requested",
@@ -2400,12 +2403,14 @@
         "correctionReviewPath": "docs/execution/handoffs/W-02-review-round4.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
-        "correctionDispatchCommit": "7437b60b9c9f4b4b45f6f0a7a0cc616bfeef6c0d",
-        "correctionStatus": "dispatched",
-        "correctionProductCommits": [],
-        "correctionReviewSourceCommit": null,
+        "correctionImplementationCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
+        "correctionHandoffCommit": "f402eec6f9c308313399d1c471c73d48a68009f4",
+        "correctionDispatchCommit": null,
+        "correctionStatus": "awaiting_independent_review",
+        "correctionProductCommits": [
+          "d10bcb6bba9bc59ba80819950991b45cb05bce99"
+        ],
+        "correctionReviewSourceCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -3416,7 +3421,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round three is dispatched to /root/x05_implementer for lease renewal, unresolved-count, barrier retry, and initial-observe cancellation fixes; F-05 remains capability-blocked; F-03 is complete.",
+  "nextAction": "W-02 correction round three is ready for independent review by /root/x05_reviewer against d10bcb6b; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
