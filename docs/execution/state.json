@@ -1535,7 +1535,7 @@
       "review": null
     },
     "X-07": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/x05_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -1544,14 +1544,20 @@
         "7f8d0998b7ff3c081d055051a461a39cd224b1b7 X-07 product commit",
         "a51e51945bde229265163707261483fa7edce06a X-07 follow-up product commit",
         "36212b350469504dee689958215609ed1040c949 X-07 handoff identity correction",
-        "X-07 handoff records read-only nested qBittorrent client blocker; runtime mutation wiring remains deferred to a client-owned contract lane."
+        "X-07 handoff records read-only nested qBittorrent client blocker; runtime mutation wiring remains deferred to a client-owned contract lane.",
+        "2c26b06fe083372432889901f84d98246ab761be X-07 independent review round one: changes requested",
+        "feee6445c3195d97728899f522264b61e5cf3f25 integrated X-07 review receipt",
+        "X-07 correction required: distinguish qBittorrent save location from final content path and add destination-vacancy/full-payload read-back checks; split operation-specific capability gates."
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "2c26b06fe083372432889901f84d98246ab761be",
+        "findings": [
+          "P1: Relocate uses the final content path as qBittorrent setLocation location, lacks destination-vacancy evidence, and does not verify every final payload path.",
+          "P1: one qbt.control capability state authorizes stop, relocation, both renames and metadata removal without operation-specific evidence."
+        ],
         "round": 1
       },
       "dispatch": {
@@ -1586,11 +1592,28 @@
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af"
         },
         "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a",
-        "handoffCommit": "36212b350469504dee689958215609ed1040c949"
+        "handoffCommit": "36212b350469504dee689958215609ed1040c949",
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "a51e51945bde229265163707261483fa7edce06a",
+        "correctionReviewPath": "docs/execution/handoffs/X-07-review-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "reviewIntegrationCommit": "feee6445c3195d97728899f522264b61e5cf3f25"
       },
       "implementationCommit": "a51e51945bde229265163707261483fa7edce06a",
       "handoffCommit": "36212b350469504dee689958215609ed1040c949",
-      "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a"
+      "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "2c26b06fe083372432889901f84d98246ab761be",
+          "status": "changes_requested",
+          "sourceCommit": "a51e51945bde229265163707261483fa7edce06a",
+          "receipt": "docs/execution/handoffs/X-07-review-round1.md",
+          "integratedCommit": "feee6445c3195d97728899f522264b61e5cf3f25"
+        }
+      ]
     },
     "X-08": {
       "status": "planned",
