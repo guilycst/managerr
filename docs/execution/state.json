@@ -1420,7 +1420,9 @@
         "dispatched from fe1c3eddc22a7026f20d4d9e808822f6ede35aa6 after F-04 approval at 2621343dcd3b80c259f5cec808dadb7bfbb0434d with receipt integration ac3a8899be4bdc39bbba95c7e0db85e23e31c9a3",
         "F-05 owns internal/filesystem/organize/ and implements same-filesystem no-replace move/rename, scoped permanent delete, and explicit cross-device composition without broadening linked-client scope.",
         "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35 F-05 product commit for organize actions; GOWORK=off go test ./internal/filesystem/organize passed.",
-        "01d72c89f308f50999662f67ad0114406a1a6f13 F-05 handoff commit; root, nested module, generation, Vacuum, lint, architecture, planning and cross-platform checks passed; awaiting independent review."
+        "01d72c89f308f50999662f67ad0114406a1a6f13 F-05 handoff commit; root, nested module, generation, Vacuum, lint, architecture, planning and cross-platform checks passed; awaiting independent review.",
+        "174ff5db3ff393af02b10db24e7a9ef70b76a56f F-05 post-handoff audit correction rechecks copied-file identity/size after hashing and final directory child names.",
+        "2166486018bcc1512dcaa813104c507fe2f9dbbe F-05 handoff amendment records the audit correction; focused and Linux race checks passed; review source is updated."
       ],
       "review": {
         "status": "pending",
@@ -1461,9 +1463,18 @@
           "F-04-review": "82fc97440da4de1a2ba31039e5de31d4433a496c",
           "F-04-integration": "ac3a8899be4bdc39bbba95c7e0db85e23e31c9a3"
         },
-        "implementationCommit": "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
-        "handoffCommit": "01d72c89f308f50999662f67ad0114406a1a6f13",
-        "reviewSourceCommit": "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35"
+        "implementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+        "handoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
+        "reviewSourceCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+        "productCommits": [
+          "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
+          "174ff5db3ff393af02b10db24e7a9ef70b76a56f"
+        ],
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "123df00da9c83c67ccab9b3a2b4c51cfbcf55f35",
+        "correctionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
+        "correctionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe"
       }
     },
     "X-01": {
