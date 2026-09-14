@@ -307,7 +307,7 @@ func TestArrPartialPackReconcilesPerFile(t *testing.T) {
 				t.Errorf("history page = %q, want 1", got)
 			}
 			writeJSON(t, w, map[string]any{"records": []sonarrHistoryRecord{{
-				ID: 9001, EventType: "Downloaded", EpisodeID: 301, SourceTitle: first,
+				ID: 9001, EventType: "downloadFolderImported", EpisodeID: 301, SourceTitle: first,
 				DownloadID: "synthetic-download-1",
 			}}})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/episode":
@@ -344,7 +344,7 @@ func TestArrPartialPackReconcilesPerFile(t *testing.T) {
 		Records []sonarrHistoryRecord `json:"records"`
 	}
 	getJSON(t, server.Client(), server.URL+"/api/v3/history?page=1&pageSize=100", &historyEnvelope)
-	if len(historyEnvelope.Records) != 1 || historyEnvelope.Records[0].ID != 9001 || historyEnvelope.Records[0].EventType != "Downloaded" || historyEnvelope.Records[0].EpisodeID != 301 || historyEnvelope.Records[0].SourceTitle != first || historyEnvelope.Records[0].DownloadID != "synthetic-download-1" {
+	if len(historyEnvelope.Records) != 1 || historyEnvelope.Records[0].ID != 9001 || historyEnvelope.Records[0].EventType != "downloadFolderImported" || historyEnvelope.Records[0].EpisodeID != 301 || historyEnvelope.Records[0].SourceTitle != first || historyEnvelope.Records[0].DownloadID != "synthetic-download-1" {
 		t.Fatalf("history evidence = %#v, want one first-episode event", historyEnvelope.Records)
 	}
 	var readback []sonarrEpisodeReadback
@@ -468,8 +468,8 @@ func newQBTServer(t *testing.T, fixture *qbtFixture) *httptest.Server {
 func TestQBTZeroUploadIsNotStopped(t *testing.T) {
 	var spec qbtStopFixture
 	readFixture(t, "qbittorrent-stop.json", &spec)
-	if spec.Upstream != "qBittorrent WebUI API v2" || spec.Hash == "" || spec.Initial.State == "" || spec.Expected == "" {
-		t.Fatalf("qBittorrent stop fixture = %#v, want complete synthetic contract", spec)
+	if spec.Upstream != "qBittorrent WebUI API v2" || spec.Hash == "" || spec.Initial.State != "stalledUP" || spec.Initial.UpSpeed != 0 || spec.Expected == "" {
+		t.Fatalf("qBittorrent stop fixture = %#v, want stalledUP with zero upload speed", spec)
 	}
 	fixture := &qbtFixture{
 		hash:    spec.Hash,
@@ -482,8 +482,8 @@ func TestQBTZeroUploadIsNotStopped(t *testing.T) {
 
 	var infos []qbtInfo
 	getJSON(t, server.Client(), server.URL+"/api/v2/torrents/info?hashes="+fixture.hash, &infos)
-	if len(infos) != 1 || infos[0].UpSpeed != spec.Initial.UpSpeed {
-		t.Fatalf("torrent info = %#v, want zero-speed synthetic seeding state", infos)
+	if len(infos) != 1 || infos[0].State != "stalledUP" || infos[0].UpSpeed != 0 {
+		t.Fatalf("torrent info = %#v, want stalledUP with zero upload speed", infos)
 	}
 	if qbtStopped(infos[0].State) {
 		t.Fatalf("state %q was incorrectly treated as stopped", infos[0].State)
@@ -652,8 +652,8 @@ type jellyfinItem struct {
 func TestJellyfinRefreshAcceptanceIsSeparateFromAvailability(t *testing.T) {
 	var spec jellyfinRefreshFixture
 	readFixture(t, "jellyfin-refresh.json", &spec)
-	if spec.Upstream != "Jellyfin library refresh candidate" || spec.Scope != "library" || spec.Endpoint == "" || spec.AcceptedStatus == 0 || spec.InitialAvailability == "" || spec.LaterAvailability == "" || spec.Expected == "" {
-		t.Fatalf("Jellyfin refresh fixture = %#v, want complete synthetic contract", spec)
+	if spec.Upstream != "Jellyfin library refresh candidate" || spec.Scope != "library" || spec.Endpoint == "" || spec.AcceptedStatus != http.StatusAccepted || spec.InitialAvailability == "" || spec.LaterAvailability == "" || spec.Expected == "" {
+		t.Fatalf("Jellyfin refresh fixture = %#v, want library refresh accepted with 202", spec)
 	}
 	var refreshCalls atomic.Int32
 	var visible atomic.Bool
@@ -683,8 +683,8 @@ func TestJellyfinRefreshAcceptanceIsSeparateFromAvailability(t *testing.T) {
 		t.Fatalf("library refresh: %v", err)
 	}
 	response.Body.Close()
-	if response.StatusCode != spec.AcceptedStatus {
-		t.Fatalf("refresh status = %d, want %d", response.StatusCode, spec.AcceptedStatus)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("refresh status = %d, want 202", response.StatusCode)
 	}
 	var before map[string][]jellyfinItem
 	getJSON(t, server.Client(), server.URL+"/Items", &before)
