@@ -1345,6 +1345,51 @@ const dispatchBarrierIntentField = "dispatchBarrierRetryAttempt"
 
 const dispatchBarrierIntentDetail = "dispatch handler returned; barrier release pending"
 
+// dispatchBarrierFallbackRegistry retains returned-handler knowledge while a
+// journal cannot accept either exact recovery marker. It is deliberately
+// process-local: a fresh Executor in this process can continue recovery after
+// writes return, while process restart still uses the ordinary running-attempt
+// startup recovery boundary. Keys include both action and attempt identity so
+// a stale returned handler cannot release a later dispatch generation.
+type dispatchBarrierFallbackKey struct {
+	actionID  string
+	attemptID string
+}
+
+var dispatchBarrierFallbackRegistry = struct {
+	sync.Mutex
+	pending map[dispatchBarrierFallbackKey]struct{}
+}{pending: make(map[dispatchBarrierFallbackKey]struct{})}
+
+func rememberDispatchBarrierFallback(actionID, attemptID string) {
+	actionID = strings.TrimSpace(actionID)
+	attemptID = strings.TrimSpace(attemptID)
+	if actionID == "" || attemptID == "" {
+		return
+	}
+	dispatchBarrierFallbackRegistry.Lock()
+	dispatchBarrierFallbackRegistry.pending[dispatchBarrierFallbackKey{actionID: actionID, attemptID: attemptID}] = struct{}{}
+	dispatchBarrierFallbackRegistry.Unlock()
+}
+
+func forgetDispatchBarrierFallback(actionID, attemptID string) {
+	dispatchBarrierFallbackRegistry.Lock()
+	delete(dispatchBarrierFallbackRegistry.pending, dispatchBarrierFallbackKey{actionID: actionID, attemptID: attemptID})
+	dispatchBarrierFallbackRegistry.Unlock()
+}
+
+func pendingDispatchBarrierFallbackAttempts(actionID string) map[string]struct{} {
+	dispatchBarrierFallbackRegistry.Lock()
+	defer dispatchBarrierFallbackRegistry.Unlock()
+	pending := make(map[string]struct{})
+	for key := range dispatchBarrierFallbackRegistry.pending {
+		if key.actionID == actionID {
+			pending[key.attemptID] = struct{}{}
+		}
+	}
+	return pending
+}
+
 func dispatchBarrierReturnedAttempt(outcome json.RawMessage) (string, bool) {
 	if len(outcome) == 0 || string(outcome) == "null" {
 		return "", false
@@ -1746,6 +1791,10 @@ func (executor *Executor) deferActiveDispatch(ctx context.Context, action Action
 }
 
 func (executor *Executor) scheduleBarrierRetry(actionID, attemptID string) {
+	// Keep returned-handler knowledge after this executor's bounded retry loop
+	// exits. A later executor in the same process can discover the exact live
+	// dispatch even if both journal markers were unavailable throughout it.
+	rememberDispatchBarrierFallback(actionID, attemptID)
 	key := actionID + "\x00" + attemptID
 	executor.barrierMu.Lock()
 	if _, exists := executor.barrierRetry[key]; exists {
@@ -1790,6 +1839,7 @@ func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) err
 // release paths pass false so a stale claim is cleared as soon as the barrier
 // is durably released.
 func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID string, preserveClaim bool) error {
+	rememberDispatchBarrierFallback(actionID, attemptID)
 	var err error
 	var intentErr error
 	for retry := 0; retry < 4; retry++ {
@@ -1797,7 +1847,7 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 		if intentErr == nil {
 			break
 		}
-		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+		if executor.dispatchBarrierResolvedAndForget(actionID, attemptID) {
 			return nil
 		}
 		if !errors.Is(intentErr, ErrLeaseLost) || retry == 3 {
@@ -1810,7 +1860,7 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 		if err == nil {
 			break
 		}
-		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+		if executor.dispatchBarrierResolvedAndForget(actionID, attemptID) {
 			return nil
 		}
 		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
@@ -1819,6 +1869,9 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 		time.Sleep(time.Millisecond)
 	}
 	if err != nil {
+		if executor.dispatchBarrierResolvedAndForget(actionID, attemptID) {
+			return nil
+		}
 		return err
 	}
 	// The action-level returned marker is a second durable recovery path. Keep
@@ -1826,7 +1879,7 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 	// unavailable; a later executor can discover this marker and retry the
 	// evidence/barrier transition after the journal recovers.
 	if intentErr != nil {
-		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+		if executor.dispatchBarrierResolvedAndForget(actionID, attemptID) {
 			return nil
 		}
 		return intentErr
@@ -1869,9 +1922,10 @@ func (executor *Executor) releaseDispatchBarrierWithClaim(actionID, attemptID st
 			return nil
 		})
 		if err == nil {
+			forgetDispatchBarrierFallback(actionID, attemptID)
 			return nil
 		}
-		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+		if executor.dispatchBarrierResolvedAndForget(actionID, attemptID) {
 			return nil
 		}
 		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
@@ -1937,6 +1991,15 @@ func (executor *Executor) dispatchBarrierResolved(actionID, attemptID string) (b
 	return true, nil
 }
 
+func (executor *Executor) dispatchBarrierResolvedAndForget(actionID, attemptID string) bool {
+	resolved, err := executor.dispatchBarrierResolved(actionID, attemptID)
+	if err != nil || !resolved {
+		return false
+	}
+	forgetDispatchBarrierFallback(actionID, attemptID)
+	return true
+}
+
 // dispatchBarrierIntentAttempt discovers a returned handler from the
 // attempt-level intent when the action-level marker was unavailable. The
 // intent carries the attempt ID as well as the row identity; mismatches are
@@ -1959,6 +2022,51 @@ func (executor *Executor) dispatchBarrierIntentAttempt(ctx context.Context, acti
 		if !found || attempt.AttemptNumber > candidate.AttemptNumber {
 			candidate = attempt
 			found = true
+		}
+	}
+	if !found {
+		return "", false, nil
+	}
+	return candidate.ID, true, nil
+}
+
+// dispatchBarrierFallbackAttempt discovers a returned handler from the
+// process-local fallback retained after both durable marker writes failed. It
+// still requires the exact attempt row to be a live dispatch barrier before
+// returning an identity, so this fallback can never authorize a new dispatch
+// or a later attempt generation.
+func (executor *Executor) dispatchBarrierFallbackAttempt(ctx context.Context, actionID string) (string, bool, error) {
+	pending := pendingDispatchBarrierFallbackAttempts(actionID)
+	if len(pending) == 0 {
+		return "", false, nil
+	}
+	attempts, err := executor.journal.ListAttempts(ctx, actionID)
+	if err != nil {
+		return "", false, err
+	}
+	var candidate Attempt
+	found := false
+	seen := make(map[string]struct{}, len(attempts))
+	for _, attempt := range attempts {
+		if _, retained := pending[attempt.ID]; !retained {
+			continue
+		}
+		seen[attempt.ID] = struct{}{}
+		if attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+			forgetDispatchBarrierFallback(actionID, attempt.ID)
+			continue
+		}
+		if !found || attempt.AttemptNumber > candidate.AttemptNumber {
+			candidate = attempt
+			found = true
+		}
+	}
+	// An attempt can disappear only after its barrier has been resolved or its
+	// journal row has been repaired. Drop orphaned process-local entries so the
+	// registry cannot retain stale operation IDs forever.
+	for attemptID := range pending {
+		if _, exists := seen[attemptID]; !exists {
+			forgetDispatchBarrierFallback(actionID, attemptID)
 		}
 	}
 	if !found {
@@ -2046,6 +2154,13 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	returnedAttemptID, returned := dispatchBarrierReturnedAttempt(action.Outcome)
 	if !returned {
 		returnedAttemptID, returned, err = executor.dispatchBarrierIntentAttempt(ctx, action.ID)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+	}
+	if !returned {
+		returnedAttemptID, returned, err = executor.dispatchBarrierFallbackAttempt(ctx, action.ID)
 		if err != nil {
 			result.Err = err
 			return result
