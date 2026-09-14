@@ -150,6 +150,9 @@ func TestLostDispatchResponseReconcilesBeforeRetry(t *testing.T) {
 	if effects := mustEffects(t, journal, action.ID); len(effects) != 1 || effects[0].State != EffectApplied {
 		t.Fatalf("reconciled effects = %+v, want applied evidence", effects)
 	}
+	if current := mustAction(t, journal, action.ID); current.UnresolvedCount != 0 {
+		t.Fatalf("reconciled action unresolved count = %d, want zero", current.UnresolvedCount)
+	}
 }
 
 func TestReconciliationMustProveNoEffectBeforeMutationRetry(t *testing.T) {
@@ -686,20 +689,187 @@ func TestDurableCancelReachesHandlerAcrossExecutors(t *testing.T) {
 	}
 }
 
-func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
-	store, journal, action := newSQLExecutionFixture(t, "sql-live-dispatch-barrier")
-	defer store.Close()
+func TestDurableCancelReachesInitialObserveAcrossExecutors(t *testing.T) {
+	journal, action := newMemoryAction("cancel-observe-across-executors", domain.ActionFSCopy, domain.ActionQueued)
 	started := make(chan struct{})
-	release := make(chan struct{})
+	cancelled := make(chan struct{})
+	var startOnce, cancelOnce sync.Once
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(ctx context.Context, _ Action, _ int) (Observation, error) {
+			startOnce.Do(func() { close(started) })
+			<-ctx.Done()
+			cancelOnce.Do(func() { close(cancelled) })
+			return Observation{}, ctx.Err()
+		},
+	}
+	owner, err := New(journal, Options{WorkerID: "observe-cancel-owner", Now: executionClock(), LeaseDuration: time.Minute, CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	canceller, err := New(journal, Options{WorkerID: "observe-cancel-requester", Now: executionClock(), CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan Result, 1)
+	go func() { done <- owner.RunAction(context.Background(), action.ID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial observe did not start")
+	}
+	if _, err := canceller.Cancel(context.Background(), action.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("durable cancellation did not reach initial observe owned by another executor")
+	}
+	select {
+	case result := <-done:
+		if result.State != domain.ActionCancelled {
+			t.Fatalf("initial observe cancellation result = %+v, want cancelled", result)
+		}
+		if result.Dispatched {
+			t.Fatal("initial observe cancellation dispatched a mutation")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial observe cancellation did not finish")
+	}
+	if current := mustAction(t, journal, action.ID); current.State != domain.ActionCancelled {
+		t.Fatalf("initial observe cancellation action = %+v, want cancelled", current)
+	}
+	if attempts := mustAttempts(t, journal, action.ID); len(attempts) != 1 || attempts[0].Phase != AttemptObserve || attempts[0].State != domain.AttemptCancelled {
+		t.Fatalf("initial observe cancellation attempts = %+v, want one cancelled observe", attempts)
+	}
+	if effects := mustEffects(t, journal, action.ID); len(effects) != 0 {
+		t.Fatalf("initial observe cancellation effects = %+v, want none", effects)
+	}
+}
+
+func TestNoDeadlineDispatchLeaseRenewsUntilHandlerReturns(t *testing.T) {
+	journal, action := newMemoryAction("lease-renewal-no-deadline", domain.ActionFSCopy, domain.ActionQueued)
+	started := make(chan struct{})
 	var startOnce sync.Once
 	effect := executionEffect("copy", "payload.bin")
-	oldHandler := &scriptedHandler{
+	handler := &scriptedHandler{
 		kind: domain.ActionFSCopy,
 		observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
 			if call == 1 {
 				return Observation{State: ObserveNeedsAction, Effects: []Effect{effect}}, nil
 			}
 			return Observation{State: ObserveSatisfied, Effects: []Effect{effect}}, nil
+		},
+		dispatchFn: func(ctx context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			startOnce.Do(func() { close(started) })
+			timer := time.NewTimer(140 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+			case <-ctx.Done():
+				return DispatchResult{}, ctx.Err()
+			}
+		},
+	}
+	executor, err := New(journal, Options{
+		WorkerID:                 "lease-renewal-worker",
+		LeaseDuration:            35 * time.Millisecond,
+		LeaseRenewalInterval:     10 * time.Millisecond,
+		JournalTimeout:           time.Second,
+		CancellationPollInterval: 2 * time.Millisecond,
+		Now:                      time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.RegisterHandler(handler); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan Result, 1)
+	go func() { done <- executor.RunAction(context.Background(), action.ID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatch did not start")
+	}
+	select {
+	case result := <-done:
+		if result.Err != nil || result.State != domain.ActionSucceeded || result.Outcome != domain.OutcomeApplied {
+			t.Fatalf("no-deadline lease renewal result = %+v, want applied success", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no-deadline lease renewal handler did not finish")
+	}
+	if renewals := journal.leaseRenewals(); renewals < 2 {
+		t.Fatalf("lease renewals = %d, want at least two extensions during dispatch", renewals)
+	}
+}
+
+func TestUncertainDispatchPersistsExactUnresolvedCount(t *testing.T) {
+	journal, action := newMemoryAction("uncertain-exact-unresolved-count", domain.ActionFSCopy, domain.ActionQueued)
+	effects := []Effect{
+		executionEffect("copy", "one.bin"),
+		executionEffect("copy", "two.bin"),
+		executionEffect("copy", "three.bin"),
+	}
+	for index := range effects {
+		effects[index].Ordinal = int64(index)
+	}
+	handler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, _ int) (Observation, error) {
+			return Observation{State: ObserveNeedsAction, Effects: effects}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			return DispatchResult{}, NewDispatchedFailure(FailureUncertain, errors.New("response lost"))
+		},
+	}
+	result := mustRunOnce(t, newTestExecutor(t, journal, handler, executionClock()))
+	if len(result.Results) != 1 || result.Results[0].State != domain.ActionReconciling {
+		t.Fatalf("exact unresolved result = %+v, want reconciling", result.Results)
+	}
+	current := mustAction(t, journal, action.ID)
+	if current.UnresolvedCount != int64(len(effects)) {
+		t.Fatalf("persisted unresolved count = %d, want %d", current.UnresolvedCount, len(effects))
+	}
+	var outcome map[string]json.RawMessage
+	if err := json.Unmarshal(current.Outcome, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	var unresolved int64
+	if err := json.Unmarshal(outcome["unresolvedEffects"], &unresolved); err != nil {
+		t.Fatal(err)
+	}
+	if unresolved != int64(len(effects)) {
+		t.Fatalf("outcome unresolved count = %d, want %d", unresolved, len(effects))
+	}
+	for _, effect := range mustEffects(t, journal, action.ID) {
+		if effect.State != EffectUnknown {
+			t.Fatalf("uncertain effect = %+v, want unknown", effect)
+		}
+	}
+}
+
+func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
+	store, journal, action := newSQLExecutionFixture(t, "sql-live-dispatch-barrier")
+	defer store.Close()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startOnce sync.Once
+	effects := []Effect{executionEffect("copy", "payload.bin"), executionEffect("copy", "subtitle.srt")}
+	effects[1].Ordinal = 1
+	oldHandler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
+			if call == 1 {
+				return Observation{State: ObserveNeedsAction, Effects: effects}, nil
+			}
+			return Observation{State: ObserveSatisfied, Effects: effects}, nil
 		},
 		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
 			startOnce.Do(func() { close(started) })
@@ -731,7 +901,7 @@ func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
 	freshHandler := &scriptedHandler{
 		kind: domain.ActionFSCopy,
 		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
-			return ReconcileResult{SafeToRetry: true, Effects: []Effect{effect}}, nil
+			return ReconcileResult{SafeToRetry: true, Effects: effects}, nil
 		},
 	}
 	fresh, err := New(journal, Options{WorkerID: "live-fresh-worker", Now: func() time.Time { return freshNow }, LeaseDuration: time.Minute, CancellationPollInterval: 10 * time.Millisecond})
@@ -742,7 +912,7 @@ func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 	blocked := fresh.RunAction(context.Background(), action.ID)
-	if blocked.State != domain.ActionReconciling {
+	if blocked.State != domain.ActionReconciling || blocked.Action.UnresolvedCount != 2 {
 		t.Fatalf("fresh worker result while old dispatch live = %+v, want reconciling", blocked)
 	}
 	if freshHandler.dispatchCalls() != 0 || freshHandler.reconcileCalls() != 0 {
@@ -759,8 +929,8 @@ func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
 		t.Fatal("old worker did not return after release")
 	}
 	barrierEffects := mustEffects(t, journal, action.ID)
-	if len(barrierEffects) != 1 || barrierEffects[0].State != EffectUnknown {
-		t.Fatalf("effects after old dispatch return = %+v, want one unknown effect", barrierEffects)
+	if len(barrierEffects) != 2 || barrierEffects[0].State != EffectUnknown || barrierEffects[1].State != EffectUnknown {
+		t.Fatalf("effects after old dispatch return = %+v, want two unknown effects", barrierEffects)
 	}
 	freshNow = executionTime().Add(20 * time.Second)
 	resolved := fresh.RunAction(context.Background(), action.ID)
@@ -769,6 +939,85 @@ func TestExpiredLiveDispatchBlocksRecoveredWorkerUntilReturn(t *testing.T) {
 	}
 	if freshHandler.reconcileCalls() != 1 || freshHandler.dispatchCalls() != 0 {
 		t.Fatalf("fresh worker calls after old return = dispatch %d reconcile %d, want zero/one", freshHandler.dispatchCalls(), freshHandler.reconcileCalls())
+	}
+	if resolved.Action.UnresolvedCount != 0 {
+		t.Fatalf("fresh worker action after safe retry = %+v, want zero unresolved effects", resolved.Action)
+	}
+}
+
+func TestBarrierReleaseRetriesAfterTransientJournalFailure(t *testing.T) {
+	journal, action := newMemoryAction("barrier-release-retry", domain.ActionFSCopy, domain.ActionQueued)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	effect := executionEffect("copy", "payload.bin")
+	oldHandler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		observeFn: func(_ context.Context, _ Action, call int) (Observation, error) {
+			if call == 1 {
+				return Observation{State: ObserveNeedsAction, Effects: []Effect{effect}}, nil
+			}
+			return Observation{State: ObserveSatisfied, Effects: []Effect{effect}}, nil
+		},
+		dispatchFn: func(_ context.Context, _ Action, _ Attempt) (DispatchResult, error) {
+			close(started)
+			<-release
+			return DispatchResult{Accepted: true, Outcome: domain.OutcomeApplied}, nil
+		},
+	}
+	old, err := New(journal, Options{WorkerID: "barrier-old-worker", Now: executionClock(), LeaseDuration: time.Second, CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.RegisterHandler(oldHandler); err != nil {
+		t.Fatal(err)
+	}
+	oldDone := make(chan Result, 1)
+	go func() { oldDone <- old.RunAction(context.Background(), action.ID) }()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old dispatch did not start")
+	}
+	if _, err := journal.RecoverExpired(context.Background(), "2026-09-14T12:00:02Z"); err != nil {
+		t.Fatal(err)
+	}
+	journal.failNextBarrierUpdateAttempt(1)
+	close(release)
+	select {
+	case result := <-oldDone:
+		if !errors.Is(result.Err, ErrLeaseLost) {
+			t.Fatalf("old worker result after barrier failure = %+v, want lease loss", result)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("old worker did not return")
+	}
+
+	freshHandler := &scriptedHandler{
+		kind: domain.ActionFSCopy,
+		reconcileFn: func(_ context.Context, _ Action, _ Attempt) (ReconcileResult, error) {
+			return ReconcileResult{SafeToRetry: true, Effects: []Effect{effect}}, nil
+		},
+	}
+	fresh, err := New(journal, Options{WorkerID: "barrier-fresh-worker", Now: func() time.Time { return executionTime().Add(20 * time.Second) }, LeaseDuration: time.Minute, CancellationPollInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.RegisterHandler(freshHandler); err != nil {
+		t.Fatal(err)
+	}
+	result := fresh.RunAction(context.Background(), action.ID)
+	if result.State != domain.ActionQueued || result.Err != nil {
+		t.Fatalf("fresh worker after barrier retry = %+v, want queued safe retry", result)
+	}
+	if freshHandler.reconcileCalls() != 1 || freshHandler.dispatchCalls() != 0 {
+		t.Fatalf("fresh worker calls after barrier retry = reconcile %d dispatch %d, want one/zero", freshHandler.reconcileCalls(), freshHandler.dispatchCalls())
+	}
+	attempts := mustAttempts(t, journal, action.ID)
+	if len(attempts) < 3 || attempts[1].State != domain.AttemptReconciling {
+		t.Fatalf("attempts after barrier retry = %+v, want dispatch reconciled before new reconcile", attempts)
+	}
+	if resolved := mustAction(t, journal, action.ID); resolved.UnresolvedCount != 0 {
+		t.Fatalf("action after barrier retry = %+v, want zero unresolved effects", resolved)
 	}
 }
 
@@ -929,6 +1178,9 @@ func TestUncertainDispatchMarksEveryPlannedEffectUnknown(t *testing.T) {
 		if effect.State != EffectUnknown {
 			t.Fatalf("uncertain effect = %+v, want unknown", effect)
 		}
+	}
+	if current := mustAction(t, journal, action.ID); current.UnresolvedCount != 2 {
+		t.Fatalf("uncertain action unresolved count = %d, want two", current.UnresolvedCount)
 	}
 }
 
@@ -1150,7 +1402,7 @@ func TestSQLReadBackRejectsPartialEffectSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.State != domain.ActionReconciling || current.UnresolvedCount != 1 {
+	if current.State != domain.ActionReconciling || current.UnresolvedCount != 2 {
 		t.Fatalf("SQL partial read-back action = %+v, want unresolved reconciliation", current)
 	}
 }
@@ -1271,7 +1523,7 @@ func mustRunOnce(t *testing.T, executor *Executor) BatchResult {
 }
 
 func newMemoryAction(id string, kind domain.ActionKind, state domain.ActionState) (*memoryJournal, Action) {
-	journal := &memoryJournal{actions: make(map[string]Action), plans: make(map[string]Plan), attempts: make(map[string][]Attempt), effects: make(map[string][]Effect)}
+	journal := &memoryJournal{actions: make(map[string]Action), plans: make(map[string]Plan), attempts: make(map[string][]Attempt), effects: make(map[string][]Effect), failureMu: &sync.Mutex{}}
 	return newMemoryActionOnJournal(journal, id, kind, state)
 }
 
@@ -1410,15 +1662,19 @@ func (handler *scriptedHandler) eventsSnapshot() []string {
 }
 
 type memoryJournal struct {
-	mu               sync.Mutex
-	actions          map[string]Action
-	plans            map[string]Plan
-	attempts         map[string][]Attempt
-	effects          map[string][]Effect
-	transactionCount int
-	revision         uint64
-	baseRevision     uint64
-	failCreateEffect bool
+	mu                sync.Mutex
+	actions           map[string]Action
+	plans             map[string]Plan
+	attempts          map[string][]Attempt
+	effects           map[string][]Effect
+	transactionCount  int
+	revision          uint64
+	baseRevision      uint64
+	failCreateEffect  bool
+	failUpdateAttempt *int
+	failBarrierUpdate *int
+	renewalCount      int
+	failureMu         *sync.Mutex
 }
 
 func (journal *memoryJournal) putPlan(plan Plan) {
@@ -1453,6 +1709,30 @@ func (journal *memoryJournal) transactionCalls() int {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
 	return journal.transactionCount
+}
+
+func (journal *memoryJournal) leaseRenewals() int {
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	return journal.renewalCount
+}
+
+func (journal *memoryJournal) failNextUpdateAttempt(count int) {
+	if journal.failureMu == nil {
+		journal.failureMu = &sync.Mutex{}
+	}
+	journal.failureMu.Lock()
+	journal.failUpdateAttempt = &count
+	journal.failureMu.Unlock()
+}
+
+func (journal *memoryJournal) failNextBarrierUpdateAttempt(count int) {
+	if journal.failureMu == nil {
+		journal.failureMu = &sync.Mutex{}
+	}
+	journal.failureMu.Lock()
+	journal.failBarrierUpdate = &count
+	journal.failureMu.Unlock()
 }
 
 func (journal *memoryJournal) GetAction(_ context.Context, id string) (Action, error) {
@@ -1548,6 +1828,34 @@ func (journal *memoryJournal) Claim(_ context.Context, id string, version int64,
 	journal.actions[id] = cloneAction(action)
 	journal.revision++
 	return cloneAction(action), nil
+}
+
+func (journal *memoryJournal) RenewLease(_ context.Context, fence ClaimFence, leaseUntil, now string) error {
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	action, ok := journal.actions[fence.ActionID]
+	if !ok || action.State != domain.ActionRunning || action.Version != fence.Version || action.ClaimedBy != fence.WorkerID || action.LeaseUntil != fence.LeaseUntil || action.CancellationRequestedAt != "" {
+		return sql.ErrNoRows
+	}
+	currentNow, err := parseTime(now)
+	if err != nil {
+		return err
+	}
+	if expired(action.LeaseUntil, currentNow) {
+		return sql.ErrNoRows
+	}
+	if parsedLease, err := parseTime(leaseUntil); err != nil || parsedLease.IsZero() || !parsedLease.After(currentNow) {
+		if err != nil {
+			return err
+		}
+		return sql.ErrNoRows
+	}
+	action.LeaseUntil = leaseUntil
+	action.UpdatedAt = now
+	journal.actions[fence.ActionID] = cloneAction(action)
+	journal.renewalCount++
+	journal.revision++
+	return nil
 }
 
 func (journal *memoryJournal) RecoverRunning(_ context.Context, now string) ([]Action, error) {
@@ -1708,6 +2016,20 @@ func (journal *memoryJournal) CreateAttempt(_ context.Context, attempt Attempt) 
 func (journal *memoryJournal) UpdateAttempt(_ context.Context, attempt Attempt) (Attempt, error) {
 	if err := attempt.validate(); err != nil {
 		return Attempt{}, err
+	}
+	if journal.failureMu != nil {
+		journal.failureMu.Lock()
+		if journal.failUpdateAttempt != nil && *journal.failUpdateAttempt > 0 {
+			*journal.failUpdateAttempt = *journal.failUpdateAttempt - 1
+			journal.failureMu.Unlock()
+			return Attempt{}, errors.New("injected attempt journal failure")
+		}
+		if journal.failBarrierUpdate != nil && *journal.failBarrierUpdate > 0 && attempt.ErrorDetail == "dispatch handler returned after ownership boundary" {
+			*journal.failBarrierUpdate = *journal.failBarrierUpdate - 1
+			journal.failureMu.Unlock()
+			return Attempt{}, errors.New("injected barrier attempt journal failure")
+		}
+		journal.failureMu.Unlock()
 	}
 	journal.mu.Lock()
 	defer journal.mu.Unlock()
@@ -1904,7 +2226,7 @@ func (journal *memoryJournal) Reserve(_ context.Context, actionID string, keys [
 }
 
 func (journal *memoryJournal) cloneLocked() *memoryJournal {
-	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects)), revision: journal.revision, baseRevision: journal.revision, failCreateEffect: journal.failCreateEffect}
+	clone := &memoryJournal{actions: make(map[string]Action, len(journal.actions)), plans: make(map[string]Plan, len(journal.plans)), attempts: make(map[string][]Attempt, len(journal.attempts)), effects: make(map[string][]Effect, len(journal.effects)), revision: journal.revision, baseRevision: journal.revision, failCreateEffect: journal.failCreateEffect, failUpdateAttempt: journal.failUpdateAttempt, failBarrierUpdate: journal.failBarrierUpdate, renewalCount: journal.renewalCount, failureMu: journal.failureMu}
 	for id, action := range journal.actions {
 		clone.actions[id] = cloneAction(action)
 	}

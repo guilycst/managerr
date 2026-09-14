@@ -500,6 +500,7 @@ type Journal interface {
 	ListDue(context.Context, string, int) ([]Action, error)
 	ListReconciling(context.Context, string, int) ([]Action, error)
 	Claim(context.Context, string, int64, string, string, string) (Action, error)
+	RenewLease(context.Context, ClaimFence, string, string) error
 	RecoverRunning(context.Context, string) ([]Action, error)
 	RecoverExpired(context.Context, string) ([]Action, error)
 	RecoverRunningAttempts(context.Context) ([]Attempt, error)
@@ -611,6 +612,7 @@ func (policy RetryPolicy) delay(attempt int64) time.Duration {
 type Options struct {
 	WorkerID                 string
 	LeaseDuration            time.Duration
+	LeaseRenewalInterval     time.Duration
 	JournalTimeout           time.Duration
 	CancellationPollInterval time.Duration
 	Retry                    RetryPolicy
@@ -626,6 +628,12 @@ func (options Options) normalized() Options {
 	}
 	if options.LeaseDuration <= 0 {
 		options.LeaseDuration = 30 * time.Second
+	}
+	if options.LeaseRenewalInterval <= 0 {
+		options.LeaseRenewalInterval = options.LeaseDuration / 3
+		if options.LeaseRenewalInterval <= 0 {
+			options.LeaseRenewalInterval = time.Millisecond
+		}
 	}
 	if options.JournalTimeout <= 0 {
 		options.JournalTimeout = 5 * time.Second
@@ -665,6 +673,39 @@ type Executor struct {
 	reservationMu sync.Mutex
 	activeMu      sync.Mutex
 	active        map[string]*activeHandler
+	barrierMu     sync.Mutex
+	barrierRetry  map[string]struct{}
+}
+
+// claimState carries the mutable lease portion of one immutable claim
+// generation. Its read lock spans each fenced transaction so a renewal cannot
+// swap the lease between fence construction and the CAS check.
+type claimState struct {
+	mu    sync.RWMutex
+	fence ClaimFence
+}
+
+type claimStateContextKey struct{}
+
+func withClaimState(ctx context.Context, fence ClaimFence) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, claimStateContextKey{}, &claimState{fence: fence})
+}
+
+func claimStateFromContext(ctx context.Context) *claimState {
+	if ctx == nil {
+		return nil
+	}
+	state, _ := ctx.Value(claimStateContextKey{}).(*claimState)
+	return state
+}
+
+func (state *claimState) snapshot() ClaimFence {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.fence
 }
 
 type activeHandler struct {
@@ -691,6 +732,7 @@ func New(journal Journal, options Options) (*Executor, error) {
 		handlers:     make(map[domain.ActionKind]Handler),
 		reservations: make(map[string]string),
 		active:       make(map[string]*activeHandler),
+		barrierRetry: make(map[string]struct{}),
 	}, nil
 }
 
@@ -738,7 +780,13 @@ func (executor *Executor) journalContext(parent context.Context) (context.Contex
 	return context.WithTimeout(context.WithoutCancel(parent), executor.options.JournalTimeout)
 }
 
-func (executor *Executor) claimFence(action Action) ClaimFence {
+func (executor *Executor) claimFence(ctx context.Context, action Action) ClaimFence {
+	if state := claimStateFromContext(ctx); state != nil {
+		fence := state.snapshot()
+		if fence.ActionID == action.ID && fence.Version > 0 {
+			return fence
+		}
+	}
 	return ClaimFence{
 		ActionID:   action.ID,
 		Version:    action.Version,
@@ -758,9 +806,83 @@ func (executor *Executor) withClaimedTransaction(ctx context.Context, action Act
 	}
 	transactionCtx, cancel := executor.journalContext(ctx)
 	defer cancel()
-	return transactional.InTxClaimed(transactionCtx, executor.claimFence(action), func(journal Journal) error {
-		return fn(transactionCtx, journal)
-	})
+	state := claimStateFromContext(ctx)
+	if state != nil {
+		// Hold the read side of the lease lock through the journal CAS and
+		// transaction commit. Renewal therefore cannot replace the exact lease
+		// between fence construction and the ownership check.
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+	}
+	var err error
+	for retry := 0; retry < 4; retry++ {
+		fence := executor.claimFence(ctx, action)
+		err = transactional.InTxClaimed(transactionCtx, fence, func(journal Journal) error {
+			return fn(transactionCtx, journal)
+		})
+		if err == nil {
+			return nil
+		}
+		// An optimistic transaction can lose only to an unrelated journal
+		// commit (for example, a barrier retry updating its exact attempt). A
+		// bounded retry lets the same immutable claim generation proceed while
+		// still failing closed when the ownership fence itself is stale.
+		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return err
+}
+
+func (executor *Executor) renewClaimLease(ctx context.Context) func() {
+	state := claimStateFromContext(ctx)
+	if state == nil {
+		return func() {}
+	}
+	renewCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	renew := func() {
+		// Hold the write side through the CAS and the in-memory fence update.
+		// Claimed transactions hold the read side for their entire commit, so a
+		// transaction cannot capture the old lease between these two operations.
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		fence := state.fence
+		now := nowUTC(executor.options)
+		if expired(fence.LeaseUntil, now) {
+			return
+		}
+		leaseUntil := formatTime(now.Add(executor.options.LeaseDuration))
+		queryCtx, queryCancel := context.WithTimeout(renewCtx, executor.options.JournalTimeout)
+		err := executor.journal.RenewLease(queryCtx, fence, leaseUntil, formatTime(now))
+		queryCancel()
+		if err == nil {
+			state.fence.LeaseUntil = leaseUntil
+			state.fence.Now = formatTime(now)
+		}
+	}
+	// Establish the first extension before the caller can begin another
+	// fenced transaction. This avoids a renewal racing the initial attempt
+	// journal while still giving the handler a full lease interval.
+	renew()
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(executor.options.LeaseRenewalInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				renew()
+			}
+		}
+	}()
+	return func() {
+		stop()
+		<-done
+	}
 }
 
 func (executor *Executor) withTransaction(ctx context.Context, fn func(context.Context, Journal) error) error {
@@ -811,7 +933,7 @@ func (executor *Executor) watchHandlerState(action Action, cancel context.Cancel
 			if err != nil {
 				return false
 			}
-			if current.State != domain.ActionRunning || current.ClaimedBy != action.ClaimedBy || current.LeaseUntil != action.LeaseUntil || current.Version != action.Version || current.CancellationRequestedAt != "" || expired(current.LeaseUntil, nowUTC(executor.options)) {
+			if current.State != domain.ActionRunning || current.ClaimedBy != action.ClaimedBy || current.Version != action.Version || current.CancellationRequestedAt != "" || expired(current.LeaseUntil, nowUTC(executor.options)) {
 				cancel()
 				return true
 			}
@@ -1043,18 +1165,21 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 		return result
 	}
 	result.Action = claimed
-	_, err = executor.acquireAndPersistReservations(ctx, claimed, handler)
+	claimedCtx := withClaimState(ctx, executor.claimFence(nil, claimed))
+	_, err = executor.acquireAndPersistReservations(claimedCtx, claimed, handler)
 	if err != nil {
-		result.Err = executor.waitOwned(ctx, claimed, err)
+		result.Err = executor.waitOwned(claimedCtx, claimed, err)
 		result.State = domain.ActionWaitingDependency
 		return result
 	}
+	stopRenewal := executor.renewClaimLease(claimedCtx)
+	defer stopRenewal()
 
 	var processed Result
 	if action.State == domain.ActionReconciling {
-		processed = executor.processReconciliation(ctx, claimed, true)
+		processed = executor.processReconciliation(claimedCtx, claimed, true)
 	} else {
-		processed = executor.processObserved(ctx, claimed, handler)
+		processed = executor.processObserved(claimedCtx, claimed, handler)
 	}
 	// Reservations remain durable and local while an effect is unresolved. A
 	// stale worker releases only its process-local map on lease loss; the
@@ -1075,14 +1200,7 @@ func (executor *Executor) acquireAndPersistReservations(ctx context.Context, act
 	if err != nil {
 		return nil, err
 	}
-	transactional, ok := executor.journal.(FencedTransactionalJournal)
-	if !ok {
-		executor.releaseReservations(canonical, action.ID)
-		return nil, fmt.Errorf("%w: fenced transactional journal capability is required", ErrInvalidJournal)
-	}
-	transactionCtx, cancel := executor.journalContext(ctx)
-	defer cancel()
-	err = transactional.InTxClaimed(transactionCtx, executor.claimFence(action), func(journal Journal) error {
+	err = executor.withClaimedTransaction(ctx, action, func(transactionCtx context.Context, journal Journal) error {
 		reservations, ok := journal.(ReservationJournal)
 		if !ok {
 			return fmt.Errorf("%w: durable reservation journal capability is required", ErrInvalidJournal)
@@ -1201,6 +1319,48 @@ func pathReservationConflicts(left, right string) bool {
 
 const reservationOutcomeField = "reservations"
 
+const dispatchBarrierReturnedField = "dispatchBarrierReturnedAttempt"
+
+func dispatchBarrierReturnedAttempt(outcome json.RawMessage) (string, bool) {
+	if len(outcome) == 0 || string(outcome) == "null" {
+		return "", false
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(outcome, &object); err != nil {
+		return "", false
+	}
+	raw, ok := object[dispatchBarrierReturnedField]
+	if !ok {
+		return "", false
+	}
+	var attemptID string
+	if err := json.Unmarshal(raw, &attemptID); err != nil || strings.TrimSpace(attemptID) == "" {
+		return "", false
+	}
+	return attemptID, true
+}
+
+func outcomeWithDispatchBarrierReturned(outcome json.RawMessage, attemptID string) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if len(outcome) == 0 || string(outcome) == "null" {
+		object = make(map[string]json.RawMessage)
+	} else if err := json.Unmarshal(outcome, &object); err != nil {
+		return nil, fmt.Errorf("%w: invalid outcome: %v", ErrInvalidJournal, err)
+	} else if object == nil {
+		object = make(map[string]json.RawMessage)
+	}
+	encoded, err := json.Marshal(attemptID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode dispatch barrier marker: %v", ErrInvalidJournal, err)
+	}
+	object[dispatchBarrierReturnedField] = encoded
+	encoded, err = json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode outcome: %v", ErrInvalidJournal, err)
+	}
+	return encoded, nil
+}
+
 func reservationKeysFromOutcome(outcome json.RawMessage) ([]string, error) {
 	if len(outcome) == 0 || string(outcome) == "null" {
 		return nil, nil
@@ -1285,9 +1445,42 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 		return result
 	}
 	result.AttemptID = attempt.ID
-	observation, err := handler.Observe(ctx, action)
+	var observation Observation
+	var observeErr error
+	func() {
+		observeCtx, cancelObserve := executor.handlerContext(ctx, action)
+		unregister := executor.registerActiveHandler(action.ID, cancelObserve)
+		stopWatcher := executor.watchHandlerState(action, cancelObserve)
+		defer func() {
+			stopWatcher()
+			unregister()
+			cancelObserve()
+		}()
+		observation, observeErr = handler.Observe(observeCtx, action)
+	}()
+	err = observeErr
 	if err != nil {
 		kind := failureKind(err)
+		currentCtx, currentCancel := executor.journalContext(context.Background())
+		current, currentErr := executor.journal.GetAction(currentCtx, action.ID)
+		currentCancel()
+		if currentErr == nil {
+			if stopState, _ := executor.cancelledOrDeadline(current); stopState != "" {
+				finished := finishAttempt(attempt, domain.AttemptCancelled, CertaintyNotDispatched, err, executor.options)
+				if _, updateErr := executor.updateAttemptOwned(ctx, action, finished); updateErr != nil {
+					result.Err = updateErr
+					return result
+				}
+				updated, updateErr := executor.transitionStopOwned(ctx, action, finished, string(kind))
+				result.Action = updated
+				result.State = updated.State
+				result.Err = updateErr
+				if result.Err == nil {
+					result.Err = err
+				}
+				return result
+			}
+		}
 		finished := attempt
 		finished.State = domain.AttemptFailed
 		finished.FinishedAt = formatTime(nowUTC(executor.options))
@@ -1375,7 +1568,9 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 		// externally active so the next worker may reconcile it. If the handler
 		// is still running, this deferred call has not happened and the durable
 		// running attempt remains a recovery barrier.
-		_ = executor.releaseDispatchBarrier(action.ID, dispatchAttempt.ID)
+		if err := executor.releaseDispatchBarrier(action.ID, dispatchAttempt.ID); err != nil {
+			executor.scheduleBarrierRetry(action.ID, dispatchAttempt.ID)
+		}
 	}()
 	if err := executor.beforeDispatch(dispatchCtx, action); err != nil {
 		kind := failureKind(err)
@@ -1486,46 +1681,176 @@ func (executor *Executor) deferActiveDispatch(ctx context.Context, action Action
 	return result
 }
 
+func (executor *Executor) scheduleBarrierRetry(actionID, attemptID string) {
+	key := actionID + "\x00" + attemptID
+	executor.barrierMu.Lock()
+	if _, exists := executor.barrierRetry[key]; exists {
+		executor.barrierMu.Unlock()
+		return
+	}
+	executor.barrierRetry[key] = struct{}{}
+	executor.barrierMu.Unlock()
+	go func() {
+		defer func() {
+			executor.barrierMu.Lock()
+			delete(executor.barrierRetry, key)
+			executor.barrierMu.Unlock()
+		}()
+		interval := executor.options.CancellationPollInterval
+		if interval <= 0 || interval > 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+		}
+		for attempt := 0; attempt < 32; attempt++ {
+			if attempt > 0 {
+				timer := time.NewTimer(interval)
+				<-timer.C
+			}
+			if err := executor.releaseDispatchBarrier(actionID, attemptID); err == nil {
+				return
+			}
+		}
+	}()
+}
+
 // releaseDispatchBarrier records that a dispatch handler has returned after
 // the normal fenced path could no longer update its attempt. The immutable
 // attempt ID prevents an old worker from changing a later dispatch attempt;
 // leaving the attempt running keeps recovered work blocked until this point.
 func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) error {
+	var err error
+	for retry := 0; retry < 4; retry++ {
+		err = executor.markDispatchBarrierReturned(actionID, attemptID)
+		if err == nil {
+			break
+		}
+		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+			return nil
+		}
+		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
 	journalCtx, cancel := executor.journalContext(context.Background())
 	defer cancel()
-	return executor.withTransaction(journalCtx, func(transactionCtx context.Context, journal Journal) error {
+	for retry := 0; retry < 4; retry++ {
+		err = executor.withTransaction(journalCtx, func(transactionCtx context.Context, journal Journal) error {
+			attempts, err := journal.ListAttempts(transactionCtx, actionID)
+			if err != nil {
+				return err
+			}
+			for _, attempt := range attempts {
+				if attempt.ID != attemptID || attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+					continue
+				}
+				effects, err := journal.ListEffects(transactionCtx, actionID)
+				if err != nil {
+					return err
+				}
+				for _, effect := range effects {
+					if effect.AttemptID != attemptID {
+						continue
+					}
+					effect.State = EffectUnknown
+					effect.ObservedAt = formatTime(nowUTC(executor.options))
+					if _, err := journal.UpdateEffect(transactionCtx, effect); err != nil {
+						return err
+					}
+				}
+				attempt.State = domain.AttemptReconciling
+				attempt.OutcomeCertainty = CertaintyUncertain
+				attempt.ErrorCode = string(FailureUncertain)
+				attempt.ErrorDetail = "dispatch handler returned after ownership boundary"
+				attempt.Evidence = evidenceJSON([]string{"dispatch_handler_returned"})
+				attempt.FinishedAt = ""
+				_, err = journal.UpdateAttempt(transactionCtx, attempt)
+				return err
+			}
+			return nil
+		})
+		if err == nil {
+			return nil
+		}
+		if resolved, resolveErr := executor.dispatchBarrierResolved(actionID, attemptID); resolveErr == nil && resolved {
+			return nil
+		}
+		if !errors.Is(err, ErrLeaseLost) || retry == 3 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return err
+}
+
+// dispatchBarrierResolved makes concurrent release attempts idempotent. A
+// transaction conflict is safe to treat as success once another worker has
+// already moved the exact dispatch attempt out of running; if it is still
+// running, the caller retains the error and its retry path remains active.
+func (executor *Executor) dispatchBarrierResolved(actionID, attemptID string) (bool, error) {
+	journalCtx, cancel := executor.journalContext(context.Background())
+	defer cancel()
+	attempts, err := executor.journal.ListAttempts(journalCtx, actionID)
+	if err != nil {
+		return false, err
+	}
+	for _, attempt := range attempts {
+		if attempt.ID == attemptID && attempt.Phase == AttemptDispatch && attempt.State == domain.AttemptRunning {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// markDispatchBarrierReturned durably records the only evidence that permits
+// polling workers to retry a failed barrier release: the old handler has
+// returned. The marker is committed separately from the attempt/effect update
+// so a transient latter failure remains retryable across Executor instances.
+func (executor *Executor) markDispatchBarrierReturned(actionID, attemptID string) error {
+	return executor.withTransaction(context.Background(), func(transactionCtx context.Context, journal Journal) error {
 		attempts, err := journal.ListAttempts(transactionCtx, actionID)
 		if err != nil {
 			return err
 		}
+		active := false
 		for _, attempt := range attempts {
-			if attempt.ID != attemptID || attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
-				continue
+			if attempt.ID == attemptID && attempt.Phase == AttemptDispatch && attempt.State == domain.AttemptRunning {
+				active = true
+				break
 			}
-			effects, err := journal.ListEffects(transactionCtx, actionID)
-			if err != nil {
-				return err
-			}
-			for _, effect := range effects {
-				if effect.AttemptID != attemptID {
-					continue
-				}
-				effect.State = EffectUnknown
-				effect.ObservedAt = formatTime(nowUTC(executor.options))
-				if _, err := journal.UpdateEffect(transactionCtx, effect); err != nil {
-					return err
-				}
-			}
-			attempt.State = domain.AttemptReconciling
-			attempt.OutcomeCertainty = CertaintyUncertain
-			attempt.ErrorCode = string(FailureUncertain)
-			attempt.ErrorDetail = "dispatch handler returned after ownership boundary"
-			attempt.Evidence = evidenceJSON([]string{"dispatch_handler_returned"})
-			attempt.FinishedAt = ""
-			_, err = journal.UpdateAttempt(transactionCtx, attempt)
+		}
+		if !active {
+			return nil
+		}
+		current, err := journal.GetAction(transactionCtx, actionID)
+		if err != nil {
 			return err
 		}
-		return nil
+		// A worker that just claimed a durable return marker must keep its
+		// generation live while it reconciles the returned dispatch. The marker
+		// may be retried by that worker (or by the background retry), but it must
+		// not fence the fresh claim a second time. An old handler has no marker
+		// yet, so its first call still transitions the action to reconciliation.
+		if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(current.Outcome); returned && returnedAttemptID == attemptID {
+			return nil
+		}
+		outcome, err := outcomeWithDispatchBarrierReturned(current.Outcome, attemptID)
+		if err != nil {
+			return err
+		}
+		state := current.State
+		if state == domain.ActionRunning {
+			state = domain.ActionReconciling
+		}
+		unresolved, err := journalUnresolvedCount(transactionCtx, journal, actionID, true)
+		if err != nil {
+			return err
+		}
+		_, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
+			ID: current.ID, Version: current.Version, State: state,
+			NextAttemptAt: formatTime(nowUTC(executor.options)), Outcome: outcome,
+			UnresolvedCount: unresolved, UpdatedAt: formatTime(nowUTC(executor.options)),
+		})
+		return err
 	})
 }
 
@@ -1540,6 +1865,29 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 		}
 		result.State = domain.ActionNeedsReview
 		return result
+	}
+	if returnedAttemptID, returned := dispatchBarrierReturnedAttempt(action.Outcome); returned {
+		if err := executor.releaseDispatchBarrier(action.ID, returnedAttemptID); err != nil {
+			executor.scheduleBarrierRetry(action.ID, returnedAttemptID)
+			result.Err = err
+			return result
+		}
+		// A stale worker may commit the return marker while another worker is
+		// claiming the action. Refresh before deciding whether this generation
+		// still owns a valid reconciliation lease.
+		latest, latestErr := executor.currentAction(ctx, action)
+		if latestErr != nil {
+			result.Err = latestErr
+			return result
+		}
+		if claimed && (latest.State != domain.ActionRunning || latest.ClaimedBy != executor.options.WorkerID) {
+			result.Action = latest
+			result.State = latest.State
+			return result
+		}
+		action = latest
+		result.Action = latest
+		result.State = latest.State
 	}
 	activeDispatch, active, err := executor.activeDispatchAttempt(ctx, action.ID)
 	if err != nil {
@@ -1875,24 +2223,12 @@ func (executor *Executor) handlerContext(ctx context.Context, action Action) (co
 		ctx = context.Background()
 	}
 	child, cancel := context.WithCancel(ctx)
-	var timeout time.Duration
-	hasTimeout := false
-	now := nowUTC(executor.options)
-	for _, persisted := range []string{action.DeadlineAt, action.LeaseUntil} {
-		candidate, err := parseTime(persisted)
-		if err != nil || candidate.IsZero() {
-			continue
-		}
-		candidateTimeout := candidate.Sub(now)
-		if !hasTimeout || candidateTimeout < timeout {
-			timeout = candidateTimeout
-			hasTimeout = true
-		}
-	}
-	if hasTimeout {
-		withDeadline, deadlineCancel := context.WithTimeout(child, timeout)
-		return withDeadline, func() {
-			deadlineCancel()
+	deadline, err := parseTime(action.DeadlineAt)
+	if err == nil && !deadline.IsZero() {
+		duration := deadline.Sub(nowUTC(executor.options))
+		withTimeout, timeoutCancel := context.WithTimeout(child, duration)
+		return withTimeout, func() {
+			timeoutCancel()
 			cancel()
 		}
 	}
@@ -2241,6 +2577,29 @@ func outcomeJSON(outcome domain.EffectOutcome, reason string, unresolved int64) 
 	return encoded
 }
 
+func unresolvedEffectCount(effects []Effect, includePending bool) int64 {
+	var count int64
+	for _, effect := range effects {
+		switch effect.State {
+		case EffectUnknown, EffectFailed, EffectCancelled:
+			count++
+		case EffectPending:
+			if includePending {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func journalUnresolvedCount(ctx context.Context, journal Journal, actionID string, includePending bool) (int64, error) {
+	effects, err := journal.ListEffects(ctx, actionID)
+	if err != nil {
+		return 0, err
+	}
+	return unresolvedEffectCount(effects, includePending), nil
+}
+
 func (executor *Executor) transition(ctx context.Context, action Action, attempt Attempt, state domain.ActionState, outcome domain.EffectOutcome, unresolved int64, reason string) (Action, error) {
 	return executor.transitionAt(ctx, action, attempt, state, outcome, unresolved, reason, "")
 }
@@ -2256,6 +2615,10 @@ func (executor *Executor) transitionAt(ctx context.Context, action Action, attem
 			state = domain.ActionNeedsReview
 		}
 		if err := domain.TransitionAction(current.State, state); err != nil && current.State != state {
+			return err
+		}
+		unresolved, err := journalUnresolvedCount(transactionCtx, journal, action.ID, state == domain.ActionReconciling)
+		if err != nil {
 			return err
 		}
 		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
@@ -2302,6 +2665,10 @@ func (executor *Executor) transitionOwnedAt(ctx context.Context, action Action, 
 			state = domain.ActionNeedsReview
 		}
 		if err := domain.TransitionAction(current.State, state); err != nil && current.State != state {
+			return err
+		}
+		unresolved, err := journalUnresolvedCount(transactionCtx, journal, action.ID, state == domain.ActionReconciling)
+		if err != nil {
 			return err
 		}
 		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
@@ -2364,9 +2731,13 @@ func (executor *Executor) transitionDispatchOwned(ctx context.Context, action Ac
 			state = domain.ActionSucceeded
 			outcome = applied
 		}
+		unresolved, err := journalUnresolvedCount(transactionCtx, journal, action.ID, false)
+		if err != nil {
+			return err
+		}
 		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{
 			ID: current.ID, Version: current.Version, State: state,
-			Outcome: outcomeJSON(outcome, "dispatch_applied", 0), UpdatedAt: formatTime(nowUTC(executor.options)),
+			Outcome: outcomeJSON(outcome, "dispatch_applied", unresolved), UnresolvedCount: unresolved, UpdatedAt: formatTime(nowUTC(executor.options)),
 		})
 		return err
 	})
@@ -2393,7 +2764,11 @@ func (executor *Executor) transitionUncertainOwned(ctx context.Context, action A
 		} else {
 			nextAttemptAt = ""
 		}
-		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: state, NextAttemptAt: nextAttemptAt, Outcome: outcomeJSON("", reason, 1), UnresolvedCount: 1, UpdatedAt: formatTime(nowUTC(executor.options))})
+		unresolved, err := journalUnresolvedCount(transactionCtx, journal, action.ID, state == domain.ActionReconciling)
+		if err != nil {
+			return err
+		}
+		updated, err = journal.UpdateOutcome(transactionCtx, OutcomeUpdate{ID: current.ID, Version: current.Version, State: state, NextAttemptAt: nextAttemptAt, Outcome: outcomeJSON("", reason, unresolved), UnresolvedCount: unresolved, UpdatedAt: formatTime(nowUTC(executor.options))})
 		return err
 	})
 	if err != nil {
@@ -2542,7 +2917,11 @@ func (executor *Executor) holdFor(ctx context.Context, action Action, cause erro
 }
 
 func (executor *Executor) applyHold(ctx context.Context, journal Journal, action Action, cause error) error {
-	_, err := journal.UpdateOutcome(ctx, OutcomeUpdate{ID: action.ID, Version: action.Version, State: domain.ActionNeedsReview, Outcome: outcomeJSON("", safeDetail(cause), 0), UpdatedAt: formatTime(nowUTC(executor.options))})
+	unresolved, err := journalUnresolvedCount(ctx, journal, action.ID, false)
+	if err != nil {
+		return err
+	}
+	_, err = journal.UpdateOutcome(ctx, OutcomeUpdate{ID: action.ID, Version: action.Version, State: domain.ActionNeedsReview, Outcome: outcomeJSON("", safeDetail(cause), unresolved), UnresolvedCount: unresolved, UpdatedAt: formatTime(nowUTC(executor.options))})
 	return err
 }
 
@@ -2870,6 +3249,37 @@ func (journal *SQLJournal) Claim(ctx context.Context, id string, version int64, 
 		return Action{}, err
 	}
 	return actionFromSQL(run, plan)
+}
+
+// RenewLease extends one live claim without advancing its generation. The
+// exact previous lease and immutable version are part of the CAS, so a stale
+// worker or a cancelled generation cannot renew ownership.
+func (journal *SQLJournal) RenewLease(ctx context.Context, fence ClaimFence, leaseUntil, now string) error {
+	if journal == nil || journal.runner == nil {
+		return fmt.Errorf("%w: execution lease renewal is unavailable", ErrInvalidJournal)
+	}
+	result, err := journal.runner.ExecContext(ctx, `
+		UPDATE action_runs
+		SET lease_until = ?1, updated_at = ?2
+		WHERE id = ?3
+		  AND state = 'running'
+		  AND claimed_by = ?4
+		  AND lease_until = ?5
+		  AND lease_until > ?6
+		  AND version = ?7
+		  AND cancellation_requested_at IS NULL`,
+		leaseUntil, now, fence.ActionID, fence.WorkerID, fence.LeaseUntil, fence.Now, fence.Version)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrLeaseLost
+	}
+	return nil
 }
 
 func (journal *SQLJournal) RecoverRunning(ctx context.Context, now string) ([]Action, error) {
