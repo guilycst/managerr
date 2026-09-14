@@ -521,6 +521,8 @@ func TestSubtitleLanguageComesOnlyFromMatchedVideoSuffix(t *testing.T) {
 		{name: "short title and SDH", subtitle: "The.Movie.sdh.pt.srt", video: "The.Movie.mkv", language: "pt", hearingImpaired: true},
 		{name: "bracketed forced", subtitle: "Up.[forced].en.srt", video: "Up.mkv", language: "en", forced: true},
 		{name: "parenthesized SDH", subtitle: "Up.(sdh).pt.srt", video: "Up.mkv", language: "pt", hearingImpaired: true},
+		{name: "title named Hi", subtitle: "Hi.en.srt", video: "Hi.mkv", language: "en"},
+		{name: "title named Forced", subtitle: "Forced.en.srt", video: "Forced.mkv", language: "en"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -535,7 +537,7 @@ func TestSubtitleLanguageComesOnlyFromMatchedVideoSuffix(t *testing.T) {
 		t.Fatalf("ambiguous subtitle relationship yielded language metadata: %+v", ambiguous)
 	}
 	fallback := subtitleFor("captions.en.srt", []string{"Up.mkv"})
-	if fallback.Language != "" || len(fallback.VideoPaths) != 0 || fallback.Confidence != ConfidenceUnresolved || fallback.Reason != "subtitle has no matching video" {
+	if fallback.Language != "" || fallback.Forced || fallback.HearingImpaired || len(fallback.VideoPaths) != 0 || fallback.Confidence != ConfidenceUnresolved || fallback.Reason != "subtitle has no matching video" {
 		t.Fatalf("unmatched subtitle was silently paired: %+v", fallback)
 	}
 	_, unmatchedSubtitles, unmatchedCompanions, _ := classifyFiles([]domain.FileManifestEntry{

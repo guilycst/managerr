@@ -1028,8 +1028,12 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 			candidates = append(candidates, video)
 		}
 	}
-	forced := containsToken(base, "forced")
-	hearingImpaired := containsToken(base, "sdh") || containsToken(base, "hi") || containsToken(base, "hearing impaired")
+	suffix, suffixMatched := "", false
+	if len(candidates) == 1 {
+		suffix, suffixMatched = subtitleSuffixAfterVideoStem(base, candidates[0])
+	}
+	forced := suffixMatched && containsToken(suffix, "forced")
+	hearingImpaired := suffixMatched && (containsToken(suffix, "sdh") || containsToken(suffix, "hi") || containsToken(suffix, "hearing impaired"))
 	language := subtitleLanguage(base, candidates)
 	pairID := ""
 	if extension := strings.ToLower(path.Ext(relativePath)); extension == ".idx" || extension == ".sub" {
