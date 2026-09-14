@@ -2350,17 +2350,19 @@
         "Round-five review closed action-marker outage recovery, SQLite restart recovery, mismatched-ID fencing, lease renewal, exact counts, and cross-executor initial-observe cancellation. One P2 remains: if the prerequisite attempt-level dispatch barrier marker fails through all bounded retries, no durable retry intent survives and fresh executors do not reconcile. Correction round five is required before integration.",
         "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a W-02 correction round five product commit retains an action-level exact dispatch marker as durable fallback when attempt-level intent writes fail.",
         "019164e45d90b683374989c53134f0b2be08d45f W-02 correction round five handoff records 100-run recovery tests, race/full root and module checks, vet, verification, guardrails, API/Vacuum, architecture, lint, planning, and Linux amd64/arm64 builds; G-01 remains open.",
-        "W-02 correction round five review dispatch will use /root/x05_reviewer against source addb005de8972d4e67c0cc61f0f96f2ac11a7a3a."
+        "W-02 correction round five review dispatch will use /root/x05_reviewer against source addb005de8972d4e67c0cc61f0f96f2ac11a7a3a.",
+        "fc67e8b5ea2ade046bfca38fd68f87690a552b99 W-02 correction round five independent review requested changes against source addb005de8972d4e67c0cc61f0f96f2ac11a7a3a.",
+        "Round-six review closed the one-marker fallback, SQLite close/reopen recovery, mismatched-ID fencing, lease renewal, exact effects, and initial-observe cancellation. One P2 remains when both returned-handler markers fail through the bounded retry window: no durable or in-memory retry knowledge remains and fresh RunOnce waits for startup recovery. Correction round six is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "a82461e2954f8a7cadd25f714c720ab1f7fe3727",
+        "commit": "fc67e8b5ea2ade046bfca38fd68f87690a552b99",
         "findings": [
-          "P2: prerequisite attempt-level barrier marker failure through the retry window still strands reconciliation until restart"
+          "P2: simultaneous failure of both returned-handler markers loses retry knowledge until startup recovery"
         ],
-        "round": 5
+        "round": 6
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2404,21 +2406,19 @@
           "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ],
         "reviewer": "/root/x05_reviewer",
-        "reviewCommit": "a82461e2954f8a7cadd25f714c720ab1f7fe3727",
+        "reviewCommit": "fc67e8b5ea2ade046bfca38fd68f87690a552b99",
         "correctionRound": 6,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a",
-        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round6.md",
+        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round7.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a",
-        "correctionHandoffCommit": "019164e45d90b683374989c53134f0b2be08d45f",
-        "correctionDispatchCommit": "f5cdf9a6234dba7ff3974f2465a051de732ae7b1",
-        "correctionStatus": "review_dispatched",
-        "correctionProductCommits": [
-          "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a"
-        ],
-        "correctionReviewSourceCommit": "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionStatus": "queued",
+        "correctionProductCommits": [],
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -2466,6 +2466,14 @@
           "status": "changes_requested",
           "sourceCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
           "receipt": "docs/execution/handoffs/W-02-review-round5.md"
+        },
+        {
+          "round": 6,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "fc67e8b5ea2ade046bfca38fd68f87690a552b99",
+          "status": "changes_requested",
+          "sourceCommit": "addb005de8972d4e67c0cc61f0f96f2ac11a7a3a",
+          "receipt": "docs/execution/handoffs/W-02-review-round6.md"
         }
       ]
     },
@@ -3445,7 +3453,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round five review is dispatched to /root/x05_reviewer against addb005d; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round six is queued to /root/x05_implementer for a fallback when both returned-handler markers are unavailable; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
