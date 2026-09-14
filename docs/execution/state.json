@@ -1150,7 +1150,11 @@
         "1733a0998e86bf4c71250fab11e17b41857bbc85 F-04 product follow-up commit with final directory recheck and safety bounds",
         "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5 F-04 product handoff with checks and outstanding native-environment limits",
         "821d01a133981ca147e04838ee1a9cc230149e61 F-04 independent review round one changes requested",
-        "29b4a48e38632c9056db08e9f525e40309ab73d8 F-04 correction round one dispatch checkpoint"
+        "29b4a48e38632c9056db08e9f525e40309ab73d8 F-04 correction round one dispatch checkpoint",
+        "149ec74d674d542a93acfcf900bb7344b64675d2 F-04 correction round one product",
+        "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb F-04 correction round one follow-up product",
+        "408f0707cff2d753811ae4c879487f8973c52836 F-04 correction round one handoff",
+        "F-04 correction round one focused placement, race, cross-build, module, generation, API, architecture, planning, lint and guardrail checks passed; root checks were rerun after concurrent discovery stabilization."
       ],
       "review": {
         "status": "changes_requested",
@@ -1197,11 +1201,13 @@
         },
         "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
         "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
-        "reviewSourceCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
+        "reviewSourceCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
         "reviewer": "/root/x05_reviewer",
         "productCommits": [
           "c7c5418f6121f16429c49da45dc15e7fcea3eccd",
-          "1733a0998e86bf4c71250fab11e17b41857bbc85"
+          "1733a0998e86bf4c71250fab11e17b41857bbc85",
+          "149ec74d674d542a93acfcf900bb7344b64675d2",
+          "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb"
         ],
         "reviewCommit": "821d01a133981ca147e04838ee1a9cc230149e61",
         "reviewIntegrationCommit": "337d61b73cc7331cec724a7b9cbcb425fc22e523",
@@ -1213,11 +1219,13 @@
         "correctionReviewer": "/root/x05_reviewer",
         "correctionReviewCommit": "821d01a133981ca147e04838ee1a9cc230149e61",
         "correctionDispatchCommit": "29b4a48e38632c9056db08e9f525e40309ab73d8",
-        "correctionCheckout": "shared main"
+        "correctionCheckout": "shared main",
+        "correctionImplementationCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
+        "correctionHandoffCommit": "408f0707cff2d753811ae4c879487f8973c52836"
       },
       "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
       "handoffCommit": "d7b299adaf9f1cb4f18115cb1c934d85d4e5aeb5",
-      "reviewSourceCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
+      "reviewSourceCommit": "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb",
       "reviewHistory": [
         {
           "round": 1,
