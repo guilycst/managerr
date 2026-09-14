@@ -1071,7 +1071,8 @@
         "F-02 round-three review confirms suffix language fix and retains two A-11 subtitle pairing/label blockers.",
         "05dcd107d83b77632a0212d5faec31c65e3d4e13 F-02 correction round three product",
         "da632a65257c6b5e477c006f78be3d6526cfc8ef F-02 correction round three handoff",
-        "F-02 correction round three removes unrelated sole-video pairing and preserves bracketed/parenthesized subtitle labels; requested checks passed."
+        "F-02 correction round three removes unrelated sole-video pairing and preserves bracketed/parenthesized subtitle labels; requested checks passed.",
+        "F-02 round-four review rerouted to /root/d02_reviewer while /root/x05_reviewer completes F-04 round three; the receipt path remains docs/execution/handoffs/F-02-review-round4.md."
       ],
       "review": {
         "status": "changes_requested",
@@ -1109,7 +1110,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/F-02-review-round4.md",
         "handoffPath": "docs/execution/handoffs/F-02-correction-round3.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": "/root/d02_reviewer",
         "dependencyCommits": {
           "D-03": "9eea2a9e1f7c87da162b88b915cf3f565077b41b",
           "D-03-integration": "a8c91470f8a5e7aaf5bd014daee87a45341f52f4",
@@ -1128,7 +1129,7 @@
         "correctionCheckout": "shared main",
         "correctionReviewPath": "docs/execution/handoffs/F-02-review-round4.md",
         "correctionHandoffPath": "docs/execution/handoffs/F-02-correction-round3.md",
-        "correctionReviewer": "/root/x05_reviewer",
+        "correctionReviewer": "/root/d02_reviewer",
         "correctionImplementationCommit": "05dcd107d83b77632a0212d5faec31c65e3d4e13",
         "correctionHandoffCommit": "da632a65257c6b5e477c006f78be3d6526cfc8ef",
         "productCommits": [
@@ -1143,7 +1144,13 @@
           "reason": "parallelize independent correction reviews while preserving one receipt path per lane",
           "newReviewer": "/root/x05_reviewer"
         },
-        "correctionReviewCommit": "e451a682bc1c7457a489d8328b3b76d0755ae993"
+        "correctionReviewCommit": "e451a682bc1c7457a489d8328b3b76d0755ae993",
+        "reviewerRerouteRound4": {
+          "previousReviewer": "/root/x05_reviewer",
+          "status": "busy_on_F-04_review",
+          "reason": "parallelize independent review lanes without interrupting the active F-04 review",
+          "newReviewer": "/root/d02_reviewer"
+        }
       },
       "implementationCommit": "12dfe8c0b39acd00f6f3cb72d3e0ff4ded140ab0",
       "handoffCommit": "a37d7f5f26ba6e3dc62f6daff5d9ac37f81d6785",
@@ -3001,7 +3008,7 @@
       ]
     }
   },
-  "nextAction": "F-02 correction round three product and handoff are recorded; dispatch independent review of 05dcd107. F-04 correction round two review is pending with /root/x05_reviewer.",
+  "nextAction": "F-02 correction round three review is assigned to /root/d02_reviewer; F-04 correction round two review remains active with /root/x05_reviewer. Await both exact receipts.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
