@@ -108,6 +108,7 @@ func New(roots []Root, options Options) (*Organizer, error) {
 		options.Clock = func() time.Time { return time.Now().UTC() }
 	}
 	configured := make(map[domain.ConfigID]Root, len(roots))
+	physicalRoots := make([]string, 0, len(roots))
 	placementRoots := make([]placement.Root, 0, len(roots))
 	for _, root := range roots {
 		if !root.ID.Valid() {
@@ -123,6 +124,13 @@ func New(roots []Root, options Options) (*Organizer, error) {
 		if _, exists := configured[root.ID]; exists {
 			return nil, fmt.Errorf("%w: duplicate root id %q", ErrRootNotConfigured, root.ID)
 		}
+		physicalPath := effectiveRootPath(root.Path)
+		for _, existingPath := range physicalRoots {
+			if rootPathsConflict(existingPath, physicalPath) {
+				return nil, fmt.Errorf("%w: roots %q and %q overlap physically", ErrRootNotConfigured, existingPath, physicalPath)
+			}
+		}
+		physicalRoots = append(physicalRoots, physicalPath)
 		root.Capabilities = append([]domain.Capability(nil), root.Capabilities...)
 		configured[root.ID] = root
 		placementRoots = append(placementRoots, placement.Root{
@@ -257,11 +265,19 @@ func (organizer *Organizer) CopyVerifyDeleteWithOperation(ctx context.Context, o
 	if _, err := organizer.place.ReconcileCopy(ctx, copyOperationID, copyRequest); err != nil {
 		return copyEffect, &UncertainError{OperationID: operationID, Ordinal: 0, Cause: fmt.Errorf("%w: copied destination cannot be reconciled: %v", ErrReconciliationNeeded, err)}
 	}
+	guards := make(map[string]*destinationGuard, len(pending))
+	for ordinal, mapping := range pending {
+		guard, guardErr := organizer.createDestinationGuard(ctx, operationID, ordinal, mapping)
+		if guardErr != nil {
+			return copyEffect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination protection: %v", ErrReconciliationNeeded, guardErr)}
+		}
+		guards[fileMapKey(mapping)] = guard
+	}
 	deleteFiles := make([]domain.FileManifestEntry, 0, len(pending))
 	for _, mapping := range pending {
 		deleteFiles = append(deleteFiles, mapping.Source)
 	}
-	deleteEffect, err := organizer.DeleteWithOperation(ctx, deleteOperationID, ports.FilesystemDeleteRequest{Files: deleteFiles})
+	deleteEffect, err := organizer.deleteWithProtection(ctx, deleteOperationID, ports.FilesystemDeleteRequest{Files: deleteFiles}, guards)
 	copyEffect.Affected = append(effect.Affected, copyEffect.Affected...)
 	copyEffect.Evidence = append(effect.Evidence, copyEffect.Evidence...)
 	copyEffect.Evidence = append(copyEffect.Evidence, "composition=copy_verify_delete")
@@ -290,6 +306,10 @@ func (organizer *Organizer) Delete(ctx context.Context, request ports.Filesystem
 }
 
 func (organizer *Organizer) DeleteWithOperation(ctx context.Context, operationID string, request ports.FilesystemDeleteRequest) (ports.FilesystemEffect, error) {
+	return organizer.deleteWithProtection(ctx, operationID, request, nil)
+}
+
+func (organizer *Organizer) deleteWithProtection(ctx context.Context, operationID string, request ports.FilesystemDeleteRequest, guards map[string]*destinationGuard) (ports.FilesystemEffect, error) {
 	if err := validateOperationID(operationID); err != nil {
 		return ports.FilesystemEffect{}, err
 	}
@@ -309,13 +329,28 @@ func (organizer *Organizer) DeleteWithOperation(ctx context.Context, operationID
 			effect = appendEffect(effect, plan.entry, fileEvidence(operationID, ordinal, plan.entry, "already_satisfied")...)
 			continue
 		}
-		deleted, err := organizer.deleteOne(ctx, operationID, ordinal, plan.entry)
+		var guard *destinationGuard
+		if guards != nil {
+			guard = guards[fileManifestKey(plan.entry)]
+		}
+		deleted, err := organizer.deleteOne(ctx, operationID, ordinal, plan.entry, guard)
 		if err != nil {
 			effect.Affected = append(effect.Affected, deleted...)
 			effect.ObservedAt = organizer.now()
 			return effect, err
 		}
 		effect = appendEffect(effect, plan.entry, fileEvidence(operationID, ordinal, plan.entry, "applied")...)
+		if guard != nil {
+			if guardErr := guard.verify(ctx); guardErr != nil {
+				if restoreErr := guard.restore(ctx); restoreErr != nil {
+					return effect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination changed after source removal: %v; restore: %v", ErrReconciliationNeeded, guardErr, restoreErr)}
+				}
+				return effect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination was restored after source removal: %v", ErrReconciliationNeeded, guardErr)}
+			}
+			if cleanupErr := guard.cleanup(); cleanupErr != nil {
+				return effect, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination protection cleanup: %v", ErrReconciliationNeeded, cleanupErr)}
+			}
+		}
 	}
 	effect.ObservedAt = organizer.now()
 	return effect, nil
@@ -373,6 +408,259 @@ type movePlan struct {
 type deletePlan struct {
 	entry            domain.FileManifestEntry
 	alreadySatisfied bool
+}
+
+// destinationGuard is a same-filesystem, operation-owned witness for a
+// cross-device copy. It holds a descriptor-backed hardlink tree under a
+// private root while source removal is in flight. A destination pathname can
+// therefore disappear without destroying the only verified copy.
+type destinationGuard struct {
+	organizer *Organizer
+	mapping   ports.FileMap
+	root      Root
+	name      string
+	directory *os.File
+	cleaned   bool
+}
+
+func fileMapKey(mapping ports.FileMap) string {
+	return mapping.Source.RootID.String() + "\x00" + mapping.Source.RelativePath
+}
+
+func fileManifestKey(entry domain.FileManifestEntry) string {
+	return entry.RootID.String() + "\x00" + entry.RelativePath
+}
+
+func (organizer *Organizer) createDestinationGuard(ctx context.Context, operationID string, ordinal int, mapping ports.FileMap) (*destinationGuard, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root, err := organizer.root(mapping.Destination.RootID)
+	if err != nil {
+		return nil, err
+	}
+	destination, err := organizer.openEntry(destinationAsManifest(mapping))
+	if err != nil {
+		return nil, fmt.Errorf("open destination: %w", err)
+	}
+	defer destination.close()
+	if err := validateCopiedNode(ctx, destination.file, destination.info, mapping.Source, organizer.copyBufferSize()); err != nil {
+		return nil, fmt.Errorf("validate destination: %w", err)
+	}
+	name := privateEntryName("copy-guard", operationID, ordinal, mapping.Destination.RelativePath)
+	directory, err := createPrivateDirectory(root.Path, name)
+	if err != nil {
+		return nil, err
+	}
+	guard := &destinationGuard{organizer: organizer, mapping: mapping, root: root, name: name, directory: directory}
+	if err := cloneGuardEntry(ctx, destination.file, destination.info, mapping.Source, directory, "payload"); err != nil {
+		_ = guard.cleanup()
+		return nil, fmt.Errorf("snapshot destination: %w", err)
+	}
+	return guard, nil
+}
+
+func (guard *destinationGuard) verify(ctx context.Context) error {
+	if guard == nil || guard.directory == nil || guard.cleaned {
+		return fmt.Errorf("destination guard is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	destination, err := guard.organizer.openEntry(destinationAsManifest(guard.mapping))
+	if err != nil {
+		return fmt.Errorf("destination read-back: %w", err)
+	}
+	destinationErr := validateCopiedNode(ctx, destination.file, destination.info, guard.mapping.Source, guard.organizer.copyBufferSize())
+	destination.close()
+	if destinationErr != nil {
+		return fmt.Errorf("destination identity changed: %w", destinationErr)
+	}
+	payload, err := openChild(guard.directory, "payload")
+	if err != nil {
+		return fmt.Errorf("guard read-back: %w", err)
+	}
+	payloadErr := validateCopiedNode(ctx, payload.file, payload.info, guard.mapping.Source, guard.organizer.copyBufferSize())
+	payload.close()
+	if payloadErr != nil {
+		return fmt.Errorf("guard identity changed: %w", payloadErr)
+	}
+	return nil
+}
+
+func (guard *destinationGuard) restore(ctx context.Context) error {
+	if guard == nil || guard.directory == nil || guard.cleaned {
+		return fmt.Errorf("destination guard is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	destination, err := guard.organizer.openEntry(destinationAsManifest(guard.mapping))
+	if err == nil {
+		destination.close()
+		return fmt.Errorf("destination path is occupied")
+	}
+	if !isNotExist(err) {
+		return fmt.Errorf("inspect destination before restore: %w", err)
+	}
+	parent, name, err := guard.organizer.openDestinationParent(guard.mapping.Destination)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	payload, err := openChild(guard.directory, "payload")
+	if err != nil {
+		return fmt.Errorf("open guard payload: %w", err)
+	}
+	if err := restoreGuardEntry(ctx, payload.file, payload.info, guard.mapping.Source, parent, name); err != nil {
+		payload.close()
+		return fmt.Errorf("restore destination: %w", err)
+	}
+	payload.close()
+	if err := guard.organizer.syncDirectory(parent); err != nil {
+		return fmt.Errorf("sync restored destination parent: %w", err)
+	}
+	return guard.verify(ctx)
+}
+
+func (guard *destinationGuard) cleanup() error {
+	if guard == nil || guard.directory == nil || guard.cleaned {
+		return nil
+	}
+	if err := removeGuardEntry(guard.directory, "payload"); err != nil {
+		return err
+	}
+	if err := guard.directory.Close(); err != nil {
+		return fmt.Errorf("close destination guard: %w", err)
+	}
+	rootDirectory, err := openRootDirectory(guard.root.Path)
+	if err != nil {
+		return err
+	}
+	defer rootDirectory.Close()
+	if err := removeEntry(rootDirectory, guard.name, true); err != nil {
+		return fmt.Errorf("remove destination guard: %w", err)
+	}
+	guard.cleaned = true
+	guard.directory = nil
+	return nil
+}
+
+func cloneGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, entry domain.FileManifestEntry, destinationParent *os.File, destinationName string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if entry.Type != domain.ManifestDirectory {
+		if err := linkDescriptorNoReplace(source, destinationParent, destinationName); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := makeDirectoryNoReplace(destinationParent, destinationName, sourceInfo.Mode().Perm()); err != nil {
+		return err
+	}
+	destination, err := openChild(destinationParent, destinationName)
+	if err != nil {
+		return err
+	}
+	defer destination.close()
+	for _, child := range entry.Children {
+		childName := path.Base(child.RelativePath)
+		childSource, childErr := openChild(source, childName)
+		if childErr != nil {
+			return childErr
+		}
+		cloneErr := cloneGuardEntry(ctx, childSource.file, childSource.info, child, destination.file, childName)
+		childSource.close()
+		if cloneErr != nil {
+			return cloneErr
+		}
+	}
+	return nil
+}
+
+func restoreGuardEntry(ctx context.Context, source *os.File, sourceInfo fs.FileInfo, entry domain.FileManifestEntry, destinationParent *os.File, destinationName string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if entry.Type != domain.ManifestDirectory {
+		return linkDescriptorNoReplace(source, destinationParent, destinationName)
+	}
+	if err := makeDirectoryNoReplace(destinationParent, destinationName, sourceInfo.Mode().Perm()); err != nil {
+		return err
+	}
+	destination, err := openChild(destinationParent, destinationName)
+	if err != nil {
+		return err
+	}
+	defer destination.close()
+	for _, child := range entry.Children {
+		childName := path.Base(child.RelativePath)
+		childSource, childErr := openChild(source, childName)
+		if childErr != nil {
+			return childErr
+		}
+		restoreErr := restoreGuardEntry(ctx, childSource.file, childSource.info, child, destination.file, childName)
+		childSource.close()
+		if restoreErr != nil {
+			return restoreErr
+		}
+	}
+	return nil
+}
+
+func removeGuardEntry(parent *os.File, name string) error {
+	node, err := openChild(parent, name)
+	if err != nil {
+		return err
+	}
+	if node.info.IsDir() {
+		names, listErr := listDirectoryNames(node.file)
+		if listErr != nil {
+			node.close()
+			return listErr
+		}
+		for _, childName := range names {
+			if childErr := removeGuardEntry(node.file, childName); childErr != nil {
+				node.close()
+				return childErr
+			}
+		}
+	}
+	approved := node.info
+	node.close()
+	if current, currentErr := openChild(parent, name); currentErr == nil {
+		owned := sameObject(approved, current.info)
+		current.close()
+		if !owned {
+			return fmt.Errorf("%w: guard entry replaced before cleanup", ErrReconciliationNeeded)
+		}
+	} else {
+		return currentErr
+	}
+	if err := removeEntry(parent, name, approved.IsDir()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (organizer *Organizer) openDestinationParent(target domain.FileTarget) (*os.File, string, error) {
+	if err := target.Validate(); err != nil {
+		return nil, "", fmt.Errorf("%w: destination target: %v", ErrInvalidPlan, err)
+	}
+	root, err := organizer.root(target.RootID)
+	if err != nil {
+		return nil, "", err
+	}
+	parentRelative := path.Dir(target.RelativePath)
+	if parentRelative == "." {
+		parentRelative = ""
+	}
+	parent, _, err := ensureDirectoryPathWithCreated(root.Path, parentRelative, organizer.syncDirectory)
+	if err != nil {
+		return nil, "", fmt.Errorf("open destination parent %q: %w", target.RelativePath, err)
+	}
+	return parent, path.Base(target.RelativePath), nil
 }
 
 type nodeHandle struct {
@@ -508,30 +796,17 @@ func (organizer *Organizer) moveOne(ctx context.Context, operationID string, ord
 	if err := ctx.Err(); err != nil {
 		return actionResult{}, err
 	}
-	// Re-open the approved source path after the optional race seam. Native
-	// rename has name-based source semantics, so this closes the deterministic
-	// check-to-rename window and read-back below catches any later exchange.
-	current, currentErr := organizer.openEntry(mapping.Source)
-	if currentErr != nil {
-		return actionResult{}, fmt.Errorf("%w: move source changed before publication: %v", ErrSourceChanged, currentErr)
-	}
-	if currentErr = validateManifestNode(current.file, current.info, mapping.Source); currentErr != nil {
-		current.close()
-		return actionResult{}, fmt.Errorf("%w: move source changed before publication: %v", ErrSourceChanged, currentErr)
-	}
-	current.close()
-	published, publishErr := renameNoReplace(source.parent, source.name, destinationParent, destinationName)
-	if publishErr != nil {
-		if published {
-			return actionResult{}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: move syscall returned after publication: %v", ErrPublicationUnknown, publishErr)}
-		}
-		if isExist(publishErr) {
+	// Linux moves first quarantine the directory entry and validate that the
+	// quarantined inode is the approved descriptor. The native publication is
+	// therefore never directed at an object selected by a raced source name.
+	if publishErr := moveOwned(ctx, operationID, ordinal, source, destinationParent, destinationName, mapping); publishErr != nil {
+		if errors.Is(publishErr, ErrDestinationExists) {
 			return actionResult{}, fmt.Errorf("%w: move destination %q appeared during publication", ErrDestinationExists, mapping.Destination.RelativePath)
 		}
-		if isCrossDevice(publishErr) {
+		if errors.Is(publishErr, ErrCrossDevice) {
 			return actionResult{}, ErrCrossDevice
 		}
-		return actionResult{}, fmt.Errorf("%w: move %q to %q: %v", ErrUnsupported, mapping.Source.RelativePath, mapping.Destination.RelativePath, publishErr)
+		return actionResult{}, publishErr
 	}
 	if err := organizer.syncDirectory(source.parent); err != nil {
 		return actionResult{}, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: source parent sync: %v", ErrPublicationUnknown, err)}
@@ -584,7 +859,7 @@ func (organizer *Organizer) prepareDelete(ctx context.Context, entries []domain.
 	return plans, nil
 }
 
-func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, ordinal int, entry domain.FileManifestEntry) ([]domain.FileManifestEntry, error) {
+func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, ordinal int, entry domain.FileManifestEntry, guard *destinationGuard) ([]domain.FileManifestEntry, error) {
 	node, err := organizer.openEntry(entry)
 	if err != nil {
 		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: delete source disappeared: %v", ErrReconciliationNeeded, err)}
@@ -599,6 +874,11 @@ func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, o
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if guard != nil {
+		if err := guard.verify(ctx); err != nil {
+			return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: destination changed before source removal: %v", ErrReconciliationNeeded, err)}
+		}
+	}
 	current, currentErr := organizer.openEntry(entry)
 	if currentErr != nil {
 		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: delete source changed before mutation: %v", ErrReconciliationNeeded, currentErr)}
@@ -608,7 +888,7 @@ func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, o
 	if currentErr != nil {
 		return nil, fmt.Errorf("%w: delete source changed before mutation: %v", ErrSourceChanged, currentErr)
 	}
-	deleted, err := organizer.deleteNode(ctx, operationID, ordinal, node.parent, node.name, entry)
+	deleted, err := deleteOwnedNode(ctx, operationID, ordinal, node.parent, node.name, entry)
 	if err != nil {
 		return deleted, err
 	}
@@ -622,54 +902,6 @@ func (organizer *Organizer) deleteOne(ctx context.Context, operationID string, o
 		return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: deleted path read-back failed: %v", ErrDeleteUnknown, statErr)}
 	}
 	return deleted, nil
-}
-
-func (organizer *Organizer) deleteNode(ctx context.Context, operationID string, ordinal int, parent *os.File, name string, entry domain.FileManifestEntry) ([]domain.FileManifestEntry, error) {
-	node, err := openChild(parent, name)
-	if err != nil {
-		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: selected child changed: %v", ErrReconciliationNeeded, err)}
-	}
-	if err := validateManifestNode(node.file, node.info, entry); err != nil {
-		node.close()
-		return nil, fmt.Errorf("%w: selected child changed: %v", ErrSourceChanged, err)
-	}
-	if entry.Type == domain.ManifestDirectory {
-		deleted := make([]domain.FileManifestEntry, 0)
-		for _, child := range entry.Children {
-			if err := ctx.Err(); err != nil {
-				node.close()
-				return deleted, err
-			}
-			childName := path.Base(child.RelativePath)
-			childDeleted, childErr := organizer.deleteNode(ctx, operationID, ordinal, node.file, childName, child)
-			deleted = append(deleted, childDeleted...)
-			if childErr != nil {
-				node.close()
-				return deleted, childErr
-			}
-			if err := organizer.syncDirectory(node.file); err != nil {
-				node.close()
-				return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: child directory sync: %v", ErrPublicationUnknown, err)}
-			}
-		}
-		remaining, listErr := listDirectoryNames(node.file)
-		node.close()
-		if listErr != nil {
-			return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: directory scope read-back failed: %v", ErrReconciliationNeeded, listErr)}
-		}
-		if len(remaining) != 0 {
-			return deleted, fmt.Errorf("%w: directory %q gained an unselected child", ErrSourceChanged, entry.RelativePath)
-		}
-		if err := removeEntry(parent, name, true); err != nil {
-			return deleted, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove directory %q: %v", ErrDeleteUnknown, entry.RelativePath, err)}
-		}
-		return append(deleted, entry), nil
-	}
-	node.close()
-	if err := removeEntry(parent, name, false); err != nil {
-		return nil, &UncertainError{OperationID: operationID, Ordinal: ordinal, Cause: fmt.Errorf("%w: remove file %q: %v", ErrDeleteUnknown, entry.RelativePath, err)}
-	}
-	return []domain.FileManifestEntry{entry}, nil
 }
 
 func (organizer *Organizer) reconcileMove(ctx context.Context, operationID string, request ports.FilesystemMoveRequest) (ports.FilesystemEffect, error) {
@@ -886,22 +1118,22 @@ func validateCopiedNode(ctx context.Context, file *os.File, info fs.FileInfo, en
 		sort.Strings(actual)
 		sort.Strings(wanted)
 		if len(actual) != len(wanted) {
-			return ErrReconciliationNeeded
+			return fmt.Errorf("%w: directory child count differs: actual=%v wanted=%v", ErrReconciliationNeeded, actual, wanted)
 		}
 		for index := range actual {
 			if actual[index] != wanted[index] {
-				return ErrReconciliationNeeded
+				return fmt.Errorf("%w: directory child differs: actual=%v wanted=%v", ErrReconciliationNeeded, actual, wanted)
 			}
 		}
 		for _, child := range entry.Children {
 			childNode, err := openChild(file, path.Base(child.RelativePath))
 			if err != nil {
-				return err
+				return fmt.Errorf("open child %q: %w", child.RelativePath, err)
 			}
 			childErr := validateCopiedNode(ctx, childNode.file, childNode.info, child, bufferSize)
 			childNode.close()
 			if childErr != nil {
-				return childErr
+				return fmt.Errorf("validate child %q: %w", child.RelativePath, childErr)
 			}
 		}
 		finalNames, err := listDirectoryNames(file)
@@ -910,11 +1142,11 @@ func validateCopiedNode(ctx context.Context, file *os.File, info fs.FileInfo, en
 		}
 		sort.Strings(finalNames)
 		if len(finalNames) != len(wanted) {
-			return ErrReconciliationNeeded
+			return fmt.Errorf("%w: final directory child count differs: actual=%v wanted=%v", ErrReconciliationNeeded, finalNames, wanted)
 		}
 		for index := range finalNames {
 			if finalNames[index] != wanted[index] {
-				return ErrReconciliationNeeded
+				return fmt.Errorf("%w: final directory child differs: actual=%v wanted=%v", ErrReconciliationNeeded, finalNames, wanted)
 			}
 		}
 		return nil
@@ -1198,6 +1430,48 @@ func validateOperationID(value string) error {
 		return fmt.Errorf("%w: invalid operation id", ErrInvalidPlan)
 	}
 	return nil
+}
+
+// effectiveRootPath resolves existing symlink aliases at the configuration
+// boundary. Missing roots retain their canonical lexical path and are still
+// checked for overlap; action-time descriptor traversal remains authoritative.
+func effectiveRootPath(rootPath string) string {
+	if resolved, err := filepath.EvalSymlinks(rootPath); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(rootPath)
+}
+
+// rootPathsOverlap rejects equal and nested roots. A logical root must own one
+// unambiguous physical namespace; allowing nested aliases would make a request
+// choose different read-only or writable authority for the same object.
+func rootPathsOverlap(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	return rootPathContains(left, right) || rootPathContains(right, left)
+}
+
+func rootPathsConflict(left, right string) bool {
+	if rootPathsOverlap(left, right) {
+		return true
+	}
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
+}
+
+func rootPathContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func privateEntryName(kind, operationID string, ordinal int, relative string) string {
+	seed := fmt.Sprintf("%s\x00%s\x00%d\x00%s", kind, operationID, ordinal, relative)
+	digest := sha256.Sum256([]byte(seed))
+	return fmt.Sprintf(".mastarr-%s-%x", kind, digest[:12])
 }
 
 func derivedOperationID(operationID, suffix string) (string, error) {

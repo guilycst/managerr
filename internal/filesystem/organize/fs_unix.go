@@ -241,7 +241,10 @@ func statChild(directory *os.File, name string) (*unix.Stat_t, error) {
 }
 
 func listDirectoryNames(directory *os.File) ([]string, error) {
-	fd, err := unix.Dup(int(directory.Fd()))
+	// Dup would share the directory stream offset with the caller. Open the
+	// directory through its descriptor instead so repeated read-backs always
+	// enumerate from the beginning without following a pathname alias.
+	fd, err := unix.Openat(int(directory.Fd()), ".", organizeOpenReadOnly|unix.O_DIRECTORY, 0)
 	if err != nil {
 		return nil, classifyOrganizeError(err)
 	}

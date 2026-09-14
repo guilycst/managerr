@@ -137,6 +137,30 @@ func TestMoveRaceRejectsChangedSourceBeforeNativeCall(t *testing.T) {
 	assertMissing(t, destinationPath)
 }
 
+func TestMovePathExchangeNeverPublishesReplacement(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot, destinationRoot, downloads, library := testRoots(t)
+	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Series", "episode.mkv")
+	writeSynthetic(t, sourcePath, "approved episode")
+	source := manifestFor(t, downloads, sourceRoot, "episode.mkv", domain.ManifestFile)
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{beforeMovePublication: func() {
+		if err := os.Remove(sourcePath); err != nil {
+			t.Fatalf("exchange source remove: %v", err)
+		}
+		writeSynthetic(t, sourcePath, "unapproved replacement")
+	}})
+
+	_, err := organizer.MoveWithOperation(context.Background(), "move-path-exchange", ports.FilesystemMoveRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: library, RelativePath: "Series/episode.mkv"},
+	}}})
+	if !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("error = %v, want source changed", err)
+	}
+	assertSynthetic(t, sourcePath, "unapproved replacement")
+	assertMissing(t, destinationPath)
+}
+
 func TestDeleteExactManifestAndIdempotent(t *testing.T) {
 	requireOrganizeWrites(t)
 	sourceRoot, destinationRoot, downloads, library := testRoots(t)
@@ -204,6 +228,26 @@ func TestDeleteRacePreservesReplacement(t *testing.T) {
 		t.Fatalf("error = %v, want source changed", err)
 	}
 	assertSynthetic(t, sourcePath, "replacement movie")
+}
+
+func TestDeletePathExchangeNeverDeletesReplacement(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot, destinationRoot, downloads, library := testRoots(t)
+	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
+	writeSynthetic(t, sourcePath, "approved movie")
+	entry := manifestFor(t, downloads, sourceRoot, "movie.mkv", domain.ManifestFile)
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{beforeDeletePublication: func() {
+		if err := os.Remove(sourcePath); err != nil {
+			t.Fatalf("exchange source remove: %v", err)
+		}
+		writeSynthetic(t, sourcePath, "unapproved replacement")
+	}})
+
+	_, err := organizer.DeleteWithOperation(context.Background(), "delete-path-exchange", ports.FilesystemDeleteRequest{Files: []domain.FileManifestEntry{entry}})
+	if !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("error = %v, want source changed", err)
+	}
+	assertSynthetic(t, sourcePath, "unapproved replacement")
 }
 
 func TestDeleteDirectoryRejectsUnreviewedChild(t *testing.T) {
@@ -315,6 +359,109 @@ func TestCopyVerifyDeletePreservesVerifiedCopyWhenSourceRemovalIsRejected(t *tes
 	}
 	assertSynthetic(t, sourcePath, "replacement movie")
 	assertSynthetic(t, filepath.Join(destinationRoot, "Movies", "movie.mkv"), "approved movie")
+}
+
+func TestCopyVerifyDeletePreservesSourceWhenDestinationDisappearsAtDeleteBoundary(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "movie.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
+	writeSynthetic(t, sourcePath, "approved movie")
+	entry := manifestFor(t, downloads, sourceRoot, "movie.mkv", domain.ManifestFile)
+	if sameFilesystem(t, sourcePath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{beforeDeletePublication: func() {
+		if err := os.Remove(destinationPath); err != nil {
+			t.Fatalf("remove verified destination: %v", err)
+		}
+	}})
+
+	_, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), "cross-device-destination-loss", CrossDeviceMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Movies/movie.mkv"},
+	}}})
+	if !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("error = %v, want reconciliation required", err)
+	}
+	assertSynthetic(t, sourcePath, "approved movie")
+	assertMissing(t, destinationPath)
+}
+
+func TestCopyVerifyDeletePreservesDirectorySourceWhenDestinationDisappearsAtDeleteBoundary(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	sourceDir := filepath.Join(sourceRoot, "pack")
+	sourcePath := filepath.Join(sourceDir, "episode.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Shows", "Example")
+	mustMkdir(t, sourceDir)
+	writeSynthetic(t, sourcePath, "approved episode")
+	child := manifestFor(t, downloads, sourceRoot, "pack/episode.mkv", domain.ManifestFile)
+	entry := directoryManifest(t, downloads, sourceRoot, "pack", []domain.FileManifestEntry{child})
+	if sameFilesystem(t, sourcePath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	called := false
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{beforeDeletePublication: func() {
+		called = true
+		if err := os.RemoveAll(destinationPath); err != nil {
+			t.Fatalf("remove verified destination directory: %v", err)
+		}
+		if _, err := os.Lstat(destinationPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("destination after removal = %v", err)
+		}
+	}})
+
+	_, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), "cross-device-directory-destination-loss", CrossDeviceMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Shows/Example"},
+	}}})
+	if !errors.Is(err, ErrReconciliationNeeded) {
+		t.Fatalf("error = %v, want reconciliation required", err)
+	}
+	if !called {
+		t.Fatal("delete boundary seam was not called")
+	}
+	assertSynthetic(t, sourcePath, "approved episode")
+	assertMissing(t, destinationPath)
+}
+
+func TestNewRejectsConflictingPhysicalRootAliases(t *testing.T) {
+	rootPath := canonicalTempDir(t)
+	first := mustConfigID(t, "first")
+	second := mustConfigID(t, "second")
+	if _, err := New([]Root{{ID: first, Path: rootPath}, {ID: second, Path: rootPath, ReadOnly: true}}, Options{}); !errors.Is(err, ErrRootNotConfigured) {
+		t.Fatalf("error = %v, want conflicting physical roots rejected", err)
+	}
+}
+
+func TestNewRejectsNestedPhysicalRoots(t *testing.T) {
+	rootPath := canonicalTempDir(t)
+	nestedPath := filepath.Join(rootPath, "nested")
+	mustMkdir(t, nestedPath)
+	first := mustConfigID(t, "first")
+	second := mustConfigID(t, "second")
+	if _, err := New([]Root{{ID: first, Path: rootPath}, {ID: second, Path: nestedPath}}, Options{}); !errors.Is(err, ErrRootNotConfigured) {
+		t.Fatalf("error = %v, want nested physical roots rejected", err)
+	}
+}
+
+func TestNewRejectsSymlinkedPhysicalRootAlias(t *testing.T) {
+	rootPath := canonicalTempDir(t)
+	aliasParent := canonicalTempDir(t)
+	aliasPath := filepath.Join(aliasParent, "alias")
+	if err := os.Symlink(rootPath, aliasPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	first := mustConfigID(t, "first")
+	second := mustConfigID(t, "second")
+	if _, err := New([]Root{{ID: first, Path: rootPath}, {ID: second, Path: aliasPath}}, Options{}); !errors.Is(err, ErrRootNotConfigured) {
+		t.Fatalf("error = %v, want symlinked physical roots rejected", err)
+	}
 }
 
 func TestCanceledActionsDoNotMutate(t *testing.T) {
