@@ -324,6 +324,9 @@ func (client *Client) Relocate(ctx context.Context, ref ports.DownloadRef, desti
 	if normalizeRemotePath(snapshot.torrent.ContentPath) == desiredRemote {
 		return effect(operationRelocate, domain.OutcomeAlreadySatisfied, "content_path_read_back"), nil
 	}
+	if !relocationRepresentable(snapshot.torrent.ContentPath, desiredRemote) {
+		return ports.ClientEffect{}, upstreamFailure(domain.OutcomeUnsupported, operationRelocate, "destination basename cannot be represented by qBittorrent setLocation")
+	}
 	if !isStoppedState(snapshot.torrent.State) {
 		return ports.ClientEffect{}, conflict(operationRelocate, "torrent is not stopped")
 	}
@@ -918,6 +921,16 @@ func relocateReadBack(client *Client, before, after snapshot, desiredContentPath
 		delete(expected, targetKey(file.target))
 	}
 	return len(expected) == 0
+}
+
+// relocationRepresentable is the minimum safe proof for qBittorrent's
+// parent-directory move. setLocation preserves the torrent's content name,
+// so a destination with another basename would require a separate rename and
+// must be rejected before vacancy checks or native dispatch.
+func relocationRepresentable(currentContentPath, desiredContentPath string) bool {
+	currentContentPath = normalizeRemotePath(currentContentPath)
+	desiredContentPath = normalizeRemotePath(desiredContentPath)
+	return currentContentPath != "" && desiredContentPath != "" && path.Base(currentContentPath) == path.Base(desiredContentPath)
 }
 
 func targetKey(target domain.FileTarget) string {

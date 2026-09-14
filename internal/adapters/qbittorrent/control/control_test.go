@@ -681,6 +681,52 @@ func TestRelocateUsesContainingLocationAndVerifiesMultiFilePayload(t *testing.T)
 	}
 }
 
+func TestRelocateRejectsUnrepresentableBasenameBeforeWrite(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentPath string
+		fileNames   []string
+		destination string
+	}{
+		{
+			name:        "single file",
+			contentPath: "/downloads/Synthetic Film.mkv",
+			fileNames:   []string{"Synthetic Film.mkv"},
+			destination: "managed/relocated/Renamed Film.mkv",
+		},
+		{
+			name:        "multi file root",
+			contentPath: "/downloads/Synthetic Pack",
+			fileNames:   []string{"Synthetic Pack/one.mkv", "Synthetic Pack/two.srt"},
+			destination: "managed/relocated/Renamed Pack",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newFixtureUpstream("pausedUP", test.contentPath, test.fileNames...)
+			client := newFixtureClient(t, fixture)
+			destination := domain.FileTarget{RootID: "library", RelativePath: test.destination}
+
+			effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, destination)
+			assertZeroEffect(t, effect)
+			assertCode(t, err, domain.OutcomeUnsupported)
+			fixture.mu.Lock()
+			setLocationCalls := fixture.setLocationCalls
+			fixture.mu.Unlock()
+			checker, ok := client.destinationChecker.(*fixtureDestinationChecker)
+			if !ok {
+				t.Fatal("destination checker is not the fixture checker")
+			}
+			checker.mu.Lock()
+			vacancyCalls := checker.calls
+			checker.mu.Unlock()
+			if setLocationCalls != 0 || vacancyCalls != 0 {
+				t.Fatalf("setLocation calls=%d vacancy checks=%d, want zero before representability rejection", setLocationCalls, vacancyCalls)
+			}
+		})
+	}
+}
+
 func TestRelocateRejectsOccupiedDestinationBeforeWrite(t *testing.T) {
 	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
 	checker := &fixtureDestinationChecker{vacant: false}
