@@ -1364,7 +1364,7 @@
       ]
     },
     "X-05": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -1379,14 +1379,20 @@
         "X-05 correction required before downstream write adapters: bind fixtures to executable checks or keep protocol-model capabilities blocked; fix Sonarr HTTP read-back; normalize qBittorrent delete route.",
         "ca85b60f4c4bf9dd4dcf130e5075ef163316d513 X-05 correction round two product",
         "5587ab87827d848d6de1b36391d54476f1beed3e X-05 correction round two handoff",
-        "X-05 correction binds every fixture to executable probes, uses decoded Sonarr HTTP read-back, normalizes qBittorrent /delete with deleteFiles=false, and explicitly keeps runtime write capabilities blocked; focused/module/guardrail checks passed."
+        "X-05 correction binds every fixture to executable probes, uses decoded Sonarr HTTP read-back, normalizes qBittorrent /delete with deleteFiles=false, and explicitly keeps runtime write capabilities blocked; focused/module/guardrail checks passed.",
+        "1e0b5689f6f24bed067e47e1d55ab1a7b0df2412 X-05 independent review round two: changes requested",
+        "2e98db6bc5f0fbe1c7db3ecb2ef76bdb7c0ed3f integrated X-05 review round two receipt",
+        "X-05 correction required: independently pin zero-speed/stalledUP and HTTP 202 fixture values; use Sonarr downloadFolderImported history enum."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "1e0b5689f6f24bed067e47e1d55ab1a7b0df2412",
+        "findings": [
+          "P2: qBittorrent zero-speed/stalledUP and Jellyfin HTTP 202 fixture values are self-comparisons; assert the acceptance-defining literals independently before handler construction.",
+          "P2: Sonarr history uses invalid native eventType Downloaded; use and assert pinned downloadFolderImported while keeping decoded episode/file read-back authoritative."
+        ],
         "round": 2
       },
       "leaseHistory": [
@@ -1420,8 +1426,8 @@
           "generation/API/architecture/planning/guardrails",
           "Linux amd64/arm64 compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/X-05-review-round2.md",
-        "handoffPath": "docs/execution/handoffs/X-05-correction-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-05-review-round3.md",
+        "handoffPath": "docs/execution/handoffs/X-05-correction-round3.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
           "C-00": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
@@ -1431,13 +1437,13 @@
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
           "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
         },
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "597e793fa37c4707f066380ecc91b19be5bf19ef",
-        "correctionReviewPath": "docs/execution/handoffs/X-05-review-round1.md",
+        "correctionBaseSha": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
+        "correctionReviewPath": "docs/execution/handoffs/X-05-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionImplementationCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
-        "correctionHandoffCommit": "5587ab87827d848d6de1b36391d54476f1beed3e",
+        "correctionImplementationCommit": "pending",
+        "correctionHandoffCommit": "pending",
         "reviewIntegrationCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
       },
       "implementationCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
@@ -1452,6 +1458,15 @@
           "sourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
           "receipt": "docs/execution/handoffs/X-05-review-round1.md",
           "integratedCommit": "e08cde9583405be74cbc6ebade27e0870ef06dfa"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "1e0b5689f6f24bed067e47e1d55ab1a7b0df2412",
+          "status": "changes_requested",
+          "sourceCommit": "ca85b60f4c4bf9dd4dcf130e5075ef163316d513",
+          "receipt": "docs/execution/handoffs/X-05-review-round2.md",
+          "integratedCommit": "2e98db6bc5f0fbe1c7db3ecb2ef76bdb7c0ed3f"
         }
       ]
     },
@@ -2358,7 +2373,7 @@
       ]
     }
   },
-  "nextAction": "D-02 correction round three is assigned for descriptor-safe key reads; X-05 correction round two remains in independent review.",
+  "nextAction": "X-05 correction round three is assigned for independent fixture literals and Sonarr history enum; D-02 correction round three is awaiting its review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
