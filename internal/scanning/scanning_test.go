@@ -3,6 +3,7 @@ package scanning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -648,5 +649,240 @@ func TestSchedulerNoOpReconciliationDoesNotWriteNewVersion(t *testing.T) {
 	}
 	if got := scheduler.Snapshot().Version; got != version {
 		t.Fatalf("no-op schedule reconciliation advanced version from %d to %d", version, got)
+	}
+}
+
+func TestSchedulerCoalescesScheduledAndManualFollowUp(t *testing.T) {
+	clock := newTestClock()
+	firstRelease := make(chan struct{})
+	secondRelease := make(chan struct{})
+	runner := newScriptedRunner(
+		blockingScript(firstRelease, ScanResult{
+			Coverage:       completeCoverage(testRootA, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())},
+		}),
+		blockingScript(secondRelease, ScanResult{
+			Coverage:       completeCoverage(testRootA, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())},
+		}),
+	)
+	scheduler := newTestScheduler(t, NewMemoryStore(), runner, clock)
+	interval := 30 * time.Second
+	if err := scheduler.ConfigureRoots(context.Background(), []RootSchedule{enabledSchedule(testRootA, interval)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstCall := <-runner.starts
+	if firstCall.root.Revision != "rev-1" {
+		t.Fatalf("scheduled scan used revision %q", firstCall.root.Revision)
+	}
+	first := scheduler.Snapshot().Scans[0]
+	if _, err := scheduler.Trigger(context.Background(), testRootA); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(3 * interval)
+	if err := scheduler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	root, ok := scheduler.Root(testRootA)
+	if !ok || !root.FollowUpPending || root.NextScheduledAt == nil || !root.NextScheduledAt.After(clock.Now()) {
+		t.Fatalf("scheduled overlap did not retain one bounded follow-up: %+v", root)
+	}
+	if got := len(scanForRoot(scheduler.Snapshot(), testRootA)); got != 1 {
+		t.Fatalf("overdue scheduled trigger created %d scans while active, want 1", got)
+	}
+	if err := scheduler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(scanForRoot(scheduler.Snapshot(), testRootA)); got != 1 {
+		t.Fatalf("repeated overdue tick created %d active scans, want 1", got)
+	}
+	close(firstRelease)
+	var secondCall runnerCall
+	select {
+	case secondCall = <-runner.starts:
+	case <-time.After(3 * time.Second):
+		t.Fatal("coalesced follow-up did not start")
+	}
+	if secondCall.checkpoint.ScanID == first.ID || secondCall.root.Revision != "rev-1" {
+		t.Fatalf("follow-up dispatched invalid checkpoint: %+v", secondCall)
+	}
+	close(secondRelease)
+	waitFor(t, func() bool {
+		scans := scanForRoot(scheduler.Snapshot(), testRootA)
+		if len(scans) != 2 {
+			return false
+		}
+		for _, scan := range scans {
+			if !scan.State.Terminal() {
+				return false
+			}
+		}
+		return true
+	})
+	if err := scheduler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(scanForRoot(scheduler.Snapshot(), testRootA)); got != 2 {
+		t.Fatalf("overdue schedule produced %d scans after follow-up, want 2", got)
+	}
+}
+
+func TestSchedulerRetainsFollowUpAfterDeadline(t *testing.T) {
+	clock := newTestClock()
+	secondRelease := make(chan struct{})
+	runner := newScriptedRunner(
+		func(ctx context.Context, root RootSchedule, _ ScanCheckpoint, _ ProgressFunc) (ScanResult, error) {
+			<-ctx.Done()
+			return ScanResult{Coverage: completeCoverage(root.ID, clock.Now())}, ctx.Err()
+		},
+		blockingScript(secondRelease, ScanResult{
+			Coverage:       completeCoverage(testRootA, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())},
+		}),
+	)
+	options := DefaultOptions()
+	options.Now = clock.Now
+	options.MinimumInterval = time.Nanosecond
+	options.PollInterval = time.Hour
+	options.RunTimeout = 20 * time.Millisecond
+	scheduler, err := New(NewMemoryStore(), runner, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = scheduler.Close() })
+	if err := scheduler.ConfigureRoots(context.Background(), []RootSchedule{enabledSchedule(testRootA, time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstCall := <-runner.starts
+	if _, err := scheduler.Trigger(context.Background(), testRootA); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		scans := scanForRoot(scheduler.Snapshot(), testRootA)
+		return len(scans) == 2 && scans[0].State == StateDeadlineExceeded
+	})
+	scans := scanForRoot(scheduler.Snapshot(), testRootA)
+	if scans[0].ID != firstCall.checkpoint.ScanID || scans[0].ErrorCode != "deadline_exceeded" {
+		t.Fatalf("unexpected deadline scan: %+v", scans[0])
+	}
+	if scans[1].ConfigRevision != "rev-1" {
+		t.Fatalf("deadline follow-up used revision %q", scans[1].ConfigRevision)
+	}
+	root, ok := scheduler.Root(testRootA)
+	if !ok || root.FollowUpPending || root.ActiveScanID != scans[1].ID {
+		t.Fatalf("deadline follow-up was not materialized as active work: %+v", root)
+	}
+	close(secondRelease)
+}
+
+func TestSchedulerStalesRunningScanWhenRevisionChanges(t *testing.T) {
+	clock := newTestClock()
+	firstRelease := make(chan struct{})
+	secondRelease := make(chan struct{})
+	runner := newScriptedRunner(
+		blockingScript(firstRelease, ScanResult{
+			Coverage:       completeCoverage(testRootA, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())},
+		}),
+		blockingScript(secondRelease, ScanResult{
+			Coverage:       completeCoverage(testRootA, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(testRootA, clock.Now())},
+		}),
+	)
+	scheduler := newTestScheduler(t, NewMemoryStore(), runner, clock)
+	if err := scheduler.ConfigureRoots(context.Background(), []RootSchedule{disabledSchedule(testRootA)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, err := scheduler.Trigger(context.Background(), testRootA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.starts
+	if err := scheduler.ConfigureRoots(context.Background(), []RootSchedule{{
+		ID: testRootA, Revision: "rev-2", Interval: time.Minute,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var secondCall runnerCall
+	select {
+	case secondCall = <-runner.starts:
+	case <-time.After(3 * time.Second):
+		t.Fatal("current-revision scan did not start after stale cancellation")
+	}
+	if secondCall.root.Revision != "rev-2" || secondCall.checkpoint.ConfigRevision != "rev-2" || secondCall.checkpoint.Cursor != "" {
+		t.Fatalf("new revision dispatched stale checkpoint: %+v", secondCall)
+	}
+	snapshot := scheduler.Snapshot()
+	old, ok := scheduler.Scan(first.Scan.ID)
+	if !ok || old.State != StateCancelled || old.ErrorCode != "stale_config_revision" || old.CanAssertAbsence() {
+		t.Fatalf("old revision remained usable: %+v", old)
+	}
+	if len(scanForRoot(snapshot, testRootA)) != 2 {
+		t.Fatalf("revision change created unexpected scan count: %+v", snapshot.Scans)
+	}
+	root, ok := scheduler.Root(testRootA)
+	if !ok || root.Schedule.Revision != "rev-2" || root.LastCompleteScanID != "" || root.LastCompleteCoverage != nil {
+		t.Fatalf("old revision evidence remained current: %+v", root)
+	}
+	close(secondRelease)
+	waitFor(t, func() bool {
+		fresh, ok := scheduler.Scan(secondCall.checkpoint.ScanID)
+		return ok && fresh.State.Terminal()
+	})
+}
+
+func TestSchedulerRecoveryRejectsMismatchedRevisionCursor(t *testing.T) {
+	clock := newTestClock()
+	created := clock.Now().Add(-time.Minute)
+	started := created.Add(time.Second)
+	runtimeID := domain.RuntimeID("00000000-0000-4000-8000-000000000003")
+	coverage := partialCoverage(testRootA, started, "process_interrupted")
+	snapshot := Snapshot{
+		Version: 7,
+		Roots:   []RootState{{Schedule: RootSchedule{ID: testRootA, Revision: "rev-2", Interval: time.Minute}, ActiveScanID: runtimeID}},
+		Scans: []ScanRecord{{
+			ID: runtimeID, RootID: testRootA, ConfigRevision: "rev-1", Trigger: TriggerManual,
+			State: StateRunning, Cursor: "old-root-page-4", ObservedCount: 40, Coverage: coverage,
+			SourceCoverage: []domain.Coverage{coverage}, StartedAt: &started,
+			CreatedAt: created, UpdatedAt: started, Attempt: 1,
+		}},
+	}
+	store, err := NewMemoryStoreWithSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newScriptedRunner(func(_ context.Context, root RootSchedule, checkpoint ScanCheckpoint, _ ProgressFunc) (ScanResult, error) {
+		if root.Revision != "rev-2" || checkpoint.ConfigRevision != "rev-2" || checkpoint.Cursor != "" || checkpoint.ObservedCount != 0 {
+			return ScanResult{}, fmt.Errorf("stale recovery checkpoint: root=%+v checkpoint=%+v", root, checkpoint)
+		}
+		return ScanResult{
+			Coverage:       completeCoverage(root.ID, clock.Now()),
+			SourceCoverage: []domain.Coverage{completeSourceCoverage(root.ID, clock.Now())},
+		}, nil
+	})
+	scheduler := newTestScheduler(t, store, runner, clock)
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	call := <-runner.starts
+	if call.checkpoint.ConfigRevision != "rev-2" || call.checkpoint.Cursor != "" {
+		t.Fatalf("restart resumed obsolete cursor: %+v", call.checkpoint)
+	}
+	waitFor(t, func() bool {
+		fresh := scanForRoot(scheduler.Snapshot(), testRootA)
+		return len(fresh) == 2 && fresh[0].State == StateCancelled && fresh[1].State == StateSucceeded
+	})
+	old, _ := scheduler.Scan(runtimeID)
+	if old.ErrorCode != "stale_config_revision" || old.CanAssertAbsence() {
+		t.Fatalf("mismatched restart scan exposed evidence: %+v", old)
 	}
 }
