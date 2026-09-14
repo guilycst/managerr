@@ -15,7 +15,10 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "D-02",
+    "X-05"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -710,9 +713,9 @@
       }
     },
     "D-02": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/d02_implementer",
+      "baseSha": "cf987d2",
       "integratedSha": null,
       "evidence": [
         "dispatched from b1d0fed72128c73d565c2254b61fa5e38100fb97 after all listed dependencies passed",
@@ -727,7 +730,33 @@
           "status": "expired_without_receipt",
           "reconciledAt": "2026-09-13"
         }
-      ]
+      ],
+      "dispatch": {
+        "assignedAt": "2026-09-13",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "cf987d2",
+        "ownedPaths": [
+          "internal/credentials/"
+        ],
+        "expectedChecks": [
+          "A-40",
+          "A-41",
+          "A-42",
+          "GOWORK=off root tests/race/vet/mod-verify",
+          "AEAD/key lifecycle mutation tests",
+          "generation/API/architecture/planning/guardrails",
+          "Linux amd64/arm64 compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/D-02-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/D-02.md",
+        "nextReviewer": "/root/d02_reviewer",
+        "dependencyCommits": {
+          "D-01": "8098e2b552737e5e18848d27b665991fddce18bf",
+          "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1"
+        }
+      }
     },
     "D-03": {
       "status": "planned",
@@ -1284,9 +1313,9 @@
       ]
     },
     "X-05": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "cf987d2",
       "integratedSha": null,
       "evidence": [
         "dispatched from b1d0fed72128c73d565c2254b61fa5e38100fb97 after all listed dependencies passed",
@@ -1301,7 +1330,41 @@
           "status": "expired_without_receipt",
           "reconciledAt": "2026-09-13"
         }
-      ]
+      ],
+      "dispatch": {
+        "assignedAt": "2026-09-13",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "cf987d2",
+        "ownedPaths": [
+          "tests/compatibility/writes/",
+          "docs/research/write-capabilities.md"
+        ],
+        "expectedChecks": [
+          "A-16",
+          "A-17",
+          "A-28",
+          "A-29",
+          "A-31",
+          "A-55",
+          "GOWORK=off root/UI/tools/client tests/race/vet/mod-verify",
+          "synthetic fixture write/lost-response/race checks",
+          "generation/API/architecture/planning/guardrails",
+          "Linux amd64/arm64 compile checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-05-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-05.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "C-00": "ad4a7dc491c8d66d079880b13a0094a4b58a65ed",
+          "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
+          "X-13": "f54ec97c70d75a58099b92e7ee8350220599d009",
+          "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935",
+          "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
+          "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
+        }
+      }
     },
     "X-06": {
       "status": "planned",
@@ -2206,7 +2269,7 @@
       ]
     }
   },
-  "nextAction": "Requeue D-02 credential encryption and X-05 upstream write-safety evidence after expired worker leases were reconciled.",
+  "nextAction": "D-02 and X-05 requeued from cf987d2 with independent implementers and reserved reviewers; await product and handoff receipts.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
