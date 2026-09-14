@@ -1431,7 +1431,8 @@
         "174ff5db3ff393af02b10db24e7a9ef70b76a56f F-05 post-handoff audit correction rechecks copied-file identity/size after hashing and final directory child names.",
         "2166486018bcc1512dcaa813104c507fe2f9dbbe F-05 handoff amendment records the audit correction; focused and Linux race checks passed; review source is updated.",
         "0951caf99f1814349b3d5dcc02db6d1b4fb06026 F-05 independent review round one requested changes against source 174ff5db3ff393af02b10db24e7a9ef70b76a56f.",
-        "Review found P1 pathname races in Linux move/delete, P1 destination-loss data loss in cross-device composition, P2 conflicting physical root aliases, and stale handoff review identity. Correction is required before integration."
+        "Review found P1 pathname races in Linux move/delete, P1 destination-loss data loss in cross-device composition, P2 conflicting physical root aliases, and stale handoff review identity. Correction is required before integration.",
+        "9919bd5ee8ed208cb3af1425022a862a92533c90 F-05 correction round two dispatched to /root/x05_implementer after round-one P1/P2 findings; exact base is 174ff5db3ff393af02b10db24e7a9ef70b76a56f."
       ],
       "review": {
         "status": "changes_requested",
@@ -1495,7 +1496,8 @@
         "correctionCheckout": "shared main",
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
-        "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe"
+        "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
+        "correctionDispatchCommit": "9919bd5ee8ed208cb3af1425022a862a92533c90"
       },
       "reviewHistory": [
         {
@@ -3230,7 +3232,7 @@
       ]
     }
   },
-  "nextAction": "F-03 and W-02 are ready for independent review in parallel: F-03 by /root/d02_reviewer and W-02 by /root/x05_reviewer; F-05 correction remains queued behind W-02 author availability.",
+  "nextAction": "F-05 correction round two is active under /root/x05_implementer; F-03 and W-02 independent reviews are running in parallel.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
