@@ -2398,8 +2398,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued",
+        "correctionDispatchCommit": "732b7e16b8b8c896d75e63ddaf434df6a2ff6c89",
+        "correctionStatus": "dispatched",
         "correctionProductCommits": [],
         "correctionReviewSourceCommit": null,
         "reviewerReroute": {
@@ -3404,7 +3404,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round two is queued to /root/x05_implementer for lease overlap, cross-executor cancellation, exact effect evidence, uncertain-state, and reservation-leak fixes; F-05 is review-approved but capability-blocked; F-03 is complete.",
+  "nextAction": "W-02 correction round two is dispatched to /root/x05_implementer for lease overlap, cross-executor cancellation, exact effect evidence, uncertain-state, and reservation-leak fixes; F-05 is review-approved but capability-blocked; F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
