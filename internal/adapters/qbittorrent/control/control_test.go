@@ -33,6 +33,7 @@ type fixtureUpstream struct {
 	lastLocation      string
 	lastOldPath       string
 	lastNewPath       string
+	relocateFileName  string
 
 	stopError         error
 	setLocationError  error
@@ -100,7 +101,10 @@ func (fixture *fixtureUpstream) SetLocation(ctx context.Context, hash, location 
 	defer fixture.mu.Unlock()
 	fixture.setLocationCalls++
 	fixture.lastLocation = location
-	fixture.torrent.ContentPath = location
+	fixture.torrent.ContentPath = path.Join(location, path.Base(fixture.torrent.ContentPath))
+	if fixture.relocateFileName != "" && len(fixture.files) > 0 {
+		fixture.files[len(fixture.files)-1].Name = fixture.relocateFileName
+	}
 	return fixture.setLocationError
 }
 
@@ -154,14 +158,51 @@ func (fixture *fixtureUpstream) Delete(ctx context.Context, hash string, deleteF
 	return fixture.deleteError
 }
 
+type fixtureDestinationChecker struct {
+	mu      sync.Mutex
+	vacant  bool
+	err     error
+	calls   int
+	targets []domain.FileTarget
+}
+
+func (checker *fixtureDestinationChecker) CheckVacant(ctx context.Context, target domain.FileTarget) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	checker.mu.Lock()
+	defer checker.mu.Unlock()
+	checker.calls++
+	checker.targets = append(checker.targets, target)
+	return checker.vacant, checker.err
+}
+
+func supportedCapability(evidence string) OperationCapability {
+	return OperationCapability{
+		State:    domain.CapabilitySupported,
+		Version:  "synthetic-qbt-5.0",
+		Evidence: []string{evidence},
+	}
+}
+
+func supportedCapabilities() ControlCapabilities {
+	return ControlCapabilities{
+		Stop:         supportedCapability("synthetic stop fixture"),
+		Relocate:     supportedCapability("synthetic relocate fixture"),
+		RenameFile:   supportedCapability("synthetic file rename fixture"),
+		RenameFolder: supportedCapability("synthetic folder rename fixture"),
+		Remove:       supportedCapability("synthetic remove fixture"),
+	}
+}
+
 func newFixtureClient(t *testing.T, fixture Upstream) *Client {
 	t.Helper()
+	checker := &fixtureDestinationChecker{vacant: true}
 	client, err := New(Config{
 		ConnectionID:       testConnection,
 		Mappings:           []domain.PathMapping{{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
-		WriteCapability:    domain.CapabilitySupported,
-		CapabilityVersion:  "synthetic-qbt-5.0",
-		CapabilityEvidence: []string{"synthetic write fixture"},
+		Capabilities:       supportedCapabilities(),
+		DestinationChecker: checker,
 	}, fixture)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -345,8 +386,13 @@ func TestRemoveLostResponseResolvesFromAbsentRecord(t *testing.T) {
 
 func TestControlCapabilityBlocksWritesButKeepsObserve(t *testing.T) {
 	fixture := newFixtureUpstream("uploading", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
-	client := newFixtureClient(t, fixture)
-	client.writeCapability = domain.CapabilityUnknown
+	client, err := New(Config{
+		ConnectionID: testConnection,
+		Mappings:     []domain.PathMapping{{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
+	}, fixture)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 
 	if _, err := client.Observe(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}); err != nil {
 		t.Fatalf("Observe with blocked writes: %v", err)
@@ -359,6 +405,131 @@ func TestControlCapabilityBlocksWritesButKeepsObserve(t *testing.T) {
 	fixture.mu.Unlock()
 	if stopCalls != 0 {
 		t.Fatalf("stop calls = %d, want zero while capability blocked", stopCalls)
+	}
+}
+
+func TestStopCapabilityDoesNotEnableOtherWrites(t *testing.T) {
+	stopOnly := ControlCapabilities{Stop: supportedCapability("synthetic stop only")}
+	newClient := func(t *testing.T, fixture *fixtureUpstream) *Client {
+		t.Helper()
+		client, err := New(Config{
+			ConnectionID:       testConnection,
+			Mappings:           []domain.PathMapping{{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
+			Capabilities:       stopOnly,
+			DestinationChecker: &fixtureDestinationChecker{vacant: true},
+		}, fixture)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		return client
+	}
+
+	t.Run("stop remains enabled", func(t *testing.T) {
+		fixture := newFixtureUpstream("uploading", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+		client := newClient(t, fixture)
+		effect, err := client.Stop(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash})
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		if effect.Outcome != domain.OutcomeApplied {
+			t.Fatalf("effect = %#v, want applied", effect)
+		}
+		fixture.mu.Lock()
+		stopCalls := fixture.stopCalls
+		fixture.mu.Unlock()
+		if stopCalls != 1 {
+			t.Fatalf("stop calls = %d, want one", stopCalls)
+		}
+	})
+
+	t.Run("relocate remains blocked", func(t *testing.T) {
+		fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+		client := newClient(t, fixture)
+		effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/relocated/Synthetic Film.mkv"})
+		assertZeroEffect(t, effect)
+		assertCode(t, err, domain.OutcomeUnsupported)
+		fixture.mu.Lock()
+		setLocationCalls := fixture.setLocationCalls
+		fixture.mu.Unlock()
+		if setLocationCalls != 0 {
+			t.Fatalf("setLocation calls = %d, want zero", setLocationCalls)
+		}
+	})
+
+	t.Run("file rename remains blocked", func(t *testing.T) {
+		fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+		client := newClient(t, fixture)
+		effect, err := client.RenameFile(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/Synthetic Film.mkv"}, "renamed.mkv")
+		assertZeroEffect(t, effect)
+		assertCode(t, err, domain.OutcomeUnsupported)
+		fixture.mu.Lock()
+		renameCalls := fixture.renameFileCalls
+		fixture.mu.Unlock()
+		if renameCalls != 0 {
+			t.Fatalf("rename file calls = %d, want zero", renameCalls)
+		}
+	})
+
+	t.Run("folder rename remains blocked", func(t *testing.T) {
+		fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Pack", "Synthetic Pack/one.mkv", "Synthetic Pack/two.mkv")
+		client := newClient(t, fixture)
+		effect, err := client.RenameFolder(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/Synthetic Pack"}, "Renamed Pack")
+		assertZeroEffect(t, effect)
+		assertCode(t, err, domain.OutcomeUnsupported)
+		fixture.mu.Lock()
+		renameCalls := fixture.renameFolderCalls
+		fixture.mu.Unlock()
+		if renameCalls != 0 {
+			t.Fatalf("rename folder calls = %d, want zero", renameCalls)
+		}
+	})
+
+	t.Run("remove remains blocked", func(t *testing.T) {
+		fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+		client := newClient(t, fixture)
+		effect, err := client.Remove(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash})
+		assertZeroEffect(t, effect)
+		assertCode(t, err, domain.OutcomeUnsupported)
+		fixture.mu.Lock()
+		deleteCalls := fixture.deleteCalls
+		fixture.mu.Unlock()
+		if deleteCalls != 0 {
+			t.Fatalf("delete calls = %d, want zero", deleteCalls)
+		}
+	})
+}
+
+func TestCapabilitiesExposeIndependentOperationEvidence(t *testing.T) {
+	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+	client, err := New(Config{
+		ConnectionID: testConnection,
+		Capabilities: ControlCapabilities{Stop: supportedCapability("synthetic stop only")},
+	}, fixture)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	capabilities, err := client.Capabilities(context.Background(), testConnection)
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	wantNames := []string{operationStop, operationRelocate, operationRenameFile, operationRenameFolder, operationRemove}
+	if len(capabilities) != len(wantNames) {
+		t.Fatalf("capabilities = %#v, want %d independent observations", capabilities, len(wantNames))
+	}
+	for index, capability := range capabilities {
+		if capability.Name != wantNames[index] {
+			t.Fatalf("capability[%d].Name = %q, want %q", index, capability.Name, wantNames[index])
+		}
+		if index == 0 {
+			if capability.State != domain.CapabilitySupported || capability.Version != "synthetic-qbt-5.0" || len(capability.Evidence) != 1 {
+				t.Fatalf("stop capability = %#v, want supported evidence", capability)
+			}
+			continue
+		}
+		if capability.State != domain.CapabilityUnknown || capability.Version != "" || len(capability.Evidence) != 0 {
+			t.Fatalf("capability[%d] = %#v, want independent unknown gate", index, capability)
+		}
 	}
 }
 
@@ -460,8 +631,118 @@ func TestRelocateReadsBackExactContentPath(t *testing.T) {
 	fixture.mu.Lock()
 	location, calls := fixture.lastLocation, fixture.setLocationCalls
 	fixture.mu.Unlock()
-	if location != "/downloads/relocated/Synthetic Film.mkv" || calls != 1 {
+	if location != "/downloads/relocated" || calls != 1 {
 		t.Fatalf("setLocation = %q calls=%d, want mapped location once", location, calls)
+	}
+	fixture.mu.Lock()
+	contentPath := fixture.torrent.ContentPath
+	fixture.mu.Unlock()
+	if contentPath != "/downloads/relocated/Synthetic Film.mkv" {
+		t.Fatalf("content path = %q, want final single-file path", contentPath)
+	}
+}
+
+func TestRelocateUsesContainingLocationAndVerifiesMultiFilePayload(t *testing.T) {
+	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Pack", "Synthetic Pack/one.mkv", "Synthetic Pack/two.srt")
+	client := newFixtureClient(t, fixture)
+	destination := domain.FileTarget{RootID: "library", RelativePath: "managed/relocated/Synthetic Pack"}
+
+	effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, destination)
+	if err != nil {
+		t.Fatalf("Relocate: %v", err)
+	}
+	if effect.Outcome != domain.OutcomeApplied {
+		t.Fatalf("effect = %#v, want applied", effect)
+	}
+	fixture.mu.Lock()
+	location, contentPath, calls := fixture.lastLocation, fixture.torrent.ContentPath, fixture.setLocationCalls
+	fixture.mu.Unlock()
+	if location != "/downloads/relocated" || contentPath != "/downloads/relocated/Synthetic Pack" || calls != 1 {
+		t.Fatalf("setLocation=%q contentPath=%q calls=%d, want containing location and final pack path", location, contentPath, calls)
+	}
+	checker, ok := client.destinationChecker.(*fixtureDestinationChecker)
+	if !ok {
+		t.Fatal("destination checker is not the fixture checker")
+	}
+	checker.mu.Lock()
+	checkerCalls := checker.calls
+	checkerTarget := checker.targets[0]
+	checker.mu.Unlock()
+	if checkerCalls != 1 || checkerTarget != destination {
+		t.Fatalf("vacancy checks=%d target=%#v, want one check for final content target", checkerCalls, checkerTarget)
+	}
+
+	observation, err := client.Observe(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash})
+	if err != nil {
+		t.Fatalf("Observe after Relocate: %v", err)
+	}
+	if len(observation.Payload) != 2 || observation.Payload[0].RelativePath != "managed/relocated/Synthetic Pack/one.mkv" || observation.Payload[1].RelativePath != "managed/relocated/Synthetic Pack/two.srt" {
+		t.Fatalf("payload after relocation = %#v, want every final file mapped below destination", observation.Payload)
+	}
+}
+
+func TestRelocateRejectsOccupiedDestinationBeforeWrite(t *testing.T) {
+	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+	checker := &fixtureDestinationChecker{vacant: false}
+	client, err := New(Config{
+		ConnectionID:       testConnection,
+		Mappings:           []domain.PathMapping{{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
+		Capabilities:       supportedCapabilities(),
+		DestinationChecker: checker,
+	}, fixture)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/relocated/Synthetic Film.mkv"})
+	assertZeroEffect(t, effect)
+	assertCode(t, err, domain.OutcomeConflict)
+	fixture.mu.Lock()
+	setLocationCalls := fixture.setLocationCalls
+	fixture.mu.Unlock()
+	checker.mu.Lock()
+	checkerCalls := checker.calls
+	checker.mu.Unlock()
+	if setLocationCalls != 0 || checkerCalls != 1 {
+		t.Fatalf("setLocation calls=%d vacancy checks=%d, want zero writes and one precondition", setLocationCalls, checkerCalls)
+	}
+}
+
+func TestRelocateWithoutDestinationVacancyEvidenceRemainsBlocked(t *testing.T) {
+	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Film.mkv", "Synthetic Film.mkv")
+	client, err := New(Config{
+		ConnectionID: testConnection,
+		Mappings:     []domain.PathMapping{{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"}},
+		Capabilities: supportedCapabilities(),
+	}, fixture)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/relocated/Synthetic Film.mkv"})
+	assertZeroEffect(t, effect)
+	assertCode(t, err, domain.OutcomeUnsupported)
+	fixture.mu.Lock()
+	setLocationCalls := fixture.setLocationCalls
+	fixture.mu.Unlock()
+	if setLocationCalls != 0 {
+		t.Fatalf("setLocation calls = %d, want zero without vacancy evidence", setLocationCalls)
+	}
+}
+
+func TestRelocateRejectsPartialPayloadReadBack(t *testing.T) {
+	fixture := newFixtureUpstream("pausedUP", "/downloads/Synthetic Pack", "Synthetic Pack/one.mkv", "Synthetic Pack/two.srt")
+	fixture.relocateFileName = "Synthetic Pack/unexpected.srt"
+	client := newFixtureClient(t, fixture)
+
+	effect, err := client.Relocate(context.Background(), ports.DownloadRef{ConnectionID: testConnection, ExternalID: testHash}, domain.FileTarget{RootID: "library", RelativePath: "managed/relocated/Synthetic Pack"})
+	assertZeroEffect(t, effect)
+	assertCode(t, err, domain.OutcomeUnknown)
+	fixture.mu.Lock()
+	setLocationCalls := fixture.setLocationCalls
+	fixture.mu.Unlock()
+	if setLocationCalls != 1 {
+		t.Fatalf("setLocation calls = %d, want one uncertain dispatch", setLocationCalls)
 	}
 }
 
@@ -513,7 +794,8 @@ func TestMappingsRejectTraversalAndAmbiguousDestination(t *testing.T) {
 			{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/downloads", DestinationPrefix: "managed"},
 			{ConnectionID: testConnection, RootID: "library", SourcePrefix: "/elsewhere", DestinationPrefix: "managed"},
 		},
-		WriteCapability: domain.CapabilitySupported, CapabilityVersion: "synthetic", CapabilityEvidence: []string{"fixture"},
+		Capabilities:       supportedCapabilities(),
+		DestinationChecker: &fixtureDestinationChecker{vacant: true},
 	}, fixture)
 	if err != nil {
 		t.Fatalf("New ambiguous mapping fixture: %v", err)

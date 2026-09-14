@@ -5,7 +5,7 @@
 // reconciled is reported as unknown rather than retried. The standalone
 // qBittorrent client currently exposes read methods only; Upstream is the
 // narrow seam a later write-capable client can implement. Runtime writes stay
-// disabled until versioned upstream evidence enables Config.WriteCapability.
+// disabled until versioned evidence enables the individual operation.
 package control
 
 import (
@@ -55,18 +55,41 @@ type Upstream interface {
 	Delete(context.Context, string, bool) error
 }
 
-// Config configures one qBittorrent control instance. WriteCapability must
-// remain unknown until a versioned upstream fixture or product probe proves
-// the corresponding write contract. Supported capabilities require both a
-// version and evidence string so callers cannot accidentally enable writes by
+// DestinationChecker supplies a root-confined vacancy observation for the
+// final content path of a relocation. Implementations should use a reviewed
+// filesystem read port; an absent checker keeps relocation blocked.
+type DestinationChecker interface {
+	CheckVacant(context.Context, domain.FileTarget) (bool, error)
+}
+
+// OperationCapability binds one control operation to its own versioned
+// evidence. A stop probe cannot authorize relocation, renames or removal.
+type OperationCapability struct {
+	State    domain.CapabilityState
+	Version  string
+	Evidence []string
+}
+
+// ControlCapabilities keeps qBittorrent control gates independent. Each
+// field defaults to unknown when omitted.
+type ControlCapabilities struct {
+	Stop         OperationCapability
+	Relocate     OperationCapability
+	RenameFile   OperationCapability
+	RenameFolder OperationCapability
+	Remove       OperationCapability
+}
+
+// Config configures one qBittorrent control instance. Each operation
+// capability must remain unknown until its own versioned upstream fixture or
+// product probe proves that operation. Supported capabilities require both a
+// version and evidence string so callers cannot enable an operation by
 // setting only a boolean-like state.
 type Config struct {
-	ConnectionID domain.ConfigID
-	Mappings     []domain.PathMapping
-
-	WriteCapability    domain.CapabilityState
-	CapabilityVersion  string
-	CapabilityEvidence []string
+	ConnectionID       domain.ConfigID
+	Mappings           []domain.PathMapping
+	Capabilities       ControlCapabilities
+	DestinationChecker DestinationChecker
 	ReconcileTimeout   time.Duration
 }
 
@@ -74,9 +97,8 @@ type Config struct {
 type Client struct {
 	connectionID       domain.ConfigID
 	mappings           []mapping
-	writeCapability    domain.CapabilityState
-	capabilityVersion  string
-	capabilityEvidence []string
+	capabilities       ControlCapabilities
+	destinationChecker DestinationChecker
 	reconcileTimeout   time.Duration
 	upstream           Upstream
 }
@@ -94,31 +116,9 @@ func New(config Config, upstream Upstream) (*Client, error) {
 	if !config.ConnectionID.Valid() {
 		return nil, errors.New("qBittorrent control connection id is invalid")
 	}
-	state := config.WriteCapability
-	if state == "" {
-		state = domain.CapabilityUnknown
-	}
-	switch state {
-	case domain.CapabilitySupported, domain.CapabilityUnsupported, domain.CapabilityUnknown:
-	default:
-		return nil, errors.New("qBittorrent control capability state is invalid")
-	}
-	version, err := boundedCapabilityText(config.CapabilityVersion)
+	capabilities, err := normalizeCapabilities(config.Capabilities)
 	if err != nil {
-		return nil, fmt.Errorf("qBittorrent control capability version: %w", err)
-	}
-	evidence := make([]string, 0, len(config.CapabilityEvidence))
-	for index, value := range config.CapabilityEvidence {
-		value, textErr := boundedCapabilityText(value)
-		if textErr != nil {
-			return nil, fmt.Errorf("qBittorrent control capability evidence %d: %w", index, textErr)
-		}
-		if value != "" {
-			evidence = append(evidence, value)
-		}
-	}
-	if state == domain.CapabilitySupported && (version == "" || len(evidence) == 0) {
-		return nil, errors.New("supported qBittorrent control capability requires version and evidence")
+		return nil, err
 	}
 	mappings, err := normalizeMappings(config.ConnectionID, config.Mappings)
 	if err != nil {
@@ -134,12 +134,68 @@ func New(config Config, upstream Upstream) (*Client, error) {
 	return &Client{
 		connectionID:       config.ConnectionID,
 		mappings:           mappings,
-		writeCapability:    state,
-		capabilityVersion:  version,
-		capabilityEvidence: evidence,
+		capabilities:       capabilities,
+		destinationChecker: config.DestinationChecker,
 		reconcileTimeout:   timeout,
 		upstream:           upstream,
 	}, nil
+}
+
+func normalizeCapabilities(input ControlCapabilities) (ControlCapabilities, error) {
+	stop, err := normalizeOperationCapability(operationStop, input.Stop)
+	if err != nil {
+		return ControlCapabilities{}, err
+	}
+	relocate, err := normalizeOperationCapability(operationRelocate, input.Relocate)
+	if err != nil {
+		return ControlCapabilities{}, err
+	}
+	renameFile, err := normalizeOperationCapability(operationRenameFile, input.RenameFile)
+	if err != nil {
+		return ControlCapabilities{}, err
+	}
+	renameFolder, err := normalizeOperationCapability(operationRenameFolder, input.RenameFolder)
+	if err != nil {
+		return ControlCapabilities{}, err
+	}
+	remove, err := normalizeOperationCapability(operationRemove, input.Remove)
+	if err != nil {
+		return ControlCapabilities{}, err
+	}
+	return ControlCapabilities{
+		Stop: stop, Relocate: relocate, RenameFile: renameFile,
+		RenameFolder: renameFolder, Remove: remove,
+	}, nil
+}
+
+func normalizeOperationCapability(name string, input OperationCapability) (OperationCapability, error) {
+	state := input.State
+	if state == "" {
+		state = domain.CapabilityUnknown
+	}
+	switch state {
+	case domain.CapabilitySupported, domain.CapabilityUnsupported, domain.CapabilityUnknown:
+	default:
+		return OperationCapability{}, fmt.Errorf("qBittorrent capability %s state is invalid", name)
+	}
+	version, err := boundedCapabilityText(input.Version)
+	if err != nil {
+		return OperationCapability{}, fmt.Errorf("qBittorrent capability %s version: %w", name, err)
+	}
+	evidence := make([]string, 0, len(input.Evidence))
+	for index, value := range input.Evidence {
+		value, textErr := boundedCapabilityText(value)
+		if textErr != nil {
+			return OperationCapability{}, fmt.Errorf("qBittorrent capability %s evidence %d: %w", name, index, textErr)
+		}
+		if value != "" {
+			evidence = append(evidence, value)
+		}
+	}
+	if state == domain.CapabilitySupported && (version == "" || len(evidence) == 0) {
+		return OperationCapability{}, fmt.Errorf("supported qBittorrent capability %s requires version and evidence", name)
+	}
+	return OperationCapability{State: state, Version: version, Evidence: evidence}, nil
 }
 
 // Capabilities reports the explicitly configured control gate. It does not
@@ -152,20 +208,27 @@ func (client *Client) Capabilities(ctx context.Context, connectionID domain.Conf
 	if connectionID != client.connectionID {
 		return nil, invalidInput(operationObserve, "connection scope is invalid")
 	}
-	reason := "qBittorrent control write capability is not verified"
-	if client.writeCapability == domain.CapabilityUnsupported {
-		reason = "qBittorrent control write capability is unsupported"
-	} else if client.writeCapability == domain.CapabilitySupported {
-		reason = "qBittorrent control write capability is enabled by versioned evidence"
+	now := time.Now().UTC()
+	return []domain.Capability{
+		client.capabilityObservation(operationStop, client.capabilities.Stop, now),
+		client.capabilityObservation(operationRelocate, client.capabilities.Relocate, now),
+		client.capabilityObservation(operationRenameFile, client.capabilities.RenameFile, now),
+		client.capabilityObservation(operationRenameFolder, client.capabilities.RenameFolder, now),
+		client.capabilityObservation(operationRemove, client.capabilities.Remove, now),
+	}, nil
+}
+
+func (client *Client) capabilityObservation(name string, capability OperationCapability, observedAt time.Time) domain.Capability {
+	reason := "qBittorrent operation capability is not verified"
+	if capability.State == domain.CapabilityUnsupported {
+		reason = "qBittorrent operation capability is unsupported"
+	} else if capability.State == domain.CapabilitySupported {
+		reason = "qBittorrent operation capability is enabled by versioned evidence"
 	}
-	return []domain.Capability{{
-		Name:       "qbt.control",
-		State:      client.writeCapability,
-		Version:    client.capabilityVersion,
-		Reason:     reason,
-		Evidence:   append([]string(nil), client.capabilityEvidence...),
-		ObservedAt: time.Now().UTC(),
-	}}, nil
+	return domain.Capability{
+		Name: name, State: capability.State, Version: capability.Version,
+		Reason: reason, Evidence: append([]string(nil), capability.Evidence...), ObservedAt: observedAt,
+	}
 }
 
 // Observe returns one exact qBittorrent record and its mapped payload. It is
@@ -222,7 +285,7 @@ func (client *Client) Stop(ctx context.Context, ref ports.DownloadRef) (ports.Cl
 	if err := ctx.Err(); err != nil {
 		return ports.ClientEffect{}, err
 	}
-	if err := client.writeAllowed(operationStop); err != nil {
+	if err := client.writeAllowed(operationStop, client.capabilities.Stop); err != nil {
 		return ports.ClientEffect{}, err
 	}
 	writeErr := client.upstream.Stop(ctx, snapshot.torrent.Hash)
@@ -274,12 +337,28 @@ func (client *Client) Relocate(ctx context.Context, ref ports.DownloadRef, desti
 	if !samePayloadScope(snapshot, latest) || !isStoppedState(latest.torrent.State) {
 		return ports.ClientEffect{}, conflict(operationRelocate, "torrent scope changed before relocation")
 	}
-	if err := client.writeAllowed(operationRelocate); err != nil {
+	if err := client.writeAllowed(operationRelocate, client.capabilities.Relocate); err != nil {
 		return ports.ClientEffect{}, err
 	}
-	writeErr := client.upstream.SetLocation(ctx, latest.torrent.Hash, desiredRemote)
+	if client.destinationChecker == nil {
+		return ports.ClientEffect{}, upstreamFailure(domain.OutcomeUnsupported, operationRelocate, "destination vacancy evidence is unavailable")
+	}
+	vacant, vacancyErr := client.destinationChecker.CheckVacant(ctx, destination)
+	if vacancyErr != nil {
+		if errors.Is(vacancyErr, context.Canceled) || errors.Is(vacancyErr, context.DeadlineExceeded) {
+			return ports.ClientEffect{}, vacancyErr
+		}
+		return ports.ClientEffect{}, upstreamFailure(domain.OutcomeUnavailable, operationRelocate, "destination vacancy could not be observed")
+	}
+	if !vacant {
+		return ports.ClientEffect{}, conflict(operationRelocate, "destination is occupied")
+	}
+	// qBittorrent setLocation accepts the containing download directory. The
+	// FileTarget above remains the final content path that read-back must prove.
+	location := path.Dir(desiredRemote)
+	writeErr := client.upstream.SetLocation(ctx, latest.torrent.Hash, location)
 	reconciled, readErr := client.readAfterWrite(ctx, ref, true, operationRelocate)
-	if readErr == nil && normalizeRemotePath(reconciled.torrent.ContentPath) == desiredRemote {
+	if readErr == nil && relocateReadBack(client, latest, reconciled, desiredRemote) {
 		return effect(operationRelocate, domain.OutcomeApplied, "content_path_read_back"), nil
 	}
 	return ports.ClientEffect{}, unknownAfterWrite(operationRelocate, readErr, writeErr)
@@ -345,7 +424,7 @@ func (client *Client) RenameFile(ctx context.Context, ref ports.DownloadRef, sou
 	if destinationFound && destinationIndex != sourceIndex {
 		return ports.ClientEffect{}, conflict(operationRenameFile, "destination file already exists")
 	}
-	if err := client.writeAllowed(operationRenameFile); err != nil {
+	if err := client.writeAllowed(operationRenameFile, client.capabilities.RenameFile); err != nil {
 		return ports.ClientEffect{}, err
 	}
 	oldPath := latest.files[sourceIndex].nativeName
@@ -427,7 +506,7 @@ func (client *Client) RenameFolder(ctx context.Context, ref ports.DownloadRef, s
 	if oldPath == "." || newPath == "." || !nativeRenameHasNoCollision(latest.files, oldPath, newPath) {
 		return ports.ClientEffect{}, conflict(operationRenameFolder, "native folder destination collides or expands scope")
 	}
-	if err := client.writeAllowed(operationRenameFolder); err != nil {
+	if err := client.writeAllowed(operationRenameFolder, client.capabilities.RenameFolder); err != nil {
 		return ports.ClientEffect{}, err
 	}
 	writeErr := client.upstream.RenameFolder(ctx, latest.torrent.Hash, oldPath, newPath)
@@ -469,7 +548,7 @@ func (client *Client) Remove(ctx context.Context, ref ports.DownloadRef) (ports.
 	if !isStoppedState(latest.torrent.State) {
 		return ports.ClientEffect{}, conflict(operationRemove, "torrent resumed before metadata removal")
 	}
-	if err := client.writeAllowed(operationRemove); err != nil {
+	if err := client.writeAllowed(operationRemove, client.capabilities.Remove); err != nil {
 		return ports.ClientEffect{}, err
 	}
 	// deleteFiles=false is deliberate and part of the adapter's safety
@@ -614,9 +693,9 @@ func (client *Client) nativeFolderPath(snapshot snapshot, source domain.FileTarg
 	return candidate, true
 }
 
-func (client *Client) writeAllowed(operation string) error {
-	if client.writeCapability != domain.CapabilitySupported {
-		return upstreamFailure(domain.OutcomeUnsupported, operation, "qBittorrent control write capability is not enabled")
+func (client *Client) writeAllowed(operation string, capability OperationCapability) error {
+	if capability.State != domain.CapabilitySupported {
+		return upstreamFailure(domain.OutcomeUnsupported, operation, "qBittorrent operation write capability is not enabled")
 	}
 	return nil
 }
@@ -804,6 +883,45 @@ func remoteFilePath(contentPath, name string, fileCount int) (string, bool) {
 		return path.Join(path.Dir(contentPath), name), true
 	}
 	return path.Join(contentPath, name), true
+}
+
+// relocateReadBack proves the final content path and every payload path. A
+// qBittorrent location response is only sufficient when the native payload
+// names observed before dispatch resolve to exactly the mapped final targets
+// observed afterwards. This prevents a directory-level acknowledgement from
+// being mistaken for a complete relocation.
+func relocateReadBack(client *Client, before, after snapshot, desiredContentPath string) bool {
+	if normalizeRemotePath(after.torrent.ContentPath) != desiredContentPath || len(before.files) != len(after.files) {
+		return false
+	}
+	expected := make(map[string]string, len(before.files))
+	for _, file := range before.files {
+		remote, ok := remoteFilePath(desiredContentPath, file.nativeName, len(before.files))
+		if !ok {
+			return false
+		}
+		target, mapped, ambiguous := client.remoteToTarget(remote)
+		if !mapped || ambiguous {
+			return false
+		}
+		key := targetKey(target)
+		if _, exists := expected[key]; exists {
+			return false
+		}
+		expected[key] = remote
+	}
+	for _, file := range after.files {
+		want, ok := expected[targetKey(file.target)]
+		if !ok || want != file.remotePath {
+			return false
+		}
+		delete(expected, targetKey(file.target))
+	}
+	return len(expected) == 0
+}
+
+func targetKey(target domain.FileTarget) string {
+	return target.RootID.String() + ":" + target.RelativePath
 }
 
 func normalizeRemotePath(value string) string {
