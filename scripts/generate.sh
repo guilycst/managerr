@@ -187,12 +187,9 @@ generate_oapi \
   "$repo_dir/api/openapi.yaml"
 
 # The standalone qBittorrent module keeps raw generated transport under its
-# module-internal package. Keep a short fallback while that migration lands so
-# an older checkout can still regenerate its published path.
-qbittorrent_generated_output="$repo_dir/clients/qbittorrent/generated/client.gen.go"
-if [ -f "$repo_dir/clients/qbittorrent/internal/generated/client.gen.go" ]; then
-  qbittorrent_generated_output="$repo_dir/clients/qbittorrent/internal/generated/client.gen.go"
-fi
+# module-internal package. Keep the path fixed so a missing artifact cannot
+# recreate the unsafe public generated package.
+qbittorrent_generated_output="$repo_dir/clients/qbittorrent/internal/generated/client.gen.go"
 
 generate_oapi \
   "$tmp_dir/qbittorrent-oapi-codegen.yaml" \
