@@ -16,7 +16,6 @@
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
   "activeImplementationTasks": [
-    "F-05",
     "W-02"
   ],
   "featureLanesPaused": false,
@@ -1479,7 +1478,7 @@
       ]
     },
     "F-05": {
-      "status": "in_progress",
+      "status": "blocked",
       "owner": "/root/x05_implementer",
       "baseSha": "fe1c3eddc22a7026f20d4d9e808822f6ede35aa6",
       "integratedSha": null,
@@ -1509,17 +1508,17 @@
         "Round-three review closed independent byte-copy destination protection and partial guard rollback. One P1 remains: nested mode-0700 quarantine cleanup still validates, closes, and then name-unlinks, allowing same-UID replacement exchange during delete and move cleanup. Correction round four is required before integration.",
         "3be99364621311c4edc31a2571c095acfb5c1ed4 F-05 correction round four product commit fails closed before quarantine mutation when inode-bound cleanup cannot be guaranteed.",
         "0cb30eb2421bdb62adea7f2ea878e3fef577b3b8 F-05 correction round four handoff records nested quarantine exchange regressions and focused/race/vet/root/six-cross-build/planning/architecture/generation/API/Vacuum/lint/guardrail checks.",
-        "F-05 correction round four required a bounded implementation retry after an idle worker turn; product and handoff ownership remained /root/x05_implementer and no state files were edited."
+        "F-05 correction round four required a bounded implementation retry after an idle worker turn; product and handoff ownership remained /root/x05_implementer and no state files were edited.",
+        "62257324c4c94ff2b3a1b3859d688365702c74d5 F-05 correction round four independent review approved the fail-closed safety behavior; nested exchange probes and prior copy/retry checks pass.",
+        "668a1a1eb61e0c35bf58141a1e717487dd920d40 integrated F-05 correction approval receipt. Mutation acceptance remains capability-blocked by the reviewed Linux cleanup limitation."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": "7235e042302702abb3aeebd92ffb15dbd28577b1",
-        "findings": [
-          "P1: quarantine cleanup loses inode binding before unlinkat, allowing replacement deletion during delete and move cleanup"
-        ],
-        "round": 3
+        "commit": "62257324c4c94ff2b3a1b3859d688365702c74d5",
+        "findings": [],
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -1546,7 +1545,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/F-05-review-round1.md",
         "handoffPath": "docs/execution/handoffs/F-05.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "F-04": "2621343dcd3b80c259f5cec808dadb7bfbb0434d",
           "F-04-review": "82fc97440da4de1a2ba31039e5de31d4433a496c",
@@ -1575,7 +1574,7 @@
         "correctionProductCommits": [
           "3be99364621311c4edc31a2571c095acfb5c1ed4"
         ],
-        "correctionStatus": "review_dispatched",
+        "correctionStatus": "approved_capability_blocked",
         "correctionReviewSourceCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
@@ -1584,7 +1583,9 @@
           "newReviewer": "/root/x05_reviewer",
           "dispatchedAfterSha": "7e8d9d8daf1d48cd3c9f80623c316e356efc6e43",
           "pendingUntil": "review dispatch recorded"
-        }
+        },
+        "correctionReviewCommit": "62257324c4c94ff2b3a1b3859d688365702c74d5",
+        "correctionReviewIntegrationCommit": "668a1a1eb61e0c35bf58141a1e717487dd920d40"
       },
       "reviewHistory": [
         {
@@ -1610,8 +1611,24 @@
           "status": "changes_requested",
           "sourceCommit": "ffc11d8f4acf6267a763c060bac701004b805dbe",
           "receipt": "docs/execution/handoffs/F-05-review-round3.md"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "62257324c4c94ff2b3a1b3859d688365702c74d5",
+          "status": "approved",
+          "sourceCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
+          "receipt": "docs/execution/handoffs/F-05-review-round4.md",
+          "integratedCommit": "668a1a1eb61e0c35bf58141a1e717487dd920d40",
+          "capabilityStatus": "blocked"
         }
-      ]
+      ],
+      "implementationCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
+      "handoffCommit": "0cb30eb2421bdb62adea7f2ea878e3fef577b3b8",
+      "reviewSourceCommit": "3be99364621311c4edc31a2571c095acfb5c1ed4",
+      "reviewIntegrationCommit": "668a1a1eb61e0c35bf58141a1e717487dd920d40",
+      "capabilityStatus": "blocked",
+      "capabilityBlocker": "Linux has no reviewed inode-bound quarantine removal primitive in the current implementation. Pending move, rename, permanent-delete, and cross-device source-removal operations fail closed before mutation; reopen after a reviewed inode-bound removal implementation exists."
     },
     "X-01": {
       "status": "done",
@@ -3365,7 +3382,7 @@
       ]
     }
   },
-  "nextAction": "F-05 correction round four review is dispatched to /root/x05_reviewer against 3be99364; F-03 is approved and complete; W-02 correction remains queued behind F-05.",
+  "nextAction": "F-05 is review-approved but capability-blocked for pending filesystem mutation until a reviewed inode-bound removal primitive exists. W-02 correction can proceed independently under /root/x05_implementer; F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
