@@ -8,6 +8,8 @@ package configuration
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -39,19 +41,20 @@ const (
 )
 
 var (
-	ErrInvalidDocument         = errors.New("configuration document is invalid")
-	ErrConfigSourceReadOnly    = errors.New("configuration source is read-only")
-	ErrConfigSourceConflict    = errors.New("configuration source ownership conflicts")
-	ErrRevisionMismatch        = errors.New("configuration revision does not match")
-	ErrPreconditionRequired    = errors.New("configuration revision precondition is required")
-	ErrResourceNotFound        = errors.New("configuration resource was not found")
-	ErrResourceRetired         = errors.New("configuration resource is retired")
-	ErrMappingAmbiguous        = errors.New("configuration mapping is ambiguous")
-	ErrMappingInvalid          = errors.New("configuration mapping is invalid")
-	ErrCredentialUnavailable   = errors.New("configuration credential is unavailable")
-	ErrCredentialInvalid       = errors.New("configuration credential is invalid")
-	ErrCredentialStoreRequired = errors.New("managed credential store is required")
-	ErrCredentialManagerNeeded = errors.New("managed credential manager is required")
+	ErrInvalidDocument              = errors.New("configuration document is invalid")
+	ErrConfigSourceReadOnly         = errors.New("configuration source is read-only")
+	ErrConfigSourceConflict         = errors.New("configuration source ownership conflicts")
+	ErrRevisionMismatch             = errors.New("configuration revision does not match")
+	ErrPreconditionRequired         = errors.New("configuration revision precondition is required")
+	ErrResourceNotFound             = errors.New("configuration resource was not found")
+	ErrResourceRetired              = errors.New("configuration resource is retired")
+	ErrMappingAmbiguous             = errors.New("configuration mapping is ambiguous")
+	ErrMappingInvalid               = errors.New("configuration mapping is invalid")
+	ErrCredentialUnavailable        = errors.New("configuration credential is unavailable")
+	ErrCredentialInvalid            = errors.New("configuration credential is invalid")
+	ErrCredentialStoreRequired      = errors.New("managed credential store is required")
+	ErrCredentialManagerNeeded      = errors.New("managed credential manager is required")
+	ErrCredentialIdentityUnverified = errors.New("configuration credential target identity is unverified")
 )
 
 // ResourceKind identifies one source-owned configuration record.
@@ -145,6 +148,26 @@ type RevisionChange struct {
 // keeps the old configuration active and prevents a partially applied change.
 type InvalidateFunc func(context.Context, RevisionChange) error
 
+// IdentityVerification is the result of an optional target identity check.
+// Credential-only changes are allowed to preserve approval intent only when
+// this result is IdentityVerified. Unknown, failed, or errored checks fail
+// closed when no invalidator is available, and otherwise invalidate the
+// affected plans before activation.
+type IdentityVerification string
+
+const (
+	IdentityUnknown  IdentityVerification = "unknown"
+	IdentityVerified IdentityVerification = "verified"
+	IdentityFailed   IdentityVerification = "failed"
+)
+
+// IdentityVerifier verifies that a connection credential-only change still
+// addresses the same upstream target. It receives no credential plaintext.
+type IdentityVerifier func(context.Context, domain.Connection) (IdentityVerification, error)
+
+// TargetIdentityVerifier is an expressive alias for IdentityVerifier.
+type TargetIdentityVerifier = IdentityVerifier
+
 // ManagedCredentialStore persists complete encrypted field sets atomically.
 // Implementations normally translate this boundary to the storage/sqlc
 // repository. Plaintext never enters this interface.
@@ -179,6 +202,7 @@ type Options struct {
 	KeySource         string
 	KeyPath           string
 	Invalidator       InvalidateFunc
+	IdentityVerifier  IdentityVerifier
 }
 
 // Policy contains validated YAML policy values not yet represented in the
@@ -194,11 +218,13 @@ type ParsedYAML struct {
 	Policy            Policy
 	StaticCredentials map[CredentialKey][]byte
 	DocumentBytes     int
+	staticBindings    map[CredentialKey]string
 }
 
 // Manager owns source records, historical tombstones and the effective view.
 type Manager struct {
-	mu sync.RWMutex
+	mu           sync.RWMutex
+	credentialMu sync.Mutex
 
 	now            func() time.Time
 	startupAt      time.Time
@@ -216,10 +242,15 @@ type Manager struct {
 	managedFields   map[domain.ConfigID]map[string]struct{}
 	managedDigests  map[domain.ConfigID]string
 
-	retiredConnections map[domain.ConfigID]domain.Connection
-	retiredRoots       map[domain.ConfigID]domain.StorageRoot
-	retiredMappings    map[domain.ConfigID]domain.PathMapping
-	staticCredentials  map[CredentialKey][]byte
+	retiredConnections   map[domain.ConfigID]domain.Connection
+	retiredRoots         map[domain.ConfigID]domain.StorageRoot
+	retiredMappings      map[domain.ConfigID]domain.PathMapping
+	staticCredentials    map[CredentialKey][]byte
+	staticBindings       map[CredentialKey]string
+	credentialQuarantine map[domain.ConfigID]struct{}
+	pendingConnections   map[domain.ConfigID]struct{}
+	generation           uint64
+	bindingKey           []byte
 
 	policy            Policy
 	snapshot          domain.ConfigurationSnapshot
@@ -228,6 +259,7 @@ type Manager struct {
 	keySource         string
 	keyPath           string
 	invalidator       InvalidateFunc
+	identityVerifier  IdentityVerifier
 }
 
 // New validates and activates API state and optional startup YAML as one
@@ -259,32 +291,42 @@ func New(options Options) (*Manager, error) {
 	if resolver == nil {
 		resolver = NewEnvironmentResolver(options.Environment)
 	}
+	bindingKey, err := newBindingKey()
+	if err != nil {
+		return nil, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
+	}
 
 	manager := &Manager{
-		now:                now,
-		startupAt:          startupAt,
-		maxDocument:        maxDocument,
-		documentID:         documentID,
-		yamlConfigured:     len(options.YAML) != 0 || options.YAMLPath != "",
-		secretResolver:     resolver,
-		yamlConnections:    make(map[domain.ConfigID]domain.Connection),
-		yamlRoots:          make(map[domain.ConfigID]domain.StorageRoot),
-		yamlMappings:       make(map[domain.ConfigID]domain.PathMapping),
-		apiConnections:     make(map[domain.ConfigID]domain.Connection),
-		apiRoots:           make(map[domain.ConfigID]domain.StorageRoot),
-		apiMappings:        make(map[domain.ConfigID]domain.PathMapping),
-		managedFields:      make(map[domain.ConfigID]map[string]struct{}),
-		managedDigests:     make(map[domain.ConfigID]string),
-		retiredConnections: make(map[domain.ConfigID]domain.Connection),
-		retiredRoots:       make(map[domain.ConfigID]domain.StorageRoot),
-		retiredMappings:    make(map[domain.ConfigID]domain.PathMapping),
-		staticCredentials:  make(map[CredentialKey][]byte),
-		policy:             Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
-		credentialManager:  options.CredentialManager,
-		credentialStore:    options.CredentialStore,
-		keySource:          options.KeySource,
-		keyPath:            options.KeyPath,
-		invalidator:        options.Invalidator,
+		now:                  now,
+		startupAt:            startupAt,
+		maxDocument:          maxDocument,
+		documentID:           documentID,
+		yamlConfigured:       len(options.YAML) != 0 || options.YAMLPath != "",
+		secretResolver:       resolver,
+		yamlConnections:      make(map[domain.ConfigID]domain.Connection),
+		yamlRoots:            make(map[domain.ConfigID]domain.StorageRoot),
+		yamlMappings:         make(map[domain.ConfigID]domain.PathMapping),
+		apiConnections:       make(map[domain.ConfigID]domain.Connection),
+		apiRoots:             make(map[domain.ConfigID]domain.StorageRoot),
+		apiMappings:          make(map[domain.ConfigID]domain.PathMapping),
+		managedFields:        make(map[domain.ConfigID]map[string]struct{}),
+		managedDigests:       make(map[domain.ConfigID]string),
+		retiredConnections:   make(map[domain.ConfigID]domain.Connection),
+		retiredRoots:         make(map[domain.ConfigID]domain.StorageRoot),
+		retiredMappings:      make(map[domain.ConfigID]domain.PathMapping),
+		staticCredentials:    make(map[CredentialKey][]byte),
+		staticBindings:       make(map[CredentialKey]string),
+		credentialQuarantine: make(map[domain.ConfigID]struct{}),
+		pendingConnections:   make(map[domain.ConfigID]struct{}),
+		generation:           1,
+		bindingKey:           bindingKey,
+		policy:               Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
+		credentialManager:    options.CredentialManager,
+		credentialStore:      options.CredentialStore,
+		keySource:            options.KeySource,
+		keyPath:              options.KeyPath,
+		invalidator:          options.Invalidator,
+		identityVerifier:     options.IdentityVerifier,
 	}
 	if err := manager.installAPIState(options.APIState); err != nil {
 		return nil, err
@@ -293,19 +335,19 @@ func New(options Options) (*Manager, error) {
 		var parsed ParsedYAML
 		var err error
 		if options.YAMLPath != "" {
-			parsed, err = LoadYAMLFile(options.YAMLPath, ParseOptions{
+			parsed, err = loadYAMLFile(options.YAMLPath, ParseOptions{
 				DocumentID:       documentID,
 				StartupAt:        startupAt,
 				SecretResolver:   resolver,
 				MaxDocumentBytes: maxDocument,
-			})
+			}, manager.bindingKey)
 		} else {
-			parsed, err = ParseYAML(options.YAML, ParseOptions{
+			parsed, err = parseYAML(options.YAML, ParseOptions{
 				DocumentID:       documentID,
 				StartupAt:        startupAt,
 				SecretResolver:   resolver,
 				MaxDocumentBytes: maxDocument,
-			})
+			}, manager.bindingKey)
 		}
 		if err != nil {
 			return nil, err
@@ -326,15 +368,20 @@ func (manager *Manager) Close() error {
 		return nil
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	for key, value := range manager.staticCredentials {
 		zero(value)
 		delete(manager.staticCredentials, key)
 	}
-	if manager.credentialManager != nil {
-		manager.credentialManager.Close()
-		manager.credentialManager = nil
+	crypt := manager.credentialManager
+	manager.credentialManager = nil
+	zero(manager.bindingKey)
+	manager.bindingKey = nil
+	manager.mu.Unlock()
+	manager.credentialMu.Lock()
+	if crypt != nil {
+		crypt.Close()
 	}
+	manager.credentialMu.Unlock()
 	return nil
 }
 
@@ -361,6 +408,14 @@ func (manager *Manager) Policy(ctx context.Context) (Policy, error) {
 // ParseYAML strictly decodes one complete startup document and resolves every
 // static credential reference before returning a candidate.
 func ParseYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
+	bindingKey, err := newBindingKey()
+	if err != nil {
+		return ParsedYAML{}, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
+	}
+	return parseYAML(data, options, bindingKey)
+}
+
+func parseYAML(data []byte, options ParseOptions, bindingKey []byte) (ParsedYAML, error) {
 	maxDocument := options.MaxDocumentBytes
 	if maxDocument <= 0 {
 		maxDocument = defaultMaxDocumentSize
@@ -404,6 +459,7 @@ func ParseYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
 		},
 		Policy:            Policy{TrashRetention: defaultTrashRetention, JanitorInterval: defaultJanitorInterval},
 		StaticCredentials: make(map[CredentialKey][]byte),
+		staticBindings:    make(map[CredentialKey]string),
 		DocumentBytes:     len(data),
 	}
 	for _, raw := range document.Connections {
@@ -413,13 +469,21 @@ func ParseYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
 			return ParsedYAML{}, err
 		}
 		if _, exists := findConnection(parsed.Snapshot.Connections, connection.ID); exists {
+			zeroResolvedValues(values)
 			parsed.clearSecrets()
 			return ParsedYAML{}, fmt.Errorf("%w: duplicate connection id", ErrInvalidDocument)
 		}
+		bindings := make([]string, 0, len(values))
 		parsed.Snapshot.Connections = append(parsed.Snapshot.Connections, connection)
 		for field, value := range values {
-			parsed.StaticCredentials[CredentialKey{ConnectionID: connection.ID, Field: field}] = value
+			key := CredentialKey{ConnectionID: connection.ID, Field: field}
+			parsed.StaticCredentials[key] = value
+			binding := opaqueCredentialBinding(bindingKey, value)
+			parsed.staticBindings[key] = binding
+			bindings = append(bindings, field+"="+binding)
 		}
+		connection.Revision = connectionRevisionWithBindings(connection, bindings)
+		parsed.Snapshot.Connections[len(parsed.Snapshot.Connections)-1] = connection
 	}
 	for _, raw := range document.StorageRoots {
 		root, err := raw.toDomain(yamlSource)
@@ -469,6 +533,14 @@ func LoadYAML(data []byte, options ParseOptions) (ParsedYAML, error) {
 // LoadYAMLFile reads and validates one bounded regular file. It reads the
 // selected descriptor once, so later file changes cannot alter this candidate.
 func LoadYAMLFile(filePath string, options ParseOptions) (ParsedYAML, error) {
+	bindingKey, err := newBindingKey()
+	if err != nil {
+		return ParsedYAML{}, fmt.Errorf("%w: initialize opaque credential binding", ErrInvalidDocument)
+	}
+	return loadYAMLFile(filePath, options, bindingKey)
+}
+
+func loadYAMLFile(filePath string, options ParseOptions, bindingKey []byte) (ParsedYAML, error) {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" || !filepath.IsAbs(filePath) {
 		return ParsedYAML{}, fmt.Errorf("%w: YAML file path must be absolute", ErrInvalidDocument)
@@ -489,7 +561,7 @@ func LoadYAMLFile(filePath string, options ParseOptions) (ParsedYAML, error) {
 	if options.DocumentID == "" {
 		options.DocumentID = filepath.Base(filePath)
 	}
-	return ParseYAML(data, options)
+	return parseYAML(data, options, bindingKey)
 }
 
 // ApplyYAML explicitly replaces the YAML source snapshot. It is the only
@@ -503,19 +575,19 @@ func (manager *Manager) ApplyYAML(ctx context.Context, data []byte) error {
 	maxDocument := manager.maxDocument
 	documentID := manager.documentID
 	startupAt := manager.startupAt
+	bindingKey := append([]byte(nil), manager.bindingKey...)
 	manager.mu.RUnlock()
-	parsed, err := ParseYAML(data, ParseOptions{
+	parsed, err := parseYAML(data, ParseOptions{
 		DocumentID:       documentID,
 		StartupAt:        startupAt,
 		SecretResolver:   resolver,
 		MaxDocumentBytes: maxDocument,
-	})
+	}, bindingKey)
+	zero(bindingKey)
 	if err != nil {
 		return err
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.activateYAMLLocked(ctx, parsed)
+	return manager.activateYAML(ctx, parsed)
 }
 
 // ApplyYAMLFile explicitly reads and activates a startup file. Callers decide
@@ -529,19 +601,19 @@ func (manager *Manager) ApplyYAMLFile(ctx context.Context, filePath string) erro
 	maxDocument := manager.maxDocument
 	documentID := manager.documentID
 	startupAt := manager.startupAt
+	bindingKey := append([]byte(nil), manager.bindingKey...)
 	manager.mu.RUnlock()
-	parsed, err := LoadYAMLFile(filePath, ParseOptions{
+	parsed, err := loadYAMLFile(filePath, ParseOptions{
 		DocumentID:       documentID,
 		StartupAt:        startupAt,
 		SecretResolver:   resolver,
 		MaxDocumentBytes: maxDocument,
-	})
+	}, bindingKey)
+	zero(bindingKey)
 	if err != nil {
 		return err
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.activateYAMLLocked(ctx, parsed)
+	return manager.activateYAML(ctx, parsed)
 }
 
 func (manager *Manager) installAPIState(state APIState) error {
@@ -613,12 +685,6 @@ func (manager *Manager) installAPIState(state APIState) error {
 }
 
 func (manager *Manager) activateYAML(ctx context.Context, parsed ParsedYAML) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.activateYAMLLocked(ctx, parsed)
-}
-
-func (manager *Manager) activateYAMLLocked(ctx context.Context, parsed ParsedYAML) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -626,26 +692,52 @@ func (manager *Manager) activateYAMLLocked(ctx context.Context, parsed ParsedYAM
 		parsed.clearSecrets()
 		return err
 	}
-	if err := validateMerged(parsed.Snapshot, manager.apiConnections, manager.apiRoots, manager.apiMappings); err != nil {
+	manager.mu.Lock()
+	prepared, err := manager.prepareYAMLActivationLocked(parsed)
+	manager.mu.Unlock()
+	if err != nil {
 		parsed.clearSecrets()
 		return err
 	}
+	if err := manager.runRevisionChanges(ctx, prepared.changes, prepared.connections); err != nil {
+		parsed.clearSecrets()
+		return err
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.generation != prepared.generation {
+		parsed.clearSecrets()
+		return ErrRevisionMismatch
+	}
+	return manager.commitYAMLActivationLocked(parsed, prepared)
+}
+
+type yamlActivation struct {
+	generation  uint64
+	connections map[domain.ConfigID]domain.Connection
+	roots       map[domain.ConfigID]domain.StorageRoot
+	mappings    map[domain.ConfigID]domain.PathMapping
+	candidate   domain.ConfigurationSnapshot
+	changes     []RevisionChange
+}
+
+func (manager *Manager) prepareYAMLActivationLocked(parsed ParsedYAML) (yamlActivation, error) {
+	if err := validateMerged(parsed.Snapshot, manager.apiConnections, manager.apiRoots, manager.apiMappings); err != nil {
+		return yamlActivation{}, err
+	}
 	for id, previous := range manager.retiredConnections {
 		if _, active := findConnection(parsed.Snapshot.Connections, id); active && previous.Source.Source == domain.SourceAPI {
-			parsed.clearSecrets()
-			return fmt.Errorf("%w: retired API connection id %q", ErrConfigSourceConflict, id)
+			return yamlActivation{}, fmt.Errorf("%w: retired API connection id %q", ErrConfigSourceConflict, id)
 		}
 	}
 	for id, previous := range manager.retiredRoots {
 		if _, active := findRoot(parsed.Snapshot.StorageRoots, id); active && previous.Source.Source == domain.SourceAPI {
-			parsed.clearSecrets()
-			return fmt.Errorf("%w: retired API storage root id %q", ErrConfigSourceConflict, id)
+			return yamlActivation{}, fmt.Errorf("%w: retired API storage root id %q", ErrConfigSourceConflict, id)
 		}
 	}
 	for id, previous := range manager.retiredMappings {
 		if _, active := findMapping(parsed.Snapshot.PathMappings, id); active && previous.Source.Source == domain.SourceAPI {
-			parsed.clearSecrets()
-			return fmt.Errorf("%w: retired API path mapping id %q", ErrConfigSourceConflict, id)
+			return yamlActivation{}, fmt.Errorf("%w: retired API path mapping id %q", ErrConfigSourceConflict, id)
 		}
 	}
 	newConnections := make(map[domain.ConfigID]domain.Connection, len(parsed.Snapshot.Connections))
@@ -666,28 +758,34 @@ func (manager *Manager) activateYAMLLocked(ctx context.Context, parsed ParsedYAM
 	// sufficient.
 	candidate, err := manager.snapshotForMapsLocked(newConnections, newRoots, newMappings, true)
 	if err != nil {
-		parsed.clearSecrets()
-		return err
+		return yamlActivation{}, err
 	}
-	if err := manager.invalidateYAMLChangesLocked(ctx, newConnections, newRoots, newMappings); err != nil {
-		parsed.clearSecrets()
-		return err
-	}
+	return yamlActivation{
+		generation:  manager.generation,
+		connections: newConnections,
+		roots:       newRoots,
+		mappings:    newMappings,
+		candidate:   candidate,
+		changes:     manager.yamlChangesLocked(newConnections, newRoots, newMappings, parsed.staticBindings),
+	}, nil
+}
+
+func (manager *Manager) commitYAMLActivationLocked(parsed ParsedYAML, prepared yamlActivation) error {
 	retiredAt := manager.now().UTC()
 	for id, old := range manager.yamlConnections {
-		if _, exists := newConnections[id]; !exists {
+		if _, exists := prepared.connections[id]; !exists {
 			old.RetiredAt = &retiredAt
 			manager.retiredConnections[id] = cloneConnection(old)
 		}
 	}
 	for id, old := range manager.yamlRoots {
-		if _, exists := newRoots[id]; !exists {
+		if _, exists := prepared.roots[id]; !exists {
 			old.RetiredAt = &retiredAt
 			manager.retiredRoots[id] = cloneRoot(old)
 		}
 	}
 	for id, old := range manager.yamlMappings {
-		if _, exists := newMappings[id]; !exists {
+		if _, exists := prepared.mappings[id]; !exists {
 			manager.retiredMappings[id] = cloneMapping(old)
 		}
 	}
@@ -695,31 +793,38 @@ func (manager *Manager) activateYAMLLocked(ctx context.Context, parsed ParsedYAM
 		zero(value)
 		delete(manager.staticCredentials, key)
 	}
+	for key := range manager.staticBindings {
+		delete(manager.staticBindings, key)
+	}
 	for key, value := range parsed.StaticCredentials {
 		manager.staticCredentials[key] = append([]byte(nil), value...)
 	}
+	for key, binding := range parsed.staticBindings {
+		manager.staticBindings[key] = binding
+	}
 	parsed.clearSecrets()
-	for id := range newConnections {
+	for id := range prepared.connections {
 		if retired, exists := manager.retiredConnections[id]; exists && retired.Source.Source == domain.SourceYAML {
 			delete(manager.retiredConnections, id)
 		}
 	}
-	for id := range newRoots {
+	for id := range prepared.roots {
 		if retired, exists := manager.retiredRoots[id]; exists && retired.Source.Source == domain.SourceYAML {
 			delete(manager.retiredRoots, id)
 		}
 	}
-	for id := range newMappings {
+	for id := range prepared.mappings {
 		if retired, exists := manager.retiredMappings[id]; exists && retired.Source.Source == domain.SourceYAML {
 			delete(manager.retiredMappings, id)
 		}
 	}
-	manager.yamlConnections = newConnections
-	manager.yamlRoots = newRoots
-	manager.yamlMappings = newMappings
+	manager.yamlConnections = prepared.connections
+	manager.yamlRoots = prepared.roots
+	manager.yamlMappings = prepared.mappings
 	manager.yamlConfigured = true
 	manager.policy = parsed.Policy
-	manager.snapshot = cloneSnapshot(candidate)
+	manager.snapshot = cloneSnapshot(prepared.candidate)
+	manager.generation++
 	return nil
 }
 
@@ -733,10 +838,14 @@ func (manager *Manager) rebuildLocked() error {
 }
 
 func (manager *Manager) snapshotForMapsLocked(yamlConnections map[domain.ConfigID]domain.Connection, yamlRoots map[domain.ConfigID]domain.StorageRoot, yamlMappings map[domain.ConfigID]domain.PathMapping, yamlConfigured bool) (domain.ConfigurationSnapshot, error) {
-	connections := mergeConnections(manager.apiConnections, yamlConnections)
-	roots := mergeRoots(manager.apiRoots, yamlRoots)
-	mappings := mergeMappings(manager.apiMappings, yamlMappings)
-	source := manager.effectiveSource(connections, roots, mappings, yamlConfigured, len(manager.apiConnections)+len(manager.apiRoots)+len(manager.apiMappings))
+	return manager.snapshotForStateLocked(manager.apiConnections, manager.apiRoots, manager.apiMappings, yamlConnections, yamlRoots, yamlMappings, yamlConfigured)
+}
+
+func (manager *Manager) snapshotForStateLocked(apiConnections map[domain.ConfigID]domain.Connection, apiRoots map[domain.ConfigID]domain.StorageRoot, apiMappings map[domain.ConfigID]domain.PathMapping, yamlConnections map[domain.ConfigID]domain.Connection, yamlRoots map[domain.ConfigID]domain.StorageRoot, yamlMappings map[domain.ConfigID]domain.PathMapping, yamlConfigured bool) (domain.ConfigurationSnapshot, error) {
+	connections := mergeConnections(apiConnections, yamlConnections)
+	roots := mergeRoots(apiRoots, yamlRoots)
+	mappings := mergeMappings(apiMappings, yamlMappings)
+	source := manager.effectiveSource(connections, roots, mappings, yamlConfigured, len(apiConnections)+len(apiRoots)+len(apiMappings))
 	snapshot := domain.ConfigurationSnapshot{
 		Source:          source,
 		Connections:     connections,
@@ -752,13 +861,9 @@ func (manager *Manager) snapshotForMapsLocked(yamlConnections map[domain.ConfigI
 	return snapshot, nil
 }
 
-// invalidateYAMLChangesLocked informs the workflow boundary about authority
-// changes before a new YAML snapshot becomes active. The comparison is kept
-// deterministic so a caller can journal the exact sequence and retry safely.
-func (manager *Manager) invalidateYAMLChangesLocked(ctx context.Context, newConnections map[domain.ConfigID]domain.Connection, newRoots map[domain.ConfigID]domain.StorageRoot, newMappings map[domain.ConfigID]domain.PathMapping) error {
-	if manager.invalidator == nil {
-		return nil
-	}
+// yamlChangesLocked computes the deterministic external effects of replacing
+// the YAML-owned records. It performs no callbacks or other external I/O.
+func (manager *Manager) yamlChangesLocked(newConnections map[domain.ConfigID]domain.Connection, newRoots map[domain.ConfigID]domain.StorageRoot, newMappings map[domain.ConfigID]domain.PathMapping, newStaticBindings map[CredentialKey]string) []RevisionChange {
 	changes := make([]RevisionChange, 0)
 	for id, previous := range manager.yamlConnections {
 		current, exists := newConnections[id]
@@ -766,9 +871,9 @@ func (manager *Manager) invalidateYAMLChangesLocked(ctx context.Context, newConn
 			changes = append(changes, RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: previous.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true})
 			continue
 		}
-		fields, authority := connectionChangedFields(previous, current)
-		if authority {
-			changes = append(changes, RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: previous.Revision, Revision: current.Revision, ChangedFields: fields, AuthorityChanged: true})
+		fields, authority := connectionChangedFieldsWithBindings(previous, current, manager.staticBindings, newStaticBindings)
+		if len(fields) != 0 && (authority || containsAny(fields, "credentials")) {
+			changes = append(changes, RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: previous.Revision, Revision: current.Revision, ChangedFields: fields, AuthorityChanged: authority})
 		}
 	}
 	for id, previous := range manager.yamlRoots {
@@ -799,15 +904,59 @@ func (manager *Manager) invalidateYAMLChangesLocked(ctx context.Context, newConn
 		}
 		return changes[left].ID < changes[right].ID
 	})
-	for _, change := range changes {
-		if err := manager.invalidator(ctx, change); err != nil {
+	return changes
+}
+
+func (manager *Manager) runRevisionChanges(ctx context.Context, changes []RevisionChange, newConnections map[domain.ConfigID]domain.Connection) error {
+	for _, original := range changes {
+		if err := contextError(ctx); err != nil {
+			return err
+		}
+		change := original
+		var connection *domain.Connection
+		if change.Kind == ResourceConnection {
+			if value, exists := newConnections[change.ID]; exists {
+				copyValue := cloneConnection(value)
+				connection = &copyValue
+			}
+		}
+		if err := manager.authorizeRevisionChange(ctx, change, connection); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (manager *Manager) authorizeRevisionChange(ctx context.Context, change RevisionChange, connection *domain.Connection) error {
+	manager.mu.RLock()
+	verifier := manager.identityVerifier
+	invalidator := manager.invalidator
+	manager.mu.RUnlock()
+	if change.Kind == ResourceConnection && connection != nil && !change.AuthorityChanged && containsAny(change.ChangedFields, "credentials") {
+		status := IdentityUnknown
+		var verifyErr error
+		if verifier != nil {
+			status, verifyErr = verifier(ctx, *connection)
+		}
+		if verifyErr == nil && status == IdentityVerified {
+			return nil
+		}
+		change.AuthorityChanged = true
+		if invalidator == nil {
+			return ErrCredentialIdentityUnverified
+		}
+	}
+	if change.AuthorityChanged && invalidator != nil {
+		return invalidator(ctx, change)
+	}
+	return nil
+}
+
 func connectionChangedFields(previous, current domain.Connection) ([]string, bool) {
+	return connectionChangedFieldsWithBindings(previous, current, nil, nil)
+}
+
+func connectionChangedFieldsWithBindings(previous, current domain.Connection, previousBindings, currentBindings map[CredentialKey]string) ([]string, bool) {
 	fields := make([]string, 0, 4)
 	authority := false
 	if previous.Kind != current.Kind {
@@ -824,7 +973,33 @@ func connectionChangedFields(previous, current domain.Connection) ([]string, boo
 	if !slices.Equal(sortedCredentialReferences(previous.Credentials), sortedCredentialReferences(current.Credentials)) {
 		fields = append(fields, "credentials")
 	}
+	if !credentialBindingsEqual(previous.ID, current.ID, previousBindings, currentBindings) && !containsAny(fields, "credentials") {
+		fields = append(fields, "credentials")
+	}
 	return fields, authority
+}
+
+func credentialBindingsEqual(previousID, currentID domain.ConfigID, previous, current map[CredentialKey]string) bool {
+	if previous == nil && current == nil {
+		return true
+	}
+	fields := make(map[string]struct{})
+	for key := range previous {
+		if key.ConnectionID == previousID {
+			fields[key.Field] = struct{}{}
+		}
+	}
+	for key := range current {
+		if key.ConnectionID == currentID {
+			fields[key.Field] = struct{}{}
+		}
+	}
+	for field := range fields {
+		if previous[CredentialKey{ConnectionID: previousID, Field: field}] != current[CredentialKey{ConnectionID: currentID, Field: field}] {
+			return false
+		}
+	}
+	return true
 }
 
 func rootChangedFields(previous, current domain.StorageRoot) ([]string, bool) {
@@ -1050,6 +1225,14 @@ func (manager *Manager) ResolveCredential(ctx context.Context, connectionID doma
 		manager.mu.RUnlock()
 		return nil, ErrResourceNotFound
 	}
+	if !manager.credentialFieldActiveLocked(connectionID, field) {
+		manager.mu.RUnlock()
+		return nil, ErrCredentialUnavailable
+	}
+	if _, quarantined := manager.credentialQuarantine[connectionID]; quarantined {
+		manager.mu.RUnlock()
+		return nil, ErrCredentialUnavailable
+	}
 	if value, exists := manager.staticCredentials[key]; exists {
 		copyValue := append([]byte(nil), value...)
 		manager.mu.RUnlock()
@@ -1057,22 +1240,21 @@ func (manager *Manager) ResolveCredential(ctx context.Context, connectionID doma
 	}
 	store := manager.credentialStore
 	crypt := manager.credentialManager
+	manager.mu.RUnlock()
 	if store == nil || crypt == nil {
-		manager.mu.RUnlock()
 		return nil, ErrCredentialUnavailable
 	}
 	envelopes, err := store.Load(ctx, connectionID)
 	if err != nil {
-		manager.mu.RUnlock()
 		return nil, ErrCredentialUnavailable
 	}
 	envelope, exists := envelopes[field]
 	if !exists {
-		manager.mu.RUnlock()
 		return nil, ErrCredentialUnavailable
 	}
+	manager.credentialMu.Lock()
 	value, err := crypt.Open(envelope, connectionID.String(), field)
-	manager.mu.RUnlock()
+	manager.credentialMu.Unlock()
 	if err != nil {
 		return nil, ErrCredentialUnavailable
 	}
@@ -1091,6 +1273,14 @@ func (manager *Manager) CredentialMetadata(ctx context.Context, connectionID dom
 	if !manager.connectionActiveLocked(connectionID) {
 		manager.mu.RUnlock()
 		return credentials.CredentialMetadata{}, ErrResourceNotFound
+	}
+	if !manager.credentialFieldActiveLocked(connectionID, field) {
+		manager.mu.RUnlock()
+		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
+	}
+	if _, quarantined := manager.credentialQuarantine[connectionID]; quarantined {
+		manager.mu.RUnlock()
+		return credentials.CredentialMetadata{}, ErrCredentialUnavailable
 	}
 	if value, exists := manager.staticCredentials[CredentialKey{ConnectionID: connectionID, Field: field}]; exists {
 		manager.mu.RUnlock()
@@ -1125,15 +1315,57 @@ func (manager *Manager) CreateConnection(ctx context.Context, spec ConnectionSpe
 		return domain.Connection{}, err
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if _, exists := manager.apiConnections[spec.ID]; exists {
+		manager.mu.Unlock()
 		return domain.Connection{}, fmt.Errorf("%w: connection already exists", ErrConfigSourceConflict)
 	}
 	if _, exists := manager.yamlConnections[spec.ID]; exists {
+		manager.mu.Unlock()
 		return domain.Connection{}, fmt.Errorf("%w: connection id is owned by YAML", ErrConfigSourceConflict)
 	}
 	if _, exists := manager.retiredConnections[spec.ID]; exists {
+		manager.mu.Unlock()
 		return domain.Connection{}, fmt.Errorf("%w: retired connection id cannot be reused", ErrResourceRetired)
+	}
+	if _, quarantined := manager.credentialQuarantine[spec.ID]; quarantined {
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrCredentialUnavailable
+	}
+	if _, pending := manager.pendingConnections[spec.ID]; pending {
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrConfigSourceConflict
+	}
+	manager.pendingConnections[spec.ID] = struct{}{}
+	baseGeneration := manager.generation
+	manager.mu.Unlock()
+	defer manager.finishPendingConnection(spec.ID)
+
+	preparedCredentials, err := manager.prepareManagedCredentials(ctx, spec.ID, spec.Credentials)
+	if err != nil {
+		return domain.Connection{}, err
+	}
+	var previousCredentials map[string]credentials.Envelope
+	var store ManagedCredentialStore
+	if preparedCredentials != nil {
+		manager.mu.RLock()
+		store = manager.credentialStore
+		manager.mu.RUnlock()
+		if store == nil {
+			return domain.Connection{}, ErrCredentialStoreRequired
+		}
+		previousCredentials, err = store.Load(ctx, spec.ID)
+		if err != nil {
+			return domain.Connection{}, ErrCredentialUnavailable
+		}
+		if len(previousCredentials) != 0 {
+			return domain.Connection{}, ErrCredentialUnavailable
+		}
+	}
+
+	manager.mu.Lock()
+	if manager.generation != baseGeneration || manager.connectionIDOwnedLocked(spec.ID) {
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrConfigSourceConflict
 	}
 	connection := domain.Connection{
 		ID:          spec.ID,
@@ -1143,32 +1375,49 @@ func (manager *Manager) CreateConnection(ctx context.Context, spec ConnectionSpe
 		Source:      manager.apiMetadata("connection", spec.ID, "pending"),
 		Credentials: make(map[string]domain.CredentialReference),
 	}
-	preparedCredentials, err := manager.prepareManagedCredentialsLocked(ctx, spec.ID, spec.Credentials)
+	fields := credentialFieldSet(spec.Credentials)
+	digest := ""
+	if preparedCredentials != nil {
+		digest = credentialEnvelopeDigest(preparedCredentials)
+	}
+	connection.Revision = connectionRevisionForManaged(connection, fields, digest)
+	connection.Source.Revision = connection.Revision
+	candidateAPI := maps.Clone(manager.apiConnections)
+	candidateAPI[spec.ID] = cloneConnection(connection)
+	candidate, err := manager.snapshotForStateLocked(candidateAPI, manager.apiRoots, manager.apiMappings, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
 	if err != nil {
 		return domain.Connection{}, err
 	}
-	manager.managedFields[spec.ID] = credentialFieldSet(spec.Credentials)
-	if preparedCredentials != nil && manager.credentialStore != nil {
-		manager.managedDigests[spec.ID] = credentialEnvelopeDigest(preparedCredentials)
-	}
-	connection.Revision = manager.connectionRevisionLocked(connection)
-	connection.Source.Revision = connection.Revision
-	manager.apiConnections[spec.ID] = cloneConnection(connection)
-	if err := manager.rebuildLocked(); err != nil {
-		delete(manager.apiConnections, spec.ID)
-		delete(manager.managedFields, spec.ID)
-		delete(manager.managedDigests, spec.ID)
-		return domain.Connection{}, err
-	}
-	if preparedCredentials != nil && manager.credentialStore != nil {
-		if err := manager.credentialStore.Replace(ctx, spec.ID, preparedCredentials); err != nil {
-			delete(manager.apiConnections, spec.ID)
-			delete(manager.managedFields, spec.ID)
-			delete(manager.managedDigests, spec.ID)
-			_ = manager.rebuildLocked()
+	if preparedCredentials != nil {
+		outcome := writeCredentialSet(ctx, store, spec.ID, preparedCredentials, previousCredentials, true)
+		if !outcome.matched {
+			if outcome.unknown {
+				manager.mu.Lock()
+				manager.credentialQuarantine[spec.ID] = struct{}{}
+				manager.mu.Unlock()
+			}
 			return domain.Connection{}, ErrCredentialUnavailable
 		}
 	}
+	manager.mu.Lock()
+	if manager.generation != baseGeneration || manager.connectionIDOwnedLocked(spec.ID) {
+		if preparedCredentials != nil {
+			manager.credentialQuarantine[spec.ID] = struct{}{}
+		}
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrRevisionMismatch
+	}
+	manager.apiConnections[spec.ID] = cloneConnection(connection)
+	manager.managedFields[spec.ID] = cloneFieldSet(fields)
+	if preparedCredentials != nil {
+		manager.managedDigests[spec.ID] = digest
+	} else {
+		delete(manager.managedDigests, spec.ID)
+	}
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return cloneConnection(connection), nil
 }
 
@@ -1184,27 +1433,34 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 		return domain.Connection{}, ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiConnections[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlConnections[id]; yamlOwned {
+			manager.mu.Unlock()
 			return domain.Connection{}, ErrConfigSourceReadOnly
 		}
 		if _, retired := manager.retiredConnections[id]; retired {
 			if manager.retiredConnections[id].Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return domain.Connection{}, ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return domain.Connection{}, ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return domain.Connection{}, ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return domain.Connection{}, ErrRevisionMismatch
 	}
-	var preparedCredentials map[string]credentials.Envelope
-	var previousCredentials map[string]credentials.Envelope
-	previousManagedFields := cloneFieldSet(manager.managedFields[id])
-	previousManagedDigest := manager.managedDigests[id]
+	if _, pending := manager.pendingConnections[id]; pending {
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrConfigSourceConflict
+	}
+	manager.pendingConnections[id] = struct{}{}
+	baseGeneration := manager.generation
+	defer manager.finishPendingConnection(id)
 	updated := cloneConnection(current)
 	changed := make([]string, 0, 2)
 	if patch.Label != nil && *patch.Label != current.Label {
@@ -1215,60 +1471,92 @@ func (manager *Manager) UpdateConnection(ctx context.Context, id domain.ConfigID
 		updated.Endpoint = *patch.Endpoint
 		changed = append(changed, "endpoint")
 	}
+	if len(changed) == 0 && patch.Credentials == nil {
+		manager.mu.Unlock()
+		return cloneConnection(current), nil
+	}
+	manager.mu.Unlock()
+
+	var preparedCredentials map[string]credentials.Envelope
+	var previousCredentials map[string]credentials.Envelope
+	var store ManagedCredentialStore
 	if patch.Credentials != nil {
-		if manager.credentialStore == nil {
+		manager.mu.RLock()
+		store = manager.credentialStore
+		manager.mu.RUnlock()
+		if store == nil {
 			return domain.Connection{}, ErrCredentialStoreRequired
 		}
 		var err error
-		previousCredentials, err = manager.credentialStore.Load(ctx, id)
+		previousCredentials, err = store.Load(ctx, id)
 		if err != nil {
 			return domain.Connection{}, ErrCredentialUnavailable
 		}
-		preparedCredentials, err = manager.prepareManagedCredentialsLocked(ctx, id, patch.Credentials)
+		preparedCredentials, err = manager.prepareManagedCredentials(ctx, id, patch.Credentials)
 		if err != nil {
 			return domain.Connection{}, err
 		}
 		changed = append(changed, "credentials")
-		manager.managedFields[id] = credentialFieldSet(patch.Credentials)
-		manager.managedDigests[id] = credentialEnvelopeDigest(preparedCredentials)
 	}
-	if len(changed) == 0 {
-		manager.managedFields[id] = previousManagedFields
-		manager.managedDigests[id] = previousManagedDigest
-		return cloneConnection(current), nil
+	var fields map[string]struct{}
+	digest := ""
+	manager.mu.RLock()
+	if patch.Credentials == nil {
+		fields = cloneFieldSet(manager.managedFields[id])
+		digest = manager.managedDigests[id]
+	} else {
+		fields = credentialFieldSet(patch.Credentials)
+		digest = credentialEnvelopeDigest(preparedCredentials)
 	}
-	updated.Revision = manager.connectionRevisionLocked(updated)
+	manager.mu.RUnlock()
+	updated.Revision = connectionRevisionForManaged(updated, fields, digest)
 	updated.Source.Revision = updated.Revision
 	if err := updated.Validate(); err != nil {
-		manager.managedFields[id] = previousManagedFields
-		manager.managedDigests[id] = previousManagedDigest
 		return domain.Connection{}, fmt.Errorf("%w: API connection: %v", ErrInvalidDocument, err)
 	}
 	change := RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: current.Revision, Revision: updated.Revision, ChangedFields: slices.Clone(changed), AuthorityChanged: containsAny(changed, "endpoint")}
-	if manager.invalidator != nil && change.AuthorityChanged {
-		if err := manager.invalidator(ctx, change); err != nil {
-			manager.managedFields[id] = previousManagedFields
-			manager.managedDigests[id] = previousManagedDigest
-			return domain.Connection{}, err
-		}
+	manager.mu.Lock()
+	if manager.generation != baseGeneration || manager.apiConnections[id].Revision != current.Revision {
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrRevisionMismatch
 	}
-	manager.apiConnections[id] = updated
-	if err := manager.rebuildLocked(); err != nil {
-		manager.apiConnections[id] = current
-		manager.managedFields[id] = previousManagedFields
-		manager.managedDigests[id] = previousManagedDigest
+	candidateAPI := maps.Clone(manager.apiConnections)
+	candidateAPI[id] = cloneConnection(updated)
+	candidate, err := manager.snapshotForStateLocked(candidateAPI, manager.apiRoots, manager.apiMappings, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
+		return domain.Connection{}, err
+	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, map[domain.ConfigID]domain.Connection{id: updated}); err != nil {
 		return domain.Connection{}, err
 	}
 	if patch.Credentials != nil {
-		if err := manager.credentialStore.Replace(ctx, id, preparedCredentials); err != nil {
-			_ = manager.credentialStore.Replace(context.Background(), id, previousCredentials)
-			manager.apiConnections[id] = current
-			manager.managedFields[id] = previousManagedFields
-			manager.managedDigests[id] = previousManagedDigest
-			_ = manager.rebuildLocked()
+		outcome := writeCredentialSet(ctx, store, id, preparedCredentials, previousCredentials, true)
+		if !outcome.matched {
+			if outcome.unknown {
+				manager.mu.Lock()
+				manager.credentialQuarantine[id] = struct{}{}
+				manager.mu.Unlock()
+			}
 			return domain.Connection{}, ErrCredentialUnavailable
 		}
 	}
+	manager.mu.Lock()
+	if manager.generation != baseGeneration || manager.apiConnections[id].Revision != current.Revision {
+		if patch.Credentials != nil {
+			manager.credentialQuarantine[id] = struct{}{}
+		}
+		manager.mu.Unlock()
+		return domain.Connection{}, ErrRevisionMismatch
+	}
+	manager.apiConnections[id] = cloneConnection(updated)
+	if patch.Credentials != nil {
+		manager.managedFields[id] = cloneFieldSet(fields)
+		manager.managedDigests[id] = digest
+	}
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return cloneConnection(updated), nil
 }
 
@@ -1287,41 +1575,61 @@ func (manager *Manager) RetireConnection(ctx context.Context, id domain.ConfigID
 		return ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiConnections[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlConnections[id]; yamlOwned {
+			manager.mu.Unlock()
 			return ErrConfigSourceReadOnly
 		}
 		if _, retired := manager.retiredConnections[id]; retired {
 			if manager.retiredConnections[id].Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return ErrRevisionMismatch
 	}
 	if manager.connectionHasMappingsLocked(id) {
+		manager.mu.Unlock()
 		return fmt.Errorf("%w: connection is referenced by a path mapping", ErrConfigSourceConflict)
 	}
-	if manager.invalidator != nil {
-		change := RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
-		if err := manager.invalidator(ctx, change); err != nil {
-			return err
-		}
+	if _, pending := manager.pendingConnections[id]; pending {
+		manager.mu.Unlock()
+		return ErrConfigSourceConflict
 	}
-	retiredAt := manager.now().UTC()
-	current.RetiredAt = &retiredAt
-	manager.retiredConnections[id] = cloneConnection(current)
-	delete(manager.apiConnections, id)
-	if err := manager.rebuildLocked(); err != nil {
-		delete(manager.retiredConnections, id)
-		manager.apiConnections[id] = current
+	manager.pendingConnections[id] = struct{}{}
+	defer manager.finishPendingConnection(id)
+	baseGeneration := manager.generation
+	change := RevisionChange{Kind: ResourceConnection, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
+	candidateAPI := maps.Clone(manager.apiConnections)
+	delete(candidateAPI, id)
+	candidate, err := manager.snapshotForStateLocked(candidateAPI, manager.apiRoots, manager.apiMappings, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, nil); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	active, exists := manager.apiConnections[id]
+	if !exists || active.Revision != current.Revision || manager.generation != baseGeneration {
+		return ErrRevisionMismatch
+	}
+	retiredAt := manager.now().UTC()
+	active.RetiredAt = &retiredAt
+	manager.retiredConnections[id] = cloneConnection(active)
+	delete(manager.apiConnections, id)
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
 	return nil
 }
 
@@ -1357,6 +1665,7 @@ func (manager *Manager) CreateStorageRoot(ctx context.Context, spec StorageRootS
 		delete(manager.apiRoots, spec.ID)
 		return domain.StorageRoot{}, err
 	}
+	manager.generation++
 	return cloneRoot(root), nil
 }
 
@@ -1369,21 +1678,25 @@ func (manager *Manager) UpdateStorageRoot(ctx context.Context, id domain.ConfigI
 		return domain.StorageRoot{}, ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiRoots[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlRoots[id]; yamlOwned {
+			manager.mu.Unlock()
 			return domain.StorageRoot{}, ErrConfigSourceReadOnly
 		}
 		if _, retired := manager.retiredRoots[id]; retired {
 			if manager.retiredRoots[id].Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return domain.StorageRoot{}, ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return domain.StorageRoot{}, ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return domain.StorageRoot{}, ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return domain.StorageRoot{}, ErrRevisionMismatch
 	}
 	updated := cloneRoot(current)
@@ -1411,6 +1724,7 @@ func (manager *Manager) UpdateStorageRoot(ctx context.Context, id domain.ConfigI
 	if patch.WatchIntervalSeconds != nil {
 		interval, err := durationFromSeconds(*patch.WatchIntervalSeconds)
 		if err != nil {
+			manager.mu.Unlock()
 			return domain.StorageRoot{}, err
 		}
 		if interval != current.Watch.Interval {
@@ -1419,32 +1733,47 @@ func (manager *Manager) UpdateStorageRoot(ctx context.Context, id domain.ConfigI
 		}
 	}
 	if len(changed) == 0 {
+		manager.mu.Unlock()
 		return cloneRoot(current), nil
 	}
 	updated.Revision = rootRevision(updated)
 	updated.Source.Revision = updated.Revision
 	if err := updated.Validate(); err != nil {
+		manager.mu.Unlock()
 		return domain.StorageRoot{}, fmt.Errorf("%w: API storage root: %v", ErrInvalidDocument, err)
 	}
 	if err := validateStorageRootPath(updated.Path); err != nil {
+		manager.mu.Unlock()
 		return domain.StorageRoot{}, err
 	}
 	for _, capability := range updated.Capabilities {
 		if err := capability.Validate(); err != nil {
+			manager.mu.Unlock()
 			return domain.StorageRoot{}, fmt.Errorf("%w: API storage root capability", ErrInvalidDocument)
 		}
 	}
 	change := RevisionChange{Kind: ResourceRoot, ID: id, PreviousRevision: current.Revision, Revision: updated.Revision, ChangedFields: slices.Clone(changed), AuthorityChanged: containsAny(changed, "purpose", "path", "readOnly", "capabilities")}
-	if manager.invalidator != nil && change.AuthorityChanged {
-		if err := manager.invalidator(ctx, change); err != nil {
-			return domain.StorageRoot{}, err
-		}
-	}
-	manager.apiRoots[id] = updated
-	if err := manager.rebuildLocked(); err != nil {
-		manager.apiRoots[id] = current
+	baseGeneration := manager.generation
+	candidateAPI := maps.Clone(manager.apiRoots)
+	candidateAPI[id] = cloneRoot(updated)
+	candidate, err := manager.snapshotForStateLocked(manager.apiConnections, candidateAPI, manager.apiMappings, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
 		return domain.StorageRoot{}, err
 	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, nil); err != nil {
+		return domain.StorageRoot{}, err
+	}
+	manager.mu.Lock()
+	active, exists := manager.apiRoots[id]
+	if !exists || active.Revision != current.Revision || manager.generation != baseGeneration {
+		manager.mu.Unlock()
+		return domain.StorageRoot{}, ErrRevisionMismatch
+	}
+	manager.apiRoots[id] = cloneRoot(updated)
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return cloneRoot(updated), nil
 }
 
@@ -1462,41 +1791,56 @@ func (manager *Manager) RetireStorageRoot(ctx context.Context, id domain.ConfigI
 		return ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiRoots[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlRoots[id]; yamlOwned {
+			manager.mu.Unlock()
 			return ErrConfigSourceReadOnly
 		}
 		if _, retired := manager.retiredRoots[id]; retired {
 			if manager.retiredRoots[id].Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return ErrRevisionMismatch
 	}
 	if manager.rootHasMappingsLocked(id) {
+		manager.mu.Unlock()
 		return fmt.Errorf("%w: storage root is referenced by a path mapping", ErrConfigSourceConflict)
 	}
-	if manager.invalidator != nil {
-		change := RevisionChange{Kind: ResourceRoot, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
-		if err := manager.invalidator(ctx, change); err != nil {
-			return err
-		}
-	}
-	retiredAt := manager.now().UTC()
-	current.RetiredAt = &retiredAt
-	manager.retiredRoots[id] = cloneRoot(current)
-	delete(manager.apiRoots, id)
-	if err := manager.rebuildLocked(); err != nil {
-		delete(manager.retiredRoots, id)
-		manager.apiRoots[id] = current
+	baseGeneration := manager.generation
+	change := RevisionChange{Kind: ResourceRoot, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
+	candidateAPI := maps.Clone(manager.apiRoots)
+	delete(candidateAPI, id)
+	candidate, err := manager.snapshotForStateLocked(manager.apiConnections, candidateAPI, manager.apiMappings, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, nil); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	active, exists := manager.apiRoots[id]
+	if !exists || active.Revision != current.Revision || manager.generation != baseGeneration {
+		manager.mu.Unlock()
+		return ErrRevisionMismatch
+	}
+	retiredAt := manager.now().UTC()
+	active.RetiredAt = &retiredAt
+	manager.retiredRoots[id] = cloneRoot(active)
+	delete(manager.apiRoots, id)
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return nil
 }
 
@@ -1533,6 +1877,7 @@ func (manager *Manager) CreatePathMapping(ctx context.Context, spec PathMappingS
 		delete(manager.apiMappings, spec.ID)
 		return domain.PathMapping{}, err
 	}
+	manager.generation++
 	return cloneMapping(mapping), nil
 }
 
@@ -1545,21 +1890,25 @@ func (manager *Manager) UpdatePathMapping(ctx context.Context, id domain.ConfigI
 		return domain.PathMapping{}, ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiMappings[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlMappings[id]; yamlOwned {
+			manager.mu.Unlock()
 			return domain.PathMapping{}, ErrConfigSourceReadOnly
 		}
 		if retired, retiredExists := manager.retiredMappings[id]; retiredExists {
 			if retired.Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return domain.PathMapping{}, ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return domain.PathMapping{}, ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return domain.PathMapping{}, ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return domain.PathMapping{}, ErrRevisionMismatch
 	}
 	updated := cloneMapping(current)
@@ -1573,24 +1922,37 @@ func (manager *Manager) UpdatePathMapping(ctx context.Context, id domain.ConfigI
 		changed = append(changed, "destinationPrefix")
 	}
 	if len(changed) == 0 {
+		manager.mu.Unlock()
 		return cloneMapping(current), nil
 	}
 	updated.Revision = mappingRevision(updated)
 	updated.Source.Revision = updated.Revision
 	if err := validateMappingShape(updated); err != nil {
+		manager.mu.Unlock()
 		return domain.PathMapping{}, err
 	}
 	change := RevisionChange{Kind: ResourceMapping, ID: id, PreviousRevision: current.Revision, Revision: updated.Revision, ChangedFields: slices.Clone(changed), AuthorityChanged: len(changed) != 0}
-	if manager.invalidator != nil && change.AuthorityChanged {
-		if err := manager.invalidator(ctx, change); err != nil {
-			return domain.PathMapping{}, err
-		}
-	}
-	manager.apiMappings[id] = updated
-	if err := manager.rebuildLocked(); err != nil {
-		manager.apiMappings[id] = current
+	baseGeneration := manager.generation
+	candidateAPI := maps.Clone(manager.apiMappings)
+	candidateAPI[id] = cloneMapping(updated)
+	candidate, err := manager.snapshotForStateLocked(manager.apiConnections, manager.apiRoots, candidateAPI, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
 		return domain.PathMapping{}, err
 	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, nil); err != nil {
+		return domain.PathMapping{}, err
+	}
+	manager.mu.Lock()
+	active, exists := manager.apiMappings[id]
+	if !exists || active.Revision != current.Revision || manager.generation != baseGeneration {
+		manager.mu.Unlock()
+		return domain.PathMapping{}, ErrRevisionMismatch
+	}
+	manager.apiMappings[id] = cloneMapping(updated)
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return cloneMapping(updated), nil
 }
 
@@ -1608,36 +1970,50 @@ func (manager *Manager) RetirePathMapping(ctx context.Context, id domain.ConfigI
 		return ErrPreconditionRequired
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	current, exists := manager.apiMappings[id]
 	if !exists {
 		if _, yamlOwned := manager.yamlMappings[id]; yamlOwned {
+			manager.mu.Unlock()
 			return ErrConfigSourceReadOnly
 		}
 		if retired, retiredExists := manager.retiredMappings[id]; retiredExists {
 			if retired.Source.Source == domain.SourceYAML {
+				manager.mu.Unlock()
 				return ErrConfigSourceReadOnly
 			}
+			manager.mu.Unlock()
 			return ErrResourceRetired
 		}
+		manager.mu.Unlock()
 		return ErrResourceNotFound
 	}
 	if current.Revision != expectedRevision {
+		manager.mu.Unlock()
 		return ErrRevisionMismatch
 	}
-	if manager.invalidator != nil {
-		change := RevisionChange{Kind: ResourceMapping, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
-		if err := manager.invalidator(ctx, change); err != nil {
-			return err
-		}
-	}
-	manager.retiredMappings[id] = cloneMapping(current)
-	delete(manager.apiMappings, id)
-	if err := manager.rebuildLocked(); err != nil {
-		delete(manager.retiredMappings, id)
-		manager.apiMappings[id] = current
+	baseGeneration := manager.generation
+	change := RevisionChange{Kind: ResourceMapping, ID: id, PreviousRevision: current.Revision, ChangedFields: []string{"retired"}, AuthorityChanged: true}
+	candidateAPI := maps.Clone(manager.apiMappings)
+	delete(candidateAPI, id)
+	candidate, err := manager.snapshotForStateLocked(manager.apiConnections, manager.apiRoots, candidateAPI, manager.yamlConnections, manager.yamlRoots, manager.yamlMappings, manager.yamlConfigured)
+	manager.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	if err := manager.runRevisionChanges(ctx, []RevisionChange{change}, nil); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	active, exists := manager.apiMappings[id]
+	if !exists || active.Revision != current.Revision || manager.generation != baseGeneration {
+		manager.mu.Unlock()
+		return ErrRevisionMismatch
+	}
+	manager.retiredMappings[id] = cloneMapping(active)
+	delete(manager.apiMappings, id)
+	manager.snapshot = cloneSnapshot(candidate)
+	manager.generation++
+	manager.mu.Unlock()
 	return nil
 }
 
@@ -1646,17 +2022,21 @@ func (manager *Manager) DeletePathMapping(ctx context.Context, id domain.ConfigI
 	return manager.RetirePathMapping(ctx, id, expectedRevision)
 }
 
-func (manager *Manager) prepareManagedCredentialsLocked(ctx context.Context, id domain.ConfigID, inputs map[string]CredentialInput) (map[string]credentials.Envelope, error) {
+func (manager *Manager) prepareManagedCredentials(ctx context.Context, id domain.ConfigID, inputs map[string]CredentialInput) (map[string]credentials.Envelope, error) {
 	if inputs == nil {
 		return nil, nil
 	}
 	if len(inputs) == 0 {
 		return map[string]credentials.Envelope{}, nil
 	}
-	if manager.credentialStore == nil {
+	manager.mu.RLock()
+	store := manager.credentialStore
+	crypt := manager.credentialManager
+	manager.mu.RUnlock()
+	if store == nil {
 		return nil, ErrCredentialStoreRequired
 	}
-	if manager.credentialManager == nil {
+	if crypt == nil {
 		return nil, ErrCredentialManagerNeeded
 	}
 	envelopes := make(map[string]credentials.Envelope, len(inputs))
@@ -1665,7 +2045,9 @@ func (manager *Manager) prepareManagedCredentialsLocked(ctx context.Context, id 
 			return nil, ErrCredentialInvalid
 		}
 		plaintext := append([]byte(nil), input.Value...)
-		envelope, err := manager.credentialManager.Seal(id.String(), field, plaintext)
+		manager.credentialMu.Lock()
+		envelope, err := crypt.Seal(id.String(), field, plaintext)
+		manager.credentialMu.Unlock()
 		zero(plaintext)
 		if err != nil {
 			return nil, ErrCredentialInvalid
@@ -1676,6 +2058,78 @@ func (manager *Manager) prepareManagedCredentialsLocked(ctx context.Context, id 
 		return nil, err
 	}
 	return envelopes, nil
+}
+
+type credentialWriteOutcome struct {
+	matched   bool
+	unchanged bool
+	unknown   bool
+}
+
+// writeCredentialSet treats a lost Replace response as an uncertain write.
+// A read-back of the complete set is the only success proof; it never writes
+// a rollback. If the old complete set is read back, the failed write is known
+// to have had no effect. Any other set quarantines the connection at the
+// caller because field-level access would otherwise expose ambiguous state.
+func writeCredentialSet(ctx context.Context, store ManagedCredentialStore, id domain.ConfigID, desired, previous map[string]credentials.Envelope, previousKnown bool) credentialWriteOutcome {
+	if store == nil {
+		return credentialWriteOutcome{unknown: true}
+	}
+	_ = store.Replace(ctx, id, cloneEnvelopeSet(desired))
+	actual, readErr := store.Load(ctx, id)
+	if readErr != nil {
+		return credentialWriteOutcome{unknown: true}
+	}
+	if envelopeSetsEqual(actual, desired) {
+		return credentialWriteOutcome{matched: true}
+	}
+	if previousKnown && envelopeSetsEqual(actual, previous) {
+		return credentialWriteOutcome{unchanged: true}
+	}
+	return credentialWriteOutcome{unknown: true}
+}
+
+func cloneEnvelopeSet(values map[string]credentials.Envelope) map[string]credentials.Envelope {
+	if values == nil {
+		return map[string]credentials.Envelope{}
+	}
+	copyValues := make(map[string]credentials.Envelope, len(values))
+	for field, envelope := range values {
+		copyValues[field] = cloneEnvelope(envelope)
+	}
+	return copyValues
+}
+
+func envelopeSetsEqual(left, right map[string]credentials.Envelope) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for field, expected := range right {
+		actual, exists := left[field]
+		if !exists || expected.Version != actual.Version || expected.KeyFingerprint != actual.KeyFingerprint || !bytes.Equal(expected.Nonce, actual.Nonce) || !bytes.Equal(expected.Ciphertext, actual.Ciphertext) {
+			return false
+		}
+	}
+	return true
+}
+
+func (manager *Manager) finishPendingConnection(id domain.ConfigID) {
+	manager.mu.Lock()
+	delete(manager.pendingConnections, id)
+	manager.mu.Unlock()
+}
+
+func (manager *Manager) connectionIDOwnedLocked(id domain.ConfigID) bool {
+	if _, exists := manager.apiConnections[id]; exists {
+		return true
+	}
+	if _, exists := manager.yamlConnections[id]; exists {
+		return true
+	}
+	if _, exists := manager.retiredConnections[id]; exists {
+		return true
+	}
+	return false
 }
 
 func (manager *Manager) apiMetadata(kind string, id domain.ConfigID, revision string) domain.SourceMetadata {
@@ -1757,9 +2211,23 @@ func (store *memoryCredentialStore) Replace(ctx context.Context, id domain.Confi
 }
 
 func (parsed *ParsedYAML) clearSecrets() {
-	for key, value := range parsed.StaticCredentials {
+	if parsed == nil {
+		return
+	}
+	zeroCredentialValues(parsed.StaticCredentials)
+}
+
+func zeroCredentialValues(values map[CredentialKey][]byte) {
+	for key, value := range values {
 		zero(value)
-		delete(parsed.StaticCredentials, key)
+		delete(values, key)
+	}
+}
+
+func zeroResolvedValues(values map[string][]byte) {
+	for key, value := range values {
+		zero(value)
+		delete(values, key)
 	}
 }
 
@@ -1795,6 +2263,21 @@ func digestValue(value any) string {
 	return "sha256:" + hex.EncodeToString(hash[:])
 }
 
+func newBindingKey() ([]byte, error) {
+	key := make([]byte, sha256.Size)
+	if _, err := rand.Read(key); err != nil {
+		zero(key)
+		return nil, err
+	}
+	return key, nil
+}
+
+func opaqueCredentialBinding(key, value []byte) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(value)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func connectionRevision(connection domain.Connection) string {
 	return digestValue(struct {
 		ID          domain.ConfigID
@@ -1805,12 +2288,37 @@ func connectionRevision(connection domain.Connection) string {
 	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials)})
 }
 
+func connectionRevisionWithBindings(connection domain.Connection, bindings []string) string {
+	slices.Sort(bindings)
+	return digestValue(struct {
+		ID          domain.ConfigID
+		Kind        domain.ConnectionKind
+		Label       string
+		Endpoint    string
+		Credentials []string
+		Bindings    []string
+	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials), bindings})
+}
+
 func (manager *Manager) connectionRevisionLocked(connection domain.Connection) string {
 	managed := make([]string, 0, len(manager.managedFields[connection.ID]))
 	for field := range manager.managedFields[connection.ID] {
 		managed = append(managed, field)
 	}
 	sort.Strings(managed)
+	return connectionRevisionForManagedValues(connection, managed, manager.managedDigests[connection.ID])
+}
+
+func connectionRevisionForManaged(connection domain.Connection, fields map[string]struct{}, digest string) string {
+	managed := make([]string, 0, len(fields))
+	for field := range fields {
+		managed = append(managed, field)
+	}
+	sort.Strings(managed)
+	return connectionRevisionForManagedValues(connection, managed, digest)
+}
+
+func connectionRevisionForManagedValues(connection domain.Connection, managed []string, digest string) string {
 	return digestValue(struct {
 		ID            domain.ConfigID
 		Kind          domain.ConnectionKind
@@ -1819,7 +2327,7 @@ func (manager *Manager) connectionRevisionLocked(connection domain.Connection) s
 		Credentials   []string
 		Managed       []string
 		ManagedDigest string
-	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials), managed, manager.managedDigests[connection.ID]})
+	}{connection.ID, connection.Kind, connection.Label, connection.Endpoint, sortedCredentialReferences(connection.Credentials), managed, digest})
 }
 
 func rootRevision(root domain.StorageRoot) string {
@@ -1917,6 +2425,18 @@ func (manager *Manager) connectionActiveLocked(id domain.ConfigID) bool {
 	}
 	_, exists := manager.yamlConnections[id]
 	return exists
+}
+
+func (manager *Manager) credentialFieldActiveLocked(id domain.ConfigID, field string) bool {
+	if fields, exists := manager.managedFields[id]; exists {
+		_, active := fields[field]
+		return active
+	}
+	if connection, exists := manager.yamlConnections[id]; exists {
+		_, active := connection.Credentials[field]
+		return active
+	}
+	return false
 }
 
 func (manager *Manager) connectionHasMappingsLocked(id domain.ConfigID) bool {
@@ -2081,7 +2601,10 @@ func validateMappingAmbiguity(mappings []domain.PathMapping) error {
 
 func cleanSourcePrefix(value string) (string, error) {
 	if value == "" {
-		return "", nil
+		return "", errors.New("source prefix must be an absolute remote namespace")
+	}
+	if !isAbsoluteRemoteNamespace(value) {
+		return "", errors.New("source prefix must be an absolute remote namespace")
 	}
 	return cleanNamespace(value)
 }
@@ -2090,7 +2613,7 @@ func cleanDestinationPrefix(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if strings.HasPrefix(value, "/") {
+	if isAbsoluteRemoteNamespace(value) {
 		return "", errors.New("destination prefix must be root-relative")
 	}
 	return cleanNamespace(value)
@@ -2099,6 +2622,30 @@ func cleanDestinationPrefix(value string) (string, error) {
 func cleanNamespace(value string) (string, error) {
 	if value == "" || strings.ContainsRune(value, '\x00') || strings.Contains(value, "\\") {
 		return "", errors.New("namespace prefix is invalid")
+	}
+	if isWindowsAbsoluteNamespace(value) {
+		drive := value[:2]
+		rest := value[2:]
+		cleanedRest := path.Clean(rest)
+		if cleanedRest == "." {
+			cleanedRest = "/"
+		}
+		if !strings.HasPrefix(cleanedRest, "/") {
+			return "", errors.New("namespace prefix must be absolute")
+		}
+		cleaned := drive + cleanedRest
+		if cleaned != value {
+			return "", errors.New("namespace prefix is not canonical")
+		}
+		trimmedRest := strings.Trim(cleanedRest, "/")
+		if trimmedRest != "" {
+			for _, part := range strings.Split(trimmedRest, "/") {
+				if part == "" || part == "." || part == ".." {
+					return "", errors.New("namespace prefix contains unsafe component")
+				}
+			}
+		}
+		return cleaned, nil
 	}
 	cleaned := path.Clean(value)
 	if cleaned != value || cleaned == "." {
@@ -2114,6 +2661,14 @@ func cleanNamespace(value string) (string, error) {
 		}
 	}
 	return cleaned, nil
+}
+
+func isWindowsAbsoluteNamespace(value string) bool {
+	return len(value) >= 3 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':' && value[2] == '/'
+}
+
+func isAbsoluteRemoteNamespace(value string) bool {
+	return strings.HasPrefix(value, "/") || isWindowsAbsoluteNamespace(value)
 }
 
 func namespaceComponentCount(value string) int {

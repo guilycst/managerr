@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,6 +235,9 @@ func TestManagerAPIETagAndManagedCredentialLifecycle(t *testing.T) {
 		Now:               func() time.Time { return testStartup },
 		CredentialManager: crypt,
 		CredentialStore:   store,
+		IdentityVerifier: func(_ context.Context, _ domain.Connection) (IdentityVerification, error) {
+			return IdentityVerified, nil
+		},
 		Invalidator: func(_ context.Context, change RevisionChange) error {
 			changesMu.Lock()
 			defer changesMu.Unlock()
@@ -305,6 +309,409 @@ func TestManagerAPIETagAndManagedCredentialLifecycle(t *testing.T) {
 	}
 }
 
+func TestManagedCredentialRotationFailsClosedWithoutIdentityOrInvalidator(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x31}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemoryCredentialStore()
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("first-key")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.UpdateConnection(context.Background(), connection.ID, connection.Revision, ConnectionPatch{Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("second-key")}}}); !errors.Is(err, ErrCredentialIdentityUnverified) {
+		t.Fatalf("unverified credential rotation error = %v", err)
+	}
+	resolved, err := manager.ResolveCredential(context.Background(), connection.ID, "apiKey")
+	if err != nil || string(resolved) != "first-key" {
+		t.Fatalf("credential after rejected rotation = %q, err %v", resolved, err)
+	}
+	zero(resolved)
+}
+
+func TestManagedCredentialStoreCommitThenErrorUsesReadBackAndQuarantinesUnknownState(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x32}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFaultCredentialStore()
+	store.replaceMode = replaceCommitThenError
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store, IdentityVerifier: verifiedIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("committed-key")}},
+	})
+	if err != nil {
+		t.Fatalf("commit-then-error create = %v", err)
+	}
+	resolved, err := manager.ResolveCredential(context.Background(), connection.ID, "apiKey")
+	if err != nil || string(resolved) != "committed-key" {
+		t.Fatalf("read-back committed credential = %q, err %v", resolved, err)
+	}
+	zero(resolved)
+	store.replaceMode = replacePartialThenError
+	callCount := store.replaceCalls
+	if _, err := manager.UpdateConnection(context.Background(), connection.ID, connection.Revision, ConnectionPatch{Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("uncertain-rotation")}}}); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("uncertain update error = %v", err)
+	}
+	if store.replaceCalls != callCount+1 {
+		t.Fatalf("uncertain update replace calls = %d, want %d without rollback", store.replaceCalls, callCount+1)
+	}
+	if _, err := manager.ResolveCredential(context.Background(), connection.ID, "apiKey"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("quarantined update resolve error = %v", err)
+	}
+
+	store2 := newFaultCredentialStore()
+	store2.replaceMode = replacePartialThenError
+	manager2, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store2, IdentityVerifier: verifiedIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager2.Close()
+	if _, err := manager2.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("uncertain-key")}},
+	}); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("uncertain create error = %v", err)
+	}
+	if store2.replaceCalls != 1 {
+		t.Fatalf("uncertain create replace calls = %d, want one without rollback", store2.replaceCalls)
+	}
+	if _, err := manager2.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Retry", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("retry-key")}},
+	}); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("orphan retry error = %v", err)
+	}
+}
+
+func TestManagedCredentialFieldMembershipBlocksOrphans(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x33}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFaultCredentialStore()
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := crypt.Seal(connection.ID.String(), "orphan", []byte("orphan-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.values[connection.ID] = map[string]credentials.Envelope{"orphan": envelope}
+	if _, err := manager.ResolveCredential(context.Background(), connection.ID, "orphan"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("orphan resolve error = %v", err)
+	}
+	if _, err := manager.CredentialMetadata(context.Background(), connection.ID, "orphan"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("orphan metadata error = %v", err)
+	}
+}
+
+func TestStaticCredentialValueChangeRequiresVerificationOrInvalidation(t *testing.T) {
+	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
+	if err := writeTestFile(secretPath, []byte("first-static")); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+connections:
+  - id: radarr-main
+    kind: radarr
+    label: Movies
+    endpoint: http://radarr.invalid:7878
+    credentials:
+      apiKey:
+        file: ` + secretPath + "\n"
+	manager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	before, err := manager.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTestFile(secretPath, []byte("second-static")); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplyYAML(context.Background(), []byte(yaml)); !errors.Is(err, ErrCredentialIdentityUnverified) {
+		t.Fatalf("unverified static reload error = %v", err)
+	}
+	afterRejected, err := manager.Snapshot(context.Background())
+	if err != nil || before.Source.Revision != afterRejected.Source.Revision {
+		t.Fatalf("rejected static reload changed snapshot = %#v, err %v", afterRejected, err)
+	}
+	if err := writeTestFile(secretPath, []byte("first-static")); err != nil {
+		t.Fatal(err)
+	}
+
+	var changes []RevisionChange
+	manager2, err := New(Options{
+		Now: func() time.Time { return testStartup }, YAML: []byte(yaml),
+		Invalidator: func(_ context.Context, change RevisionChange) error { changes = append(changes, change); return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager2.Close()
+	if err := writeTestFile(secretPath, []byte("third-static")); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager2.ApplyYAML(context.Background(), []byte(yaml)); err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].ID != "radarr-main" || !changes[0].AuthorityChanged || !slicesEqual(changes[0].ChangedFields, []string{"credentials"}) {
+		t.Fatalf("static value invalidation = %#v", changes)
+	}
+}
+
+func TestStaticCredentialChangeAcrossRestartGetsNewOpaqueRevision(t *testing.T) {
+	secretPath := filepath.Join(t.TempDir(), "radarr-api-key")
+	if err := writeTestFile(secretPath, []byte("restart-first")); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+connections:
+  - id: radarr-main
+    kind: radarr
+    label: Movies
+    endpoint: http://radarr.invalid:7878
+    credentials:
+      apiKey:
+        file: ` + secretPath + "\n"
+	firstManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSnapshot, err := firstManager.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstManager.Close()
+	if err := writeTestFile(secretPath, []byte("restart-second")); err != nil {
+		t.Fatal(err)
+	}
+	secondManager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondManager.Close()
+	secondSnapshot, err := secondManager.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSnapshot.Source.Revision == secondSnapshot.Source.Revision || firstSnapshot.Connections[0].Revision == secondSnapshot.Connections[0].Revision {
+		t.Fatal("restart did not advance opaque static credential revision")
+	}
+}
+
+func TestAPIMappingMutationRejectsRelativeSourcePrefix(t *testing.T) {
+	manager, err := New(Options{Now: func() time.Time { return testStartup }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	connection, err := manager.CreateConnection(context.Background(), ConnectionSpec{ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := manager.CreateStorageRoot(context.Background(), StorageRootSpec{ID: "movies", Label: "Movies", Purpose: domain.StorageLibrary, Path: "/media/movies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, prefix := range []string{"", "downloads", "../downloads"} {
+		_, err := manager.CreatePathMapping(context.Background(), PathMappingSpec{ID: domain.ConfigID(fmt.Sprintf("mapping-%d", index)), ConnectionID: connection.ID, RootID: root.ID, SourcePrefix: prefix})
+		if !errors.Is(err, ErrMappingInvalid) {
+			t.Errorf("API source prefix %q error = %v", prefix, err)
+		}
+	}
+}
+
+func TestMappingSourcePrefixRequiresAbsoluteRemoteNamespace(t *testing.T) {
+	for _, value := range []string{"", "downloads", "../downloads", "./downloads", "C:\\downloads"} {
+		if err := validateMappingShape(domain.PathMapping{SourcePrefix: value}); !errors.Is(err, ErrMappingInvalid) {
+			t.Errorf("source prefix %q error = %v", value, err)
+		}
+	}
+	for _, value := range []string{"/downloads", "C:/downloads", "Z:/"} {
+		if _, err := cleanSourcePrefix(value); err != nil {
+			t.Errorf("absolute source prefix %q error = %v", value, err)
+		}
+	}
+}
+
+func TestYAMLParseZeroesResolvedSecretsOnLaterFailure(t *testing.T) {
+	secret := []byte("tracked-secret")
+	resolver := &trackingResolver{secret: secret}
+	data := `version: 1
+connections:
+  - id: first
+    kind: radarr
+    label: First
+    endpoint: http://first.invalid
+    credentials:
+      apiKey:
+        file: /synthetic/first
+  - id: second
+    kind: radarr
+    label: Second
+    endpoint: http://second.invalid
+    credentials:
+      apiKey:
+        file: /synthetic/missing
+`
+	if _, err := ParseYAML([]byte(data), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Fatalf("later YAML failure = %v", err)
+	}
+	if !allZero(secret) {
+		t.Fatal("resolved secret survived later YAML failure")
+	}
+
+	secret = []byte("duplicate-secret")
+	resolver = &trackingResolver{secret: secret}
+	duplicate := `version: 1
+connections:
+  - id: duplicate
+    kind: radarr
+    label: First
+    endpoint: http://first.invalid
+    credentials:
+      apiKey:
+        file: /synthetic/first
+  - id: duplicate
+    kind: radarr
+    label: Second
+    endpoint: http://second.invalid
+    credentials:
+      apiKey:
+        file: /synthetic/first
+`
+	if _, err := ParseYAML([]byte(duplicate), ParseOptions{SecretResolver: resolver, StartupAt: testStartup}); !errors.Is(err, ErrInvalidDocument) {
+		t.Fatalf("duplicate YAML failure = %v", err)
+	}
+	if !allZero(secret) {
+		t.Fatal("resolved secret survived duplicate YAML failure")
+	}
+}
+
+func TestInvalidatorRunsOutsideConfigurationLock(t *testing.T) {
+	var manager *Manager
+	manager, err := New(Options{
+		Now: func() time.Time { return testStartup },
+		Invalidator: func(ctx context.Context, _ RevisionChange) error {
+			_, err := manager.Snapshot(ctx)
+			return err
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	root, err := manager.CreateStorageRoot(context.Background(), StorageRootSpec{ID: "movies", Label: "Movies", Purpose: domain.StorageLibrary, Path: "/media/movies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := manager.UpdateStorageRoot(context.Background(), root.ID, root.Revision, StorageRootPatch{Path: stringPtr("/media/new-movies")})
+	if err != nil || updated.Path != "/media/new-movies" {
+		t.Fatalf("reentrant invalidator update = %#v, err %v", updated, err)
+	}
+}
+
+func TestConcurrentUpdatesUseCompareAndSetAfterExternalInvalidation(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var callsMu sync.Mutex
+	calls := 0
+	manager, err := New(Options{
+		Now: func() time.Time { return testStartup },
+		Invalidator: func(_ context.Context, _ RevisionChange) error {
+			callsMu.Lock()
+			calls++
+			call := calls
+			callsMu.Unlock()
+			if call == 1 {
+				close(entered)
+				<-release
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	root, err := manager.CreateStorageRoot(context.Background(), StorageRootSpec{ID: "movies", Label: "Movies", Purpose: domain.StorageLibrary, Path: "/media/movies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, updateErr := manager.UpdateStorageRoot(context.Background(), root.ID, root.Revision, StorageRootPatch{Path: stringPtr("/media/first")})
+		firstDone <- updateErr
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first invalidator did not run")
+	}
+	second, secondErr := manager.UpdateStorageRoot(context.Background(), root.ID, root.Revision, StorageRootPatch{Path: stringPtr("/media/second")})
+	if secondErr != nil {
+		t.Fatalf("second concurrent update = %#v, err %v", second, secondErr)
+	}
+	close(release)
+	firstErr := <-firstDone
+	if !errors.Is(firstErr, ErrRevisionMismatch) {
+		t.Fatalf("stale first update error = %v", firstErr)
+	}
+	current, err := manager.GetStorageRoot(context.Background(), root.ID, false)
+	if err != nil || current.Path != "/media/second" {
+		t.Fatalf("compare-and-set winner = %#v, err %v", current, err)
+	}
+}
+
+func TestCredentialStoreRunsOutsideConfigurationLock(t *testing.T) {
+	crypt, err := credentials.NewManager(bytes.Repeat([]byte{0x34}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newFaultCredentialStore()
+	var manager *Manager
+	store.onLoad = func() {
+		_, _ = manager.Snapshot(context.Background())
+	}
+	store.onReplace = func() {
+		_, _ = manager.Snapshot(context.Background())
+	}
+	manager, err = New(Options{Now: func() time.Time { return testStartup }, CredentialManager: crypt, CredentialStore: store, IdentityVerifier: verifiedIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if _, err := manager.CreateConnection(context.Background(), ConnectionSpec{
+		ID: "radarr-main", Kind: domain.ConnectionRadarr, Label: "Movies", Endpoint: "http://radarr.invalid:7878",
+		Credentials: map[string]CredentialInput{"apiKey": {Value: []byte("store-key")}},
+	}); err != nil {
+		t.Fatalf("reentrant store create = %v", err)
+	}
+}
+
 func TestManagerSnapshotIsRaceSafeAndYAMLFileIsStartupOnly(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := writeTestFile(filePath, []byte(validYAML())); err != nil {
@@ -359,7 +766,13 @@ connections:
     credentials:
       apiKey:
         file: ` + secretPath + "\n"
-	manager, err := New(Options{Now: func() time.Time { return testStartup }, YAML: []byte(yaml)})
+	manager, err := New(Options{
+		Now:  func() time.Time { return testStartup },
+		YAML: []byte(yaml),
+		IdentityVerifier: func(_ context.Context, _ domain.Connection) (IdentityVerification, error) {
+			return IdentityVerified, nil
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,6 +847,95 @@ func slicesEqual(left, right []string) bool {
 	}
 	for index := range left {
 		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func verifiedIdentity(_ context.Context, _ domain.Connection) (IdentityVerification, error) {
+	return IdentityVerified, nil
+}
+
+type replaceMode uint8
+
+const (
+	replaceNormal replaceMode = iota
+	replaceCommitThenError
+	replacePartialThenError
+)
+
+type faultCredentialStore struct {
+	mu           sync.Mutex
+	values       map[domain.ConfigID]map[string]credentials.Envelope
+	replaceMode  replaceMode
+	replaceCalls int
+	onLoad       func()
+	onReplace    func()
+}
+
+func newFaultCredentialStore() *faultCredentialStore {
+	return &faultCredentialStore{values: make(map[domain.ConfigID]map[string]credentials.Envelope)}
+}
+
+func (store *faultCredentialStore) Load(ctx context.Context, id domain.ConfigID) (map[string]credentials.Envelope, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	if store.onLoad != nil {
+		store.onLoad()
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return cloneEnvelopeSet(store.values[id]), nil
+}
+
+func (store *faultCredentialStore) Replace(ctx context.Context, id domain.ConfigID, values map[string]credentials.Envelope) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if store.onReplace != nil {
+		store.onReplace()
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.replaceCalls++
+	switch store.replaceMode {
+	case replacePartialThenError:
+		partial := make(map[string]credentials.Envelope)
+		for field, envelope := range values {
+			partial["unexpected-"+field] = cloneEnvelope(envelope)
+			break
+		}
+		store.values[id] = partial
+		return errors.New("synthetic commit-then-error")
+	case replaceCommitThenError:
+		store.values[id] = cloneEnvelopeSet(values)
+		return errors.New("synthetic commit-then-error")
+	default:
+		store.values[id] = cloneEnvelopeSet(values)
+		return nil
+	}
+}
+
+type trackingResolver struct {
+	secret []byte
+}
+
+func (resolver *trackingResolver) Environment(string) (string, bool) {
+	return "", false
+}
+
+func (resolver *trackingResolver) File(filePath string) ([]byte, error) {
+	if filePath != "/synthetic/first" {
+		return nil, ErrCredentialUnavailable
+	}
+	return resolver.secret, nil
+}
+
+func allZero(value []byte) bool {
+	for _, item := range value {
+		if item != 0 {
 			return false
 		}
 	}

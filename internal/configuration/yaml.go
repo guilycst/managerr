@@ -137,22 +137,20 @@ type yamlTrash struct {
 	JanitorInterval string `yaml:"janitorInterval"`
 }
 
-func (raw yamlConnection) toDomain(source domain.SourceMetadata, resolver SecretResolver) (connection domain.Connection, values map[string][]byte, err error) {
+func (raw yamlConnection) toDomain(source domain.SourceMetadata, resolver SecretResolver) (domain.Connection, map[string][]byte, error) {
+	values := make(map[string][]byte, len(raw.Credentials))
+	keepValues := false
 	defer func() {
-		if err == nil {
+		if keepValues {
 			return
 		}
-		for key, value := range values {
-			zero(value)
-			delete(values, key)
-		}
+		zeroResolvedValues(values)
 	}()
 	id, err := domain.ParseConfigID(strings.TrimSpace(raw.ID))
 	if err != nil {
 		return domain.Connection{}, nil, fmt.Errorf("%w: connection id", ErrInvalidDocument)
 	}
-	connection = domain.Connection{ID: id, Kind: domain.ConnectionKind(raw.Kind), Label: raw.Label, Endpoint: raw.Endpoint, Source: source, Credentials: make(map[string]domain.CredentialReference, len(raw.Credentials))}
-	values = make(map[string][]byte, len(raw.Credentials))
+	connection := domain.Connection{ID: id, Kind: domain.ConnectionKind(raw.Kind), Label: raw.Label, Endpoint: raw.Endpoint, Source: source, Credentials: make(map[string]domain.CredentialReference, len(raw.Credentials))}
 	for field, rawCredential := range raw.Credentials {
 		rawField := field
 		field = strings.TrimSpace(field)
@@ -196,12 +194,9 @@ func (raw yamlConnection) toDomain(source domain.SourceMetadata, resolver Secret
 	}
 	connection.Revision = connectionRevision(connection)
 	if err := connection.Validate(); err != nil {
-		for key, value := range values {
-			zero(value)
-			delete(values, key)
-		}
 		return domain.Connection{}, nil, fmt.Errorf("%w: YAML connection", ErrInvalidDocument)
 	}
+	keepValues = true
 	return connection, values, nil
 }
 
