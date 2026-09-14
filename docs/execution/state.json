@@ -1292,7 +1292,7 @@
         "correctionRound": 3,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
-        "correctionDispatchCommit": null,
+        "correctionDispatchCommit": "8a07e4d144b4a66b6a34974aed0b0c4dd20fbf4e",
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
@@ -1302,7 +1302,7 @@
           "b78a30b6186f025f6dc59fb7911cd7adebecb0ea",
           "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191"
         ],
-        "correctionStatus": "awaiting_independent_review",
+        "correctionStatus": "review_dispatched",
         "correctionReviewSourceCommit": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191"
       },
       "reviewHistory": [
@@ -3345,7 +3345,7 @@
       ]
     }
   },
-  "nextAction": "F-03 correction round two is ready for independent review by /root/x05_reviewer against b65f5d65; F-05 correction round three remains active under /root/x05_implementer; W-02 correction remains queued.",
+  "nextAction": "F-03 final correction review is dispatched to /root/x05_reviewer against b65f5d65; F-05 correction round three remains active under /root/x05_implementer; W-02 correction remains queued.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
