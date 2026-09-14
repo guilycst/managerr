@@ -904,15 +904,28 @@ func validateCopiedNode(ctx context.Context, file *os.File, info fs.FileInfo, en
 				return childErr
 			}
 		}
+		finalNames, err := listDirectoryNames(file)
+		if err != nil {
+			return err
+		}
+		sort.Strings(finalNames)
+		if len(finalNames) != len(wanted) {
+			return ErrReconciliationNeeded
+		}
+		for index := range finalNames {
+			if finalNames[index] != wanted[index] {
+				return ErrReconciliationNeeded
+			}
+		}
 		return nil
 	}
 	if info.IsDir() || !info.Mode().IsRegular() || info.Size() != entry.Size {
 		return ErrReconciliationNeeded
 	}
-	return verifyFileDigest(ctx, file, entry.Digest, bufferSize)
+	return verifyFileDigest(ctx, file, info, entry.Digest, bufferSize)
 }
 
-func verifyFileDigest(ctx context.Context, file *os.File, expected string, bufferSize int) error {
+func verifyFileDigest(ctx context.Context, file *os.File, before fs.FileInfo, expected string, bufferSize int) error {
 	if bufferSize <= 0 {
 		bufferSize = placement.DefaultBufferSize
 	}
@@ -934,6 +947,13 @@ func verifyFileDigest(ctx context.Context, file *os.File, expected string, buffe
 		if readErr != nil {
 			return readErr
 		}
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !sameObject(before, after) || after.Size() != before.Size() {
+		return ErrReconciliationNeeded
 	}
 	actual := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 	if normalizeDigestValue(actual) != normalizeDigestValue(expected) {
