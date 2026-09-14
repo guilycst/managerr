@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -428,6 +429,41 @@ func TestCopyVerifyDeletePreservesDirectorySourceWhenDestinationDisappearsAtDele
 	}
 	assertSynthetic(t, sourcePath, "approved episode")
 	assertMissing(t, destinationPath)
+}
+
+func TestCopyVerifyDeleteDirectoryCompletesAndCleansProtection(t *testing.T) {
+	requireOrganizeWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := crossDeviceTempDir(t)
+	downloads := mustConfigID(t, "downloads")
+	library := mustConfigID(t, "library")
+	sourceDir := filepath.Join(sourceRoot, "pack")
+	sourcePath := filepath.Join(sourceDir, "episode.mkv")
+	destinationPath := filepath.Join(destinationRoot, "Shows", "Example")
+	mustMkdir(t, sourceDir)
+	writeSynthetic(t, sourcePath, "approved episode")
+	child := manifestFor(t, downloads, sourceRoot, "pack/episode.mkv", domain.ManifestFile)
+	entry := directoryManifest(t, downloads, sourceRoot, "pack", []domain.FileManifestEntry{child})
+	if sameFilesystem(t, sourcePath, destinationRoot) {
+		t.Skip("test host does not expose a separate filesystem")
+	}
+	organizer := mustOrganizer(t, sourceRoot, destinationRoot, downloads, library, Options{})
+	if _, err := organizer.CopyVerifyDeleteWithOperation(context.Background(), "cross-device-directory-complete", CrossDeviceMoveRequest{Files: []ports.FileMap{{
+		Source: entry, Destination: domain.FileTarget{RootID: library, RelativePath: "Shows/Example"},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	assertMissing(t, sourceDir)
+	assertSynthetic(t, filepath.Join(destinationPath, "episode.mkv"), "approved episode")
+	entries, err := os.ReadDir(destinationRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range entries {
+		if strings.HasPrefix(candidate.Name(), ".mastarr-copy-guard-") {
+			t.Fatalf("destination protection leaked %q", candidate.Name())
+		}
+	}
 }
 
 func TestNewRejectsConflictingPhysicalRootAliases(t *testing.T) {
