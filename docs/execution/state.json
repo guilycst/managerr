@@ -1326,15 +1326,25 @@
       ]
     },
     "X-05": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
       "evidence": [
         "dispatched from b1d0fed72128c73d565c2254b61fa5e38100fb97 after all listed dependencies passed",
-        "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a"
+        "2026-09-13 lease reconciliation: recorded implementer is no longer active; no product or handoff commit exists; lane requeued from 325ad2a",
+        "597e793fa37c4707f066380ecc91b19be5bf19ef X-05 product commit",
+        "00fdfcb6e3fc2780b54fe47d724ab0324bae36d9 X-05 handoff commit",
+        "X-05 implementer reports compatibility write probes, race, vet, module matrix, generation, Vacuum, architecture, lint, planning, and guardrail checks passed; G-01 remains explicitly blocked"
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "leaseHistory": [
         {
           "owner": "implementer",
@@ -1377,7 +1387,10 @@
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b",
           "F-01": "c39d906bd1544aa41de6821c46ce760571c9e374"
         }
-      }
+      },
+      "implementationCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef",
+      "handoffCommit": "00fdfcb6e3fc2780b54fe47d724ab0324bae36d9",
+      "reviewSourceCommit": "597e793fa37c4707f066380ecc91b19be5bf19ef"
     },
     "X-06": {
       "status": "planned",
@@ -2282,7 +2295,7 @@
       ]
     }
   },
-  "nextAction": "D-02 is in independent review at 8ff358be55891e7b7a588e76a57bd3e7d8ce661c; X-05 remains in implementation.",
+  "nextAction": "D-02 and X-05 are in independent review; await exact receipts before integration.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
