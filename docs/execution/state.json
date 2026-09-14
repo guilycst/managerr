@@ -1286,7 +1286,7 @@
         "correctionRound": 1,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "50e5a3a32e2acf975e3c489e4c75839a0d73a87e",
-        "correctionDispatchCommit": "PENDING_STATE_COMMIT",
+        "correctionDispatchCommit": "2291c41",
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
@@ -1535,7 +1535,7 @@
         "priorCorrectionRound": 1,
         "priorCorrectionImplementationCommit": "174ff5db3ff393af02b10db24e7a9ef70b76a56f",
         "priorCorrectionHandoffCommit": "2166486018bcc1512dcaa813104c507fe2f9dbbe",
-        "correctionDispatchCommit": "9919bd5ee8ed208cb3af1425022a862a92533c90",
+        "correctionDispatchCommit": "2291c41",
         "correctionProductCommits": [
           "f202aacafd24320cd45335064f97409d72b4c3ab",
           "58ffe6ae5bb50f7693164a28a3749d8c21e65411"
