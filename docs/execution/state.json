@@ -2579,15 +2579,25 @@
       ]
     },
     "X-14": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "1c9ed7deb542afda76797d7899f33d2c29247241",
       "integratedSha": null,
       "evidence": [
         "dispatched from 1c9ed7deb542afda76797d7899f33d2c29247241 after X-10, X-05, and X-07 approved client and adapter slices",
-        "X-14 extends the standalone qBittorrent compatibility contract for control operations without enabling runtime writes."
+        "X-14 extends the standalone qBittorrent compatibility contract for control operations without enabling runtime writes.",
+        "3fce4c79f4e52ba3147f300e8a460e9e44c228bc X-14 product commit",
+        "8e6b7831bfa5f1e1b84e0ad901c694e30d8623cc X-14 handoff commit",
+        "X-14 handoff records standalone module tests/race/vet/mod verify, generation, lint, Linux amd64/arm64, root control seam, API/Vacuum, architecture, planning and full guardrail checks passed."
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-14",
         "model": "gpt-5.6-luna",
@@ -2622,11 +2632,19 @@
           "X-07": "7b74043b3d4a8e76993dd6ff511e3982cfa5d369",
           "X-07-review": "b8861b865e081a998d9ba1661476aea5113a1cb6",
           "X-07-integration": "5e2c0ff540a9f9c9a7bfe5b9aeaba92c6872226e"
-        }
-      }
+        },
+        "implementationCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
+        "handoffCommit": "8e6b7831bfa5f1e1b84e0ad901c694e30d8623cc",
+        "reviewSourceCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
+        "reviewCommit": null,
+        "reviewIntegrationCommit": null
+      },
+      "implementationCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc",
+      "handoffCommit": "8e6b7831bfa5f1e1b84e0ad901c694e30d8623cc",
+      "reviewSourceCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc"
     }
   },
-  "nextAction": "D-03 configuration correction and X-14 qBittorrent control client are dispatched in parallel from 1c9ed7d; reviewers reserved.",
+  "nextAction": "D-03 correction and X-14 qBittorrent client review are active in parallel; reviewers must clear exact product commits before integration.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
