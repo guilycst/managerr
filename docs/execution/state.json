@@ -866,12 +866,15 @@
         "role": "implementer",
         "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
         "ownedPaths": [
-          "internal/configuration/"
+          "internal/configuration/",
+          "internal/credentials/"
         ],
         "expectedChecks": [
           "A-38",
           "A-39",
           "A-42",
+          "secret-backed static binding and offline-guessing regression",
+          "exact static candidate verification and same-value managed idempotence",
           "GOWORK=off root tests/race/vet/mod-verify",
           "YAML/API source ownership validation",
           "credential reference and revision tests",
@@ -899,7 +902,8 @@
         "reviewIntegrationCommit": "a493a8939d9f4d49a84f7d93fe5b82f2d7a50cca",
         "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
         "reviewCommit": "8676667a9ce9cd7fb1aaf683dfd635457ddc8bd8",
-        "correctionHandoffPath": "docs/execution/handoffs/D-03-correction-round3.md"
+        "correctionHandoffPath": "docs/execution/handoffs/D-03-correction-round3.md",
+        "correctionDispatchCommit": "433f8f0b6b7be3e4230e53510943746d24e566da"
       },
       "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
       "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
@@ -2727,7 +2731,7 @@
       ]
     }
   },
-  "nextAction": "D-03 correction round three is ready for dispatch against the three P1 findings; X-14 is approved. Keep root qBittorrent control integration gated on published nested-module bootstrap and G-01/live capability evidence.",
+  "nextAction": "D-03 correction round three dispatched to /root/d02_implementer with /root/d02_reviewer reserved for independent review; X-14 is approved. Root qBittorrent control integration remains gated on published nested-module bootstrap and G-01/live capability evidence.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
