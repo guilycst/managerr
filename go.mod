@@ -12,6 +12,7 @@ require (
 	github.com/guilycst/mastarr/clients/qbittorrent v0.0.0-20260912004727-a9c847ff562f
 	github.com/oapi-codegen/runtime v1.7.0
 	golang.org/x/sys v0.47.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
 )
 
