@@ -62,18 +62,101 @@ type arrCommandFile struct {
 	EpisodeIDs []int  `json:"episodeIds,omitempty"`
 }
 
-type arrMovieReadback struct {
-	ID        int           `json:"id"`
-	MovieFile *arrMovieFile `json:"movieFile,omitempty"`
+type arrRaceFixture struct {
+	Upstream    string         `json:"upstream"`
+	Source      string         `json:"source"`
+	Destination string         `json:"destination"`
+	Preview     arrFixtureCase `json:"preview"`
+	Rejection   arrFixtureCase `json:"rejection"`
+	Race        arrRaceCase    `json:"race"`
+	Expected    string         `json:"expected"`
 }
 
-type arrMovieFile struct {
+type arrFixtureCase struct {
+	Path       string         `json:"path"`
+	Rejections []arrRejection `json:"rejections"`
+}
+
+type arrRaceCase struct {
+	ExternalReplacement string `json:"externalReplacement"`
+	NativeCommand       string `json:"nativeCommand"`
+}
+
+type qbtStopFixture struct {
+	Upstream string `json:"upstream"`
+	Hash     string `json:"hash"`
+	Initial  struct {
+		State   string `json:"state"`
+		UpSpeed int64  `json:"upspeed"`
+	} `json:"initial"`
+	Stop struct {
+		Endpoint       string `json:"endpoint"`
+		LostResponse   bool   `json:"lostResponse"`
+		ExternalResume string `json:"externalResume"`
+	} `json:"stop"`
+	Expected string `json:"expected"`
+}
+
+type qbtScopeFixture struct {
+	Upstream   string   `json:"upstream"`
+	Hash       string   `json:"hash"`
+	Files      []string `json:"files"`
+	Operations []struct {
+		Endpoint    string `json:"endpoint"`
+		OldPath     string `json:"oldPath"`
+		NewPath     string `json:"newPath"`
+		DeleteFiles *bool  `json:"deleteFiles,omitempty"`
+	} `json:"operations"`
+	Expected string `json:"expected"`
+}
+
+type jellyfinRefreshFixture struct {
+	Upstream            string `json:"upstream"`
+	Scope               string `json:"scope"`
+	Endpoint            string `json:"endpoint"`
+	AcceptedStatus      int    `json:"acceptedStatus"`
+	InitialAvailability string `json:"initialAvailability"`
+	LaterAvailability   string `json:"laterAvailability"`
+	Expected            string `json:"expected"`
+}
+
+type sonarrEpisodeReadback struct {
+	ID            int                        `json:"id"`
+	SeriesID      int                        `json:"seriesId"`
+	EpisodeFileID int                        `json:"episodeFileId"`
+	EpisodeFile   *sonarrEpisodeFileReadback `json:"episodeFile,omitempty"`
+}
+
+type sonarrEpisodeFileReadback struct {
+	ID   int    `json:"id"`
 	Path string `json:"path"`
 }
 
+type sonarrHistoryRecord struct {
+	ID          int    `json:"id"`
+	EventType   string `json:"eventType"`
+	EpisodeID   int    `json:"episodeId"`
+	SourceTitle string `json:"sourceTitle"`
+	DownloadID  string `json:"downloadId"`
+}
+
+type expectedEpisodeFile struct {
+	Path       string
+	EpisodeIDs []int
+}
+
+type observedEpisodeFile struct {
+	Path       string
+	EpisodeIDs []int
+}
+
 func TestArrPreviewRejectionDoesNotAuthorizeCommand(t *testing.T) {
-	const source = "/synthetic/downloads/Synthetic Film (2024).mkv"
-	const destination = "/synthetic/library/Synthetic Film (2024).mkv"
+	var fixture arrRaceFixture
+	readFixture(t, "arr-no-overwrite-race.json", &fixture)
+	source, destination := fixture.Source, fixture.Destination
+	if fixture.Upstream == "" || fixture.Expected == "" || fixture.Race.NativeCommand == "" || source == "" || destination == "" || fixture.Rejection.Path != source || len(fixture.Rejection.Rejections) != 1 {
+		t.Fatalf("fixture = %#v, want explicit rejection case", fixture)
+	}
 
 	var commandCalls atomic.Int32
 	files := map[string][]byte{
@@ -84,15 +167,15 @@ func TestArrPreviewRejectionDoesNotAuthorizeCommand(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/manualimport":
 			writeJSON(t, w, []arrPreviewCandidate{{
-				Path:       source,
+				Path:       fixture.Rejection.Path,
 				Movie:      &arrMovie{ID: 101},
-				Rejections: []arrRejection{{Type: "ExistingFile", Message: "synthetic destination exists"}},
+				Rejections: fixture.Rejection.Rejections,
 			}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v3/command":
 			commandCalls.Add(1)
 			var command arrCommand
 			decodeJSON(t, r, &command)
-			if command.Name != "ManualImport" || len(command.Files) != 1 || command.Files[0].Path != source {
+			if command.Name != fixture.Race.NativeCommand || len(command.Files) != 1 || command.Files[0].Path != source {
 				t.Errorf("command = %#v, want exact synthetic ManualImport file", command)
 			}
 			// Native command execution receives no preview rejection. This models
@@ -117,7 +200,7 @@ func TestArrPreviewRejectionDoesNotAuthorizeCommand(t *testing.T) {
 	// Direct command call proves the upstream route can bypass GET evidence;
 	// Mastarr must therefore refuse dispatch rather than trust command success.
 	postJSON(t, server.Client(), server.URL+"/api/v3/command", arrCommand{
-		Name:  "ManualImport",
+		Name:  fixture.Race.NativeCommand,
 		Files: []arrCommandFile{{Path: source, MovieID: 101}},
 	}, nil)
 	if got, want := commandCalls.Load(), int32(1); got != want {
@@ -129,8 +212,12 @@ func TestArrPreviewRejectionDoesNotAuthorizeCommand(t *testing.T) {
 }
 
 func TestArrNativeCommandRaceProvesNoOverwriteUnknown(t *testing.T) {
-	const source = "/synthetic/downloads/Synthetic Film (2024).mkv"
-	const destination = "/synthetic/library/Synthetic Film (2024).mkv"
+	var fixture arrRaceFixture
+	readFixture(t, "arr-no-overwrite-race.json", &fixture)
+	source, destination := fixture.Source, fixture.Destination
+	if fixture.Upstream == "" || fixture.Expected == "" || fixture.Race.NativeCommand == "" || fixture.Race.ExternalReplacement == "" || source == "" || destination == "" || fixture.Preview.Path != source || len(fixture.Preview.Rejections) != 0 {
+		t.Fatalf("fixture = %#v, want accepted race preview", fixture)
+	}
 
 	var filesMu sync.Mutex
 	files := map[string][]byte{source: []byte("synthetic-source-bytes")}
@@ -140,9 +227,14 @@ func TestArrNativeCommandRaceProvesNoOverwriteUnknown(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/manualimport":
-			writeJSON(t, w, []arrPreviewCandidate{{Path: source, Movie: &arrMovie{ID: 101}}})
+			writeJSON(t, w, []arrPreviewCandidate{{Path: fixture.Preview.Path, Movie: &arrMovie{ID: 101}, Rejections: fixture.Preview.Rejections}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v3/command":
 			commandCalls.Add(1)
+			var command arrCommand
+			decodeJSON(t, r, &command)
+			if command.Name != fixture.Race.NativeCommand || len(command.Files) != 1 || command.Files[0].Path != source {
+				t.Errorf("command = %#v, want exact synthetic %s file", command, fixture.Race.NativeCommand)
+			}
 			close(commandEntered)
 			<-releaseCommand
 			filesMu.Lock()
@@ -164,7 +256,7 @@ func TestArrNativeCommandRaceProvesNoOverwriteUnknown(t *testing.T) {
 	result := make(chan error, 1)
 	go func() {
 		_, err := postJSON(t, server.Client(), server.URL+"/api/v3/command", arrCommand{
-			Name:  "ManualImport",
+			Name:  fixture.Race.NativeCommand,
 			Files: []arrCommandFile{{Path: source, MovieID: 101}},
 		}, nil)
 		result <- err
@@ -173,7 +265,7 @@ func TestArrNativeCommandRaceProvesNoOverwriteUnknown(t *testing.T) {
 
 	// External writer wins the preflight race after native command dispatch.
 	filesMu.Lock()
-	files[destination] = []byte("external-writer-bytes")
+	files[destination] = []byte(fixture.Race.ExternalReplacement)
 	filesMu.Unlock()
 	close(releaseCommand)
 	if err := <-result; err != nil {
@@ -197,7 +289,10 @@ func TestArrNativeCommandRaceProvesNoOverwriteUnknown(t *testing.T) {
 func TestArrPartialPackReconcilesPerFile(t *testing.T) {
 	const first = "/synthetic/downloads/Synthetic Pack/S01E01.mkv"
 	const second = "/synthetic/downloads/Synthetic Pack/S01E02.mkv"
-	var imported []string
+	var commandEvidence struct {
+		ID     int    `json:"id"`
+		Status string `json:"status"`
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v3/command":
@@ -206,10 +301,26 @@ func TestArrPartialPackReconcilesPerFile(t *testing.T) {
 			if command.Name != "ManualImport" || len(command.Files) != 2 {
 				t.Errorf("command = %#v, want two exact pack files", command)
 			}
-			imported = []string{first}
 			writeJSON(t, w, map[string]any{"id": 7003, "status": "completed"})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/series/201":
-			writeJSON(t, w, arrMovieReadback{ID: 201, MovieFile: &arrMovieFile{Path: first}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/history":
+			if got := r.URL.Query().Get("page"); got != "1" {
+				t.Errorf("history page = %q, want 1", got)
+			}
+			writeJSON(t, w, map[string]any{"records": []sonarrHistoryRecord{{
+				ID: 9001, EventType: "Downloaded", EpisodeID: 301, SourceTitle: first,
+				DownloadID: "synthetic-download-1",
+			}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/episode":
+			if got := r.URL.Query().Get("seriesId"); got != "201" {
+				t.Errorf("seriesId = %q, want 201", got)
+			}
+			if got := r.URL.Query().Get("includeEpisodeFile"); got != "true" {
+				t.Errorf("includeEpisodeFile = %q, want true", got)
+			}
+			writeJSON(t, w, []sonarrEpisodeReadback{
+				{ID: 301, SeriesID: 201, EpisodeFileID: 801, EpisodeFile: &sonarrEpisodeFileReadback{ID: 801, Path: first}},
+				{ID: 302, SeriesID: 201},
+			})
 		default:
 			http.Error(w, "synthetic route not found", http.StatusNotFound)
 		}
@@ -222,16 +333,27 @@ func TestArrPartialPackReconcilesPerFile(t *testing.T) {
 			{Path: first, SeriesID: 201, EpisodeIDs: []int{301}},
 			{Path: second, SeriesID: 201, EpisodeIDs: []int{302}},
 		},
-	}, nil)
+	}, &commandEvidence)
 	if err != nil {
 		t.Fatalf("command: %v", err)
 	}
-	var readback arrMovieReadback
-	getJSON(t, server.Client(), server.URL+"/api/v3/series/201", &readback)
-	if readback.MovieFile == nil || readback.MovieFile.Path != first {
-		t.Fatalf("readback = %#v, want first imported file", readback)
+	if commandEvidence.ID != 7003 || commandEvidence.Status != "completed" {
+		t.Fatalf("command evidence = %#v, want completed command ID", commandEvidence)
 	}
-	results := reconcileFiles([]string{first, second}, imported)
+	var historyEnvelope struct {
+		Records []sonarrHistoryRecord `json:"records"`
+	}
+	getJSON(t, server.Client(), server.URL+"/api/v3/history?page=1&pageSize=100", &historyEnvelope)
+	if len(historyEnvelope.Records) != 1 || historyEnvelope.Records[0].ID != 9001 || historyEnvelope.Records[0].EventType != "Downloaded" || historyEnvelope.Records[0].EpisodeID != 301 || historyEnvelope.Records[0].SourceTitle != first || historyEnvelope.Records[0].DownloadID != "synthetic-download-1" {
+		t.Fatalf("history evidence = %#v, want one first-episode event", historyEnvelope.Records)
+	}
+	var readback []sonarrEpisodeReadback
+	getJSON(t, server.Client(), server.URL+"/api/v3/episode?seriesId=201&includeEpisodeFile=true", &readback)
+	observed := sonarrFileEvidence(readback)
+	results := reconcileEpisodeFiles([]expectedEpisodeFile{
+		{Path: first, EpisodeIDs: []int{301}},
+		{Path: second, EpisodeIDs: []int{302}},
+	}, observed)
 	if results[first] != "applied" || results[second] != "unresolved" {
 		t.Fatalf("per-file results = %#v, want applied plus unresolved", results)
 	}
@@ -268,8 +390,13 @@ func newQBTServer(t *testing.T, fixture *qbtFixture) *httptest.Server {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/torrents/info":
 			fixture.mu.Lock()
+			removed := fixture.removed
 			info := qbtInfo{Hash: fixture.hash, State: fixture.state, UpSpeed: fixture.upSpeed}
 			fixture.mu.Unlock()
+			if removed {
+				writeJSON(t, w, []qbtInfo{})
+				return
+			}
 			writeJSON(t, w, []qbtInfo{info})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/torrents/files":
 			fixture.mu.Lock()
@@ -305,17 +432,20 @@ func newQBTServer(t *testing.T, fixture *qbtFixture) *httptest.Server {
 				http.Error(w, "synthetic hash mismatch", http.StatusBadRequest)
 				return
 			}
-			deleteFiles := r.PostForm.Get("deleteFiles") == "true"
+			// qBittorrent's documented delete endpoint accepts an explicit
+			// boolean. The safety contract requires sending false, rather than
+			// relying on omission or treating any non-true value as false.
+			if got := r.PostForm.Get("deleteFiles"); got != "false" {
+				http.Error(w, "deleteFiles must be the explicit false value", http.StatusBadRequest)
+				return
+			}
+			deleteFiles := false
 			fixture.mu.Lock()
 			fixture.removeDeleteFiles = append(fixture.removeDeleteFiles, deleteFiles)
 			if !deleteFiles {
 				fixture.removed = true
 			}
 			fixture.mu.Unlock()
-			if deleteFiles {
-				http.Error(w, "deleteFiles=true is outside Mastarr scope", http.StatusBadRequest)
-				return
-			}
 			_, _ = io.WriteString(w, "")
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/torrents/renameFolder":
 			if err := renameQBTFolder(fixture, r); err != nil {
@@ -336,10 +466,15 @@ func newQBTServer(t *testing.T, fixture *qbtFixture) *httptest.Server {
 }
 
 func TestQBTZeroUploadIsNotStopped(t *testing.T) {
+	var spec qbtStopFixture
+	readFixture(t, "qbittorrent-stop.json", &spec)
+	if spec.Upstream != "qBittorrent WebUI API v2" || spec.Hash == "" || spec.Initial.State == "" || spec.Expected == "" {
+		t.Fatalf("qBittorrent stop fixture = %#v, want complete synthetic contract", spec)
+	}
 	fixture := &qbtFixture{
-		hash:    "0123456789abcdef0123456789abcdef01234567",
-		state:   "stalledUP",
-		upSpeed: 0,
+		hash:    spec.Hash,
+		state:   spec.Initial.State,
+		upSpeed: spec.Initial.UpSpeed,
 		files:   map[string][]byte{"Synthetic Film.mkv": []byte("synthetic")},
 	}
 	server := newQBTServer(t, fixture)
@@ -347,7 +482,7 @@ func TestQBTZeroUploadIsNotStopped(t *testing.T) {
 
 	var infos []qbtInfo
 	getJSON(t, server.Client(), server.URL+"/api/v2/torrents/info?hashes="+fixture.hash, &infos)
-	if len(infos) != 1 || infos[0].UpSpeed != 0 {
+	if len(infos) != 1 || infos[0].UpSpeed != spec.Initial.UpSpeed {
 		t.Fatalf("torrent info = %#v, want zero-speed synthetic seeding state", infos)
 	}
 	if qbtStopped(infos[0].State) {
@@ -356,17 +491,22 @@ func TestQBTZeroUploadIsNotStopped(t *testing.T) {
 }
 
 func TestQBTLostStopResponseReconcilesBeforePayloadMutation(t *testing.T) {
+	var spec qbtStopFixture
+	readFixture(t, "qbittorrent-stop.json", &spec)
+	if spec.Stop.Endpoint != "/api/v2/torrents/stop" || !spec.Stop.LostResponse || spec.Stop.ExternalResume == "" {
+		t.Fatalf("qBittorrent stop fixture = %#v, want lost-response contract", spec)
+	}
 	fixture := &qbtFixture{
-		hash:             "0123456789abcdef0123456789abcdef01234567",
-		state:            "stalledUP",
-		upSpeed:          0,
+		hash:             spec.Hash,
+		state:            spec.Initial.State,
+		upSpeed:          spec.Initial.UpSpeed,
 		files:            map[string][]byte{"Synthetic Film.mkv": []byte("synthetic")},
-		lostStopResponse: true,
+		lostStopResponse: spec.Stop.LostResponse,
 	}
 	server := newQBTServer(t, fixture)
 	t.Cleanup(server.Close)
 
-	_, err := postForm(t, server.Client(), server.URL+"/api/v2/torrents/stop", url.Values{"hashes": {fixture.hash}})
+	_, err := postForm(t, server.Client(), server.URL+spec.Stop.Endpoint, url.Values{"hashes": {fixture.hash}})
 	if err == nil {
 		t.Fatal("lost stop response unexpectedly returned success")
 	}
@@ -379,7 +519,7 @@ func TestQBTLostStopResponseReconcilesBeforePayloadMutation(t *testing.T) {
 	// Another actor resumes seeding after the first read-back. Payload action
 	// must perform a fresh observation and stop when state is no longer safe.
 	fixture.mu.Lock()
-	fixture.state = "stalledUP"
+	fixture.state = spec.Stop.ExternalResume
 	fixture.mu.Unlock()
 	var resumed []qbtInfo
 	getJSON(t, server.Client(), server.URL+"/api/v2/torrents/info?hashes="+fixture.hash, &resumed)
@@ -398,14 +538,19 @@ func TestQBTLostStopResponseReconcilesBeforePayloadMutation(t *testing.T) {
 }
 
 func TestQBTPartialTrashStopsWholeTorrentAndRemovesMetadataOnly(t *testing.T) {
+	var spec qbtScopeFixture
+	readFixture(t, "qbittorrent-scope.json", &spec)
+	if spec.Upstream != "qBittorrent WebUI API v2" || spec.Hash == "" || spec.Expected == "" || len(spec.Files) != 3 || len(spec.Operations) != 2 {
+		t.Fatalf("qBittorrent scope fixture = %#v, want three files and two operations", spec)
+	}
+	deleteOperation := spec.Operations[1]
+	if deleteOperation.Endpoint != "/api/v2/torrents/delete" || deleteOperation.DeleteFiles == nil || *deleteOperation.DeleteFiles {
+		t.Fatalf("delete operation = %#v, want documented delete route with deleteFiles=false", deleteOperation)
+	}
 	fixture := &qbtFixture{
-		hash:  "0123456789abcdef0123456789abcdef01234567",
+		hash:  spec.Hash,
 		state: "stalledUP",
-		files: map[string][]byte{
-			"Synthetic Pack/episode-one.mkv": []byte("one"),
-			"Synthetic Pack/episode-two.mkv": []byte("two"),
-			"Synthetic Pack/sample.txt":      []byte("sample"),
-		},
+		files: syntheticQBTFiles(t, spec.Files),
 	}
 	server := newQBTServer(t, fixture)
 	t.Cleanup(server.Close)
@@ -418,11 +563,16 @@ func TestQBTPartialTrashStopsWholeTorrentAndRemovesMetadataOnly(t *testing.T) {
 	if len(stopped) != 1 || !qbtStopped(stopped[0].State) {
 		t.Fatalf("stopped readback = %#v", stopped)
 	}
-	if _, err := postForm(t, server.Client(), server.URL+"/api/v2/torrents/delete", url.Values{
+	if _, err := postForm(t, server.Client(), server.URL+deleteOperation.Endpoint, url.Values{
 		"hashes":      {fixture.hash},
 		"deleteFiles": {"false"},
 	}); err != nil {
 		t.Fatalf("metadata-only remove: %v", err)
+	}
+	var inventory []qbtInfo
+	getJSON(t, server.Client(), server.URL+"/api/v2/torrents/info?hashes="+fixture.hash, &inventory)
+	if len(inventory) != 0 {
+		t.Fatalf("torrent inventory after metadata removal = %#v, want record removed", inventory)
 	}
 
 	fixture.mu.Lock()
@@ -433,38 +583,49 @@ func TestQBTPartialTrashStopsWholeTorrentAndRemovesMetadataOnly(t *testing.T) {
 	if !removed || len(deleteFlags) != 1 || deleteFlags[0] {
 		t.Fatalf("remove state removed=%v deleteFlags=%v, want metadata-only", removed, deleteFlags)
 	}
-	if len(deferred) != 3 || !bytes.Equal(deferred["Synthetic Pack/episode-two.mkv"], []byte("two")) || !bytes.Equal(deferred["Synthetic Pack/sample.txt"], []byte("sample")) {
-		t.Fatalf("payload after metadata removal = %#v, want all three synthetic files retained", deferred)
+	if len(deferred) != len(spec.Files) {
+		t.Fatalf("payload after metadata removal = %#v, want all synthetic files retained", deferred)
+	}
+	for _, absolute := range spec.Files {
+		relative := qbtRelativePath(t, absolute)
+		if !bytes.Equal(deferred[relative], []byte("synthetic payload:"+absolute)) {
+			t.Fatalf("payload %q after metadata removal = %q, want retained synthetic bytes", relative, deferred[relative])
+		}
 	}
 }
 
 func TestQBTNativeRenameRequiresWholeTorrentAndReadback(t *testing.T) {
+	var spec qbtScopeFixture
+	readFixture(t, "qbittorrent-scope.json", &spec)
+	if spec.Upstream != "qBittorrent WebUI API v2" || spec.Hash == "" || spec.Expected == "" || len(spec.Files) < 3 || len(spec.Operations) < 1 {
+		t.Fatalf("qBittorrent scope fixture = %#v, want rename scope contract", spec)
+	}
+	folderOperation := spec.Operations[0]
+	if folderOperation.Endpoint != "/api/v2/torrents/renameFolder" || folderOperation.OldPath == "" || folderOperation.NewPath == "" {
+		t.Fatalf("rename operation = %#v, want documented folder rename route", folderOperation)
+	}
+	all := qbtRelativePaths(t, spec.Files)
 	fixture := &qbtFixture{
-		hash:  "0123456789abcdef0123456789abcdef01234567",
+		hash:  spec.Hash,
 		state: "pausedUP",
-		files: map[string][]byte{
-			"Synthetic Pack/episode-one.mkv": []byte("one"),
-			"Synthetic Pack/episode-two.mkv": []byte("two"),
-			"Synthetic Pack/existing.mkv":    []byte("existing"),
-		},
+		files: syntheticQBTFiles(t, spec.Files),
 	}
 	server := newQBTServer(t, fixture)
 	t.Cleanup(server.Close)
 
-	all := []string{"Synthetic Pack/episode-one.mkv", "Synthetic Pack/episode-two.mkv", "Synthetic Pack/existing.mkv"}
 	if qbtNativeScopeAllowed(all[:1], all) {
 		t.Fatal("native folder rename must refuse selected-file scope")
 	}
-	if _, err := postForm(t, server.Client(), server.URL+"/api/v2/torrents/renameFolder", url.Values{
+	if _, err := postForm(t, server.Client(), server.URL+folderOperation.Endpoint, url.Values{
 		"hash":    {fixture.hash},
-		"oldPath": {"Synthetic Pack"},
-		"newPath": {"Renamed Pack"},
+		"oldPath": {folderOperation.OldPath},
+		"newPath": {folderOperation.NewPath},
 	}); err != nil {
 		t.Fatalf("whole-torrent folder rename: %v", err)
 	}
 	var renamed []qbtFile
 	getJSON(t, server.Client(), server.URL+"/api/v2/torrents/files?hash="+fixture.hash, &renamed)
-	want := []string{"Renamed Pack/episode-one.mkv", "Renamed Pack/episode-two.mkv", "Renamed Pack/existing.mkv"}
+	want := qbtRenamedPaths(all, folderOperation.OldPath, folderOperation.NewPath)
 	if got := qbtFileNames(renamed); !sameStringSet(got, want) {
 		t.Fatalf("renamed paths = %#v, want %#v", got, want)
 	}
@@ -472,8 +633,8 @@ func TestQBTNativeRenameRequiresWholeTorrentAndReadback(t *testing.T) {
 	before := cloneFileMapLocked(fixture)
 	if _, err := postForm(t, server.Client(), server.URL+"/api/v2/torrents/renameFile", url.Values{
 		"hash":    {fixture.hash},
-		"oldPath": {"Renamed Pack/episode-one.mkv"},
-		"newPath": {"Renamed Pack/existing.mkv"},
+		"oldPath": {want[0]},
+		"newPath": {want[len(want)-1]},
 	}); err == nil {
 		t.Fatal("native rename collision unexpectedly succeeded")
 	}
@@ -489,13 +650,18 @@ type jellyfinItem struct {
 }
 
 func TestJellyfinRefreshAcceptanceIsSeparateFromAvailability(t *testing.T) {
+	var spec jellyfinRefreshFixture
+	readFixture(t, "jellyfin-refresh.json", &spec)
+	if spec.Upstream != "Jellyfin library refresh candidate" || spec.Scope != "library" || spec.Endpoint == "" || spec.AcceptedStatus == 0 || spec.InitialAvailability == "" || spec.LaterAvailability == "" || spec.Expected == "" {
+		t.Fatalf("Jellyfin refresh fixture = %#v, want complete synthetic contract", spec)
+	}
 	var refreshCalls atomic.Int32
 	var visible atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/Library/Refresh":
+		case r.Method == http.MethodPost && r.URL.Path == spec.Endpoint:
 			refreshCalls.Add(1)
-			w.WriteHeader(http.StatusAccepted)
+			w.WriteHeader(spec.AcceptedStatus)
 		case r.Method == http.MethodGet && r.URL.Path == "/Items":
 			if visible.Load() {
 				writeJSON(t, w, map[string]any{"Items": []jellyfinItem{{ID: "jf-101", Path: "/synthetic/library/Synthetic Film (2024).mkv"}}})
@@ -512,23 +678,23 @@ func TestJellyfinRefreshAcceptanceIsSeparateFromAvailability(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	response, err := http.Post(server.URL+"/Library/Refresh", "application/json", nil)
+	response, err := http.Post(server.URL+spec.Endpoint, "application/json", nil)
 	if err != nil {
 		t.Fatalf("library refresh: %v", err)
 	}
 	response.Body.Close()
-	if response.StatusCode != http.StatusAccepted {
-		t.Fatalf("refresh status = %d, want 202", response.StatusCode)
+	if response.StatusCode != spec.AcceptedStatus {
+		t.Fatalf("refresh status = %d, want %d", response.StatusCode, spec.AcceptedStatus)
 	}
 	var before map[string][]jellyfinItem
 	getJSON(t, server.Client(), server.URL+"/Items", &before)
-	if len(before["Items"]) != 0 {
+	if spec.InitialAvailability != "absent" || len(before["Items"]) != 0 {
 		t.Fatalf("availability immediately after refresh = %#v, want absent", before)
 	}
 	visible.Store(true)
 	var after map[string][]jellyfinItem
 	getJSON(t, server.Client(), server.URL+"/Items", &after)
-	if len(after["Items"]) != 1 || after["Items"][0].ID != "jf-101" {
+	if spec.LaterAvailability != "present" || len(after["Items"]) != 1 || after["Items"][0].ID != "jf-101" {
 		t.Fatalf("later availability = %#v, want one synthetic item", after)
 	}
 	if refreshCalls.Load() != 1 {
@@ -553,6 +719,7 @@ func TestJellyfinRefreshAcceptanceIsSeparateFromAvailability(t *testing.T) {
 type subtitleFixture struct {
 	Video     animeVideo      `json:"video"`
 	Subtitles []subtitleEntry `json:"subtitles"`
+	Expected  string          `json:"expected"`
 }
 
 type animeVideo struct {
@@ -573,7 +740,7 @@ type subtitleEntry struct {
 func TestArrSubtitleAndAnimeMappingsRequireExplicitAssociations(t *testing.T) {
 	var fixture subtitleFixture
 	readFixture(t, "arr-subtitle-anime.json", &fixture)
-	if len(fixture.Video.EpisodeIDs) != len(fixture.Video.AbsoluteNumbers) || len(fixture.Video.EpisodeIDs) != 2 {
+	if fixture.Video.Path == "" || fixture.Expected == "" || len(fixture.Video.EpisodeIDs) != len(fixture.Video.AbsoluteNumbers) || len(fixture.Video.EpisodeIDs) != 2 {
 		t.Fatalf("anime mapping = %#v, want two explicit absolute-number associations", fixture.Video)
 	}
 	if got := explicitEpisodeIDs(fixture.Video); !sameStrings(got, []string{"401", "402"}) {
@@ -627,17 +794,31 @@ func reconcileArrRace(preflightPassed, externalRace bool) string {
 	return "applied"
 }
 
-func reconcileFiles(expected, observed []string) map[string]string {
-	seen := make(map[string]struct{}, len(observed))
-	for _, path := range observed {
-		seen[path] = struct{}{}
+func sonarrFileEvidence(episodes []sonarrEpisodeReadback) map[string]observedEpisodeFile {
+	observed := make(map[string]observedEpisodeFile)
+	for _, episode := range episodes {
+		if episode.ID == 0 || episode.SeriesID == 0 || episode.EpisodeFile == nil || episode.EpisodeFile.Path == "" {
+			continue
+		}
+		if episode.EpisodeFileID == 0 || episode.EpisodeFile.ID != episode.EpisodeFileID {
+			continue
+		}
+		file := observed[episode.EpisodeFile.Path]
+		file.Path = episode.EpisodeFile.Path
+		file.EpisodeIDs = append(file.EpisodeIDs, episode.ID)
+		observed[episode.EpisodeFile.Path] = file
 	}
+	return observed
+}
+
+func reconcileEpisodeFiles(expected []expectedEpisodeFile, observed map[string]observedEpisodeFile) map[string]string {
 	result := make(map[string]string, len(expected))
-	for _, path := range expected {
-		if _, ok := seen[path]; ok {
-			result[path] = "applied"
+	for _, file := range expected {
+		actual, ok := observed[file.Path]
+		if ok && sameIntSet(file.EpisodeIDs, actual.EpisodeIDs) {
+			result[file.Path] = "applied"
 		} else {
-			result[path] = "unresolved"
+			result[file.Path] = "unresolved"
 		}
 	}
 	return result
@@ -686,6 +867,52 @@ func qbtFileNames(files []qbtFile) []string {
 		names = append(names, file.Name)
 	}
 	return names
+}
+
+const syntheticQBTDownloadRoot = "/synthetic/downloads/"
+
+func qbtRelativePath(t *testing.T, absolute string) string {
+	t.Helper()
+	relative := strings.TrimPrefix(absolute, syntheticQBTDownloadRoot)
+	if relative == absolute || relative == "" || strings.HasPrefix(relative, "/") {
+		t.Fatalf("qBittorrent fixture path %q is outside synthetic download root", absolute)
+	}
+	return relative
+}
+
+func qbtRelativePaths(t *testing.T, absolute []string) []string {
+	t.Helper()
+	relative := make([]string, 0, len(absolute))
+	for _, path := range absolute {
+		relative = append(relative, qbtRelativePath(t, path))
+	}
+	return relative
+}
+
+func syntheticQBTFiles(t *testing.T, absolute []string) map[string][]byte {
+	t.Helper()
+	files := make(map[string][]byte, len(absolute))
+	for _, path := range absolute {
+		relative := qbtRelativePath(t, path)
+		if _, exists := files[relative]; exists {
+			t.Fatalf("qBittorrent fixture repeats file path %q", path)
+		}
+		files[relative] = []byte("synthetic payload:" + path)
+	}
+	return files
+}
+
+func qbtRenamedPaths(names []string, oldPath, newPath string) []string {
+	renamed := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == oldPath || strings.HasPrefix(name, oldPath+"/") {
+			suffix := strings.TrimPrefix(name, oldPath)
+			renamed = append(renamed, strings.TrimPrefix(newPath+suffix, "/"))
+			continue
+		}
+		renamed = append(renamed, name)
+	}
+	return renamed
 }
 
 func renameQBTFolder(fixture *qbtFixture, r *http.Request) error {
@@ -823,6 +1050,28 @@ func sameStringSet(left, right []string) bool {
 		return false
 	}
 	counts := make(map[string]int, len(left))
+	for _, value := range left {
+		counts[value]++
+	}
+	for _, value := range right {
+		counts[value]--
+		if counts[value] < 0 {
+			return false
+		}
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func sameIntSet(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[int]int, len(left))
 	for _, value := range left {
 		counts[value]++
 	}

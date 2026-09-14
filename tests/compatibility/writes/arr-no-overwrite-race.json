@@ -6,6 +6,10 @@
     "path": "/synthetic/downloads/Synthetic Film (2024).mkv",
     "rejections": []
   },
+  "rejection": {
+    "path": "/synthetic/downloads/Synthetic Film (2024).mkv",
+    "rejections": [{"type": "ExistingFile", "message": "synthetic destination exists"}]
+  },
   "race": {
     "externalReplacement": "external-writer-bytes",
     "nativeCommand": "ManualImport"
