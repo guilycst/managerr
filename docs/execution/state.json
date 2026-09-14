@@ -1535,14 +1535,25 @@
       "review": null
     },
     "X-07": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/x05_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
       "evidence": [
-        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after X-05 approval and X-12/qBittorrent client dependencies passed"
+        "dispatched from 8e3536c8a0dc138946113e59d21e5523f775d409 after X-05 approval and X-12/qBittorrent client dependencies passed",
+        "7f8d0998b7ff3c081d055051a461a39cd224b1b7 X-07 product commit",
+        "a51e51945bde229265163707261483fa7edce06a X-07 follow-up product commit",
+        "36212b350469504dee689958215609ed1040c949 X-07 handoff identity correction",
+        "X-07 handoff records read-only nested qBittorrent client blocker; runtime mutation wiring remains deferred to a client-owned contract lane."
       ],
-      "review": null,
+      "review": {
+        "status": "pending",
+        "decision": "pending",
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
       "dispatch": {
         "assignedAt": "2026-09-13",
         "model": "gpt-5.6-luna",
@@ -1573,8 +1584,13 @@
           "X-05-review": "17b8f67b879be9d44174f1262bc31c46d086f82a",
           "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
           "X-10": "a9c847ff562fad1a3edf23e59bb6f6b27facb7af"
-        }
-      }
+        },
+        "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a",
+        "handoffCommit": "36212b350469504dee689958215609ed1040c949"
+      },
+      "implementationCommit": "a51e51945bde229265163707261483fa7edce06a",
+      "handoffCommit": "36212b350469504dee689958215609ed1040c949",
+      "reviewSourceCommit": "a51e51945bde229265163707261483fa7edce06a"
     },
     "X-08": {
       "status": "planned",
