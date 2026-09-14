@@ -293,7 +293,20 @@ func (observation Observation) validate(actionID string) error {
 		return fmt.Errorf("%w: invalid observation state %q", ErrInvalidJournal, observation.State)
 	}
 	normalizeReportedEffects(observation.Effects, actionID)
-	return validateEffects(observation.Effects, actionID)
+	if err := validateEffects(observation.Effects, actionID); err != nil {
+		return err
+	}
+	switch observation.State {
+	case ObserveNeedsAction:
+		if len(observation.Effects) == 0 {
+			return fmt.Errorf("%w: needs-action observation must identify at least one effect", ErrInvalidJournal)
+		}
+		return validatePlannedEffectStates(observation.Effects)
+	case ObserveSatisfied:
+		return validateEffectStates(observation.Effects, EffectAlreadySatisfied)
+	default:
+		return nil
+	}
 }
 
 // DispatchResult contains handler evidence after a mutation call returns.
@@ -311,7 +324,10 @@ func (result DispatchResult) validate(actionID string) error {
 		return fmt.Errorf("%w: dispatch result must state accepted and valid outcome", ErrInvalidJournal)
 	}
 	normalizeReportedEffects(result.Effects, actionID)
-	return validateEffects(result.Effects, actionID)
+	if err := validateEffects(result.Effects, actionID); err != nil {
+		return err
+	}
+	return validateEffectStates(result.Effects, effectStateForOutcome(result.Outcome))
 }
 
 // ReconcileResult is read-only evidence after a lost or recovered dispatch.
@@ -332,7 +348,19 @@ func (result ReconcileResult) validate(actionID string) error {
 		return fmt.Errorf("%w: reconciliation outcome is invalid", ErrInvalidJournal)
 	}
 	normalizeReportedEffects(result.Effects, actionID)
-	return validateEffects(result.Effects, actionID)
+	if err := validateEffects(result.Effects, actionID); err != nil {
+		return err
+	}
+	if result.Outcome.Valid() && len(result.Effects) == 0 {
+		return fmt.Errorf("%w: terminal reconciliation must identify every effect", ErrInvalidJournal)
+	}
+	if result.SafeToRetry {
+		return validateEffectStates(result.Effects, EffectPending)
+	}
+	if result.Outcome.Valid() {
+		return validateEffectStates(result.Effects, effectStateForOutcome(result.Outcome))
+	}
+	return nil
 }
 
 func normalizeReportedEffects(effects []Effect, actionID string) {
@@ -404,6 +432,49 @@ func validateReportedEffect(effect Effect, actionID string) error {
 	}
 	if !effect.State.valid() || !json.Valid(effect.Evidence) || strings.TrimSpace(effect.ObservedAt) == "" {
 		return fmt.Errorf("%w: effect evidence is invalid", ErrInvalidJournal)
+	}
+	return nil
+}
+
+func effectStateForOutcome(outcome domain.EffectOutcome) EffectState {
+	if outcome == domain.OutcomeAlreadySatisfied {
+		return EffectAlreadySatisfied
+	}
+	return EffectApplied
+}
+
+func validatePlannedEffectStates(effects []Effect) error {
+	for index, effect := range effects {
+		switch effect.State {
+		case EffectPending, EffectApplied, EffectAlreadySatisfied:
+		default:
+			return fmt.Errorf("%w: effect %d state %q cannot be dispatched", ErrInvalidJournal, index, effect.State)
+		}
+	}
+	return nil
+}
+
+// validateEffectStates rejects evidence that contradicts the aggregate
+// outcome. Pending is an intentionally compact handler representation and is
+// promoted by recordEffectsInJournal; failed, cancelled, or unknown evidence
+// can never be promoted to a terminal success.
+func validateEffectStates(effects []Effect, expected EffectState) error {
+	for index, effect := range effects {
+		switch expected {
+		case EffectPending:
+			if effect.State != EffectPending {
+				return fmt.Errorf("%w: effect %d state %q contradicts safe retry", ErrInvalidJournal, index, effect.State)
+			}
+		case EffectApplied, EffectAlreadySatisfied:
+			if effect.State != EffectPending && effect.State != EffectApplied && effect.State != EffectAlreadySatisfied {
+				return fmt.Errorf("%w: effect %d state %q contradicts terminal outcome", ErrInvalidJournal, index, effect.State)
+			}
+		case EffectUnknown:
+			// Uncertain evidence is deliberately normalized to unknown by the
+			// journal path, regardless of a stale handler-provided state.
+		default:
+			return fmt.Errorf("%w: unsupported expected effect state %q", ErrInvalidJournal, expected)
+		}
 	}
 	return nil
 }
@@ -538,14 +609,15 @@ func (policy RetryPolicy) delay(attempt int64) time.Duration {
 
 // Options controls one executor instance.
 type Options struct {
-	WorkerID       string
-	LeaseDuration  time.Duration
-	JournalTimeout time.Duration
-	Retry          RetryPolicy
-	MaxBatch       int
-	Now            func() time.Time
-	AttemptID      func(actionID string, number int64, phase AttemptPhase) string
-	EffectID       func(actionID string, ordinal int64) string
+	WorkerID                 string
+	LeaseDuration            time.Duration
+	JournalTimeout           time.Duration
+	CancellationPollInterval time.Duration
+	Retry                    RetryPolicy
+	MaxBatch                 int
+	Now                      func() time.Time
+	AttemptID                func(actionID string, number int64, phase AttemptPhase) string
+	EffectID                 func(actionID string, ordinal int64) string
 }
 
 func (options Options) normalized() Options {
@@ -557,6 +629,9 @@ func (options Options) normalized() Options {
 	}
 	if options.JournalTimeout <= 0 {
 		options.JournalTimeout = 5 * time.Second
+	}
+	if options.CancellationPollInterval <= 0 {
+		options.CancellationPollInterval = 100 * time.Millisecond
 	}
 	if options.MaxBatch <= 0 {
 		options.MaxBatch = 16
@@ -714,6 +789,48 @@ func (executor *Executor) registerActiveHandler(actionID string, cancel context.
 			delete(executor.active, actionID)
 		}
 		executor.activeMu.Unlock()
+	}
+}
+
+// watchHandlerState makes durable cancellation and ownership loss observable
+// to a handler regardless of which executor instance receives the request.
+// The handler itself remains responsible for checking its context at bounded
+// operation checkpoints; the watcher only supplies that cooperative signal.
+func (executor *Executor) watchHandlerState(action Action, cancel context.CancelFunc) func() {
+	watchCtx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		interval := executor.options.CancellationPollInterval
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		check := func() bool {
+			queryCtx, queryCancel := context.WithTimeout(watchCtx, executor.options.JournalTimeout)
+			current, err := executor.journal.GetAction(queryCtx, action.ID)
+			queryCancel()
+			if err != nil {
+				return false
+			}
+			if current.State != domain.ActionRunning || current.ClaimedBy != action.ClaimedBy || current.LeaseUntil != action.LeaseUntil || current.Version != action.Version || current.CancellationRequestedAt != "" || expired(current.LeaseUntil, nowUTC(executor.options)) {
+				cancel()
+				return true
+			}
+			return false
+		}
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+				if check() {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		stop()
+		<-done
 	}
 }
 
@@ -883,6 +1000,9 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 	// mutation lease and let its final transition use the action version CAS.
 	if action.State == domain.ActionReconciling && (action.CancellationRequestedAt != "" || expired(action.DeadlineAt, now)) {
 		result = executor.processReconciliation(ctx, action, false)
+		if !retainsLocalReservation(result.State) {
+			executor.releaseReservationsForAction(action.ID)
+		}
 		return result
 	}
 	plan, err := executor.journal.GetPlan(ctx, action.PlanID)
@@ -923,7 +1043,7 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 		return result
 	}
 	result.Action = claimed
-	reserved, err := executor.acquireAndPersistReservations(ctx, claimed, handler)
+	_, err = executor.acquireAndPersistReservations(ctx, claimed, handler)
 	if err != nil {
 		result.Err = executor.waitOwned(ctx, claimed, err)
 		result.State = domain.ActionWaitingDependency
@@ -940,8 +1060,8 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 	// stale worker releases only its process-local map on lease loss; the
 	// durable outcome metadata remains authoritative for the next worker and
 	// avoids a local reservation leak after reconciliation completes elsewhere.
-	if processed.State != domain.ActionReconciling {
-		executor.releaseReservations(reserved, claimed.ID)
+	if !retainsLocalReservation(processed.State) || errors.Is(processed.Err, ErrLeaseLost) {
+		executor.releaseReservationsForAction(claimed.ID)
 	}
 	return processed
 }
@@ -1000,6 +1120,20 @@ func (executor *Executor) releaseReservations(keys []string, actionID string) {
 			delete(executor.reservations, key)
 		}
 	}
+}
+
+func (executor *Executor) releaseReservationsForAction(actionID string) {
+	executor.reservationMu.Lock()
+	defer executor.reservationMu.Unlock()
+	for key, owner := range executor.reservations {
+		if owner == actionID {
+			delete(executor.reservations, key)
+		}
+	}
+}
+
+func retainsLocalReservation(state domain.ActionState) bool {
+	return state == domain.ActionReconciling || state == domain.ActionNeedsReview
 }
 
 func reservationKeys(action Action, handler Handler) ([]string, error) {
@@ -1231,8 +1365,18 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 
 	dispatchCtx, cancelDispatch := executor.handlerContext(ctx, action)
 	unregister := executor.registerActiveHandler(action.ID, cancelDispatch)
-	defer unregister()
-	defer cancelDispatch()
+	stopWatcher := executor.watchHandlerState(action, cancelDispatch)
+	defer func() {
+		stopWatcher()
+		unregister()
+		cancelDispatch()
+		// A handler that returns after its claim was recovered cannot write
+		// through the claim fence. Mark its dispatch attempt as no longer
+		// externally active so the next worker may reconcile it. If the handler
+		// is still running, this deferred call has not happened and the durable
+		// running attempt remains a recovery barrier.
+		_ = executor.releaseDispatchBarrier(action.ID, dispatchAttempt.ID)
+	}()
 	if err := executor.beforeDispatch(dispatchCtx, action); err != nil {
 		kind := failureKind(err)
 		if errors.Is(err, ErrLeaseLost) {
@@ -1300,6 +1444,91 @@ func (executor *Executor) processObserved(ctx context.Context, action Action, ha
 	return result
 }
 
+func (executor *Executor) activeDispatchAttempt(ctx context.Context, actionID string) (Attempt, bool, error) {
+	attempts, err := executor.journal.ListAttempts(ctx, actionID)
+	if err != nil {
+		return Attempt{}, false, err
+	}
+	var active Attempt
+	found := false
+	for _, attempt := range attempts {
+		if attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+			continue
+		}
+		if !found || attempt.AttemptNumber > active.AttemptNumber {
+			active = attempt
+			found = true
+		}
+	}
+	return active, found, nil
+}
+
+func (executor *Executor) deferActiveDispatch(ctx context.Context, action Action, attempt Attempt, claimed bool) Result {
+	result := Result{Action: action, State: action.State, AttemptID: attempt.ID}
+	nextAttemptAt := executor.retryAt(attempt.AttemptNumber)
+	var updated Action
+	var err error
+	if claimed {
+		updated, err = executor.transitionOwnedAt(ctx, action, attempt, domain.ActionReconciling, "", 1, "dispatch_still_active", nextAttemptAt)
+	} else {
+		var latest Action
+		latest, err = executor.currentAction(ctx, action)
+		if err == nil {
+			updated, err = executor.transitionAt(ctx, latest, attempt, domain.ActionReconciling, "", 1, "dispatch_still_active", nextAttemptAt)
+		}
+	}
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	result.Action = updated
+	result.State = updated.State
+	return result
+}
+
+// releaseDispatchBarrier records that a dispatch handler has returned after
+// the normal fenced path could no longer update its attempt. The immutable
+// attempt ID prevents an old worker from changing a later dispatch attempt;
+// leaving the attempt running keeps recovered work blocked until this point.
+func (executor *Executor) releaseDispatchBarrier(actionID, attemptID string) error {
+	journalCtx, cancel := executor.journalContext(context.Background())
+	defer cancel()
+	return executor.withTransaction(journalCtx, func(transactionCtx context.Context, journal Journal) error {
+		attempts, err := journal.ListAttempts(transactionCtx, actionID)
+		if err != nil {
+			return err
+		}
+		for _, attempt := range attempts {
+			if attempt.ID != attemptID || attempt.Phase != AttemptDispatch || attempt.State != domain.AttemptRunning {
+				continue
+			}
+			effects, err := journal.ListEffects(transactionCtx, actionID)
+			if err != nil {
+				return err
+			}
+			for _, effect := range effects {
+				if effect.AttemptID != attemptID {
+					continue
+				}
+				effect.State = EffectUnknown
+				effect.ObservedAt = formatTime(nowUTC(executor.options))
+				if _, err := journal.UpdateEffect(transactionCtx, effect); err != nil {
+					return err
+				}
+			}
+			attempt.State = domain.AttemptReconciling
+			attempt.OutcomeCertainty = CertaintyUncertain
+			attempt.ErrorCode = string(FailureUncertain)
+			attempt.ErrorDetail = "dispatch handler returned after ownership boundary"
+			attempt.Evidence = evidenceJSON([]string{"dispatch_handler_returned"})
+			attempt.FinishedAt = ""
+			_, err = journal.UpdateAttempt(transactionCtx, attempt)
+			return err
+		}
+		return nil
+	})
+}
+
 func (executor *Executor) processReconciliation(ctx context.Context, action Action, claimed bool) Result {
 	result := Result{Action: action, State: action.State}
 	handler, err := executor.handler(action.Kind)
@@ -1311,6 +1540,14 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 		}
 		result.State = domain.ActionNeedsReview
 		return result
+	}
+	activeDispatch, active, err := executor.activeDispatchAttempt(ctx, action.ID)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	if active {
+		return executor.deferActiveDispatch(ctx, action, activeDispatch, claimed)
 	}
 	var attempt Attempt
 	if claimed {
@@ -1324,9 +1561,12 @@ func (executor *Executor) processReconciliation(ctx context.Context, action Acti
 	}
 	result.AttemptID = attempt.ID
 	reconcileCtx, cancelReconcile := executor.handlerContext(ctx, action)
+	var stopWatcher func()
 	if claimed {
 		unregister := executor.registerActiveHandler(action.ID, cancelReconcile)
 		defer unregister()
+		stopWatcher = executor.watchHandlerState(action, cancelReconcile)
+		defer stopWatcher()
 	}
 	defer cancelReconcile()
 	reconciled, reconcileErr := handler.Reconcile(reconcileCtx, action, attempt)
@@ -1635,9 +1875,22 @@ func (executor *Executor) handlerContext(ctx context.Context, action Action) (co
 		ctx = context.Background()
 	}
 	child, cancel := context.WithCancel(ctx)
-	deadline, err := parseTime(action.DeadlineAt)
-	if err == nil && !deadline.IsZero() {
-		withDeadline, deadlineCancel := context.WithDeadline(child, deadline)
+	var timeout time.Duration
+	hasTimeout := false
+	now := nowUTC(executor.options)
+	for _, persisted := range []string{action.DeadlineAt, action.LeaseUntil} {
+		candidate, err := parseTime(persisted)
+		if err != nil || candidate.IsZero() {
+			continue
+		}
+		candidateTimeout := candidate.Sub(now)
+		if !hasTimeout || candidateTimeout < timeout {
+			timeout = candidateTimeout
+			hasTimeout = true
+		}
+	}
+	if hasTimeout {
+		withDeadline, deadlineCancel := context.WithTimeout(child, timeout)
 		return withDeadline, func() {
 			deadlineCancel()
 			cancel()
@@ -1860,10 +2113,30 @@ func (executor *Executor) recordEffectsInJournal(ctx context.Context, journal Jo
 	if err != nil {
 		return err
 	}
+	if !requireComplete && len(existing) == 0 {
+		return fmt.Errorf("%w: uncertain dispatch has no planned effects", ErrInvalidJournal)
+	}
+	if !requireComplete && len(reported) == 0 {
+		// The dispatch result is uncertain, so every already-planned target must
+		// move out of pending even when the handler could not return a report.
+		// Reuse the immutable journal identities and attach them to this
+		// uncertain attempt; no applied evidence is synthesized.
+		reported = make([]Effect, 0, len(existing))
+		for _, effect := range existing {
+			effect.ID = ""
+			effect.AttemptID = attempt.ID
+			effect.State = defaultState
+			effect.ObservedAt = formatTime(nowUTC(executor.options))
+			reported = append(reported, effect)
+		}
+	}
 	if len(existing) > 0 && (requireComplete || len(reported) > 0) {
 		if err := validateEffectSet(existing, reported, action.ID); err != nil {
 			return err
 		}
+	}
+	if err := validateEffectStates(reported, defaultState); err != nil {
+		return err
 	}
 	byOrdinal := make(map[int64]Effect, len(existing))
 	for _, candidate := range existing {
@@ -1877,7 +2150,9 @@ func (executor *Executor) recordEffectsInJournal(ctx context.Context, journal Jo
 			effect.ID = existingEffect.ID
 			effect.ActionRunID = action.ID
 			effect.AttemptID = attempt.ID
-			if effect.State == "" || effect.State == EffectPending {
+			if defaultState == EffectUnknown {
+				effect.State = defaultState
+			} else if effect.State == "" || effect.State == EffectPending {
 				effect.State = defaultState
 			}
 			if effect.Evidence == nil {
@@ -1894,7 +2169,9 @@ func (executor *Executor) recordEffectsInJournal(ctx context.Context, journal Jo
 		effect.ID = executor.options.EffectID(action.ID, effect.Ordinal)
 		effect.ActionRunID = action.ID
 		effect.AttemptID = attempt.ID
-		if effect.State == "" || effect.State == EffectPending {
+		if defaultState == EffectUnknown {
+			effect.State = defaultState
+		} else if effect.State == "" || effect.State == EffectPending {
 			effect.State = defaultState
 		}
 		if effect.Evidence == nil {
