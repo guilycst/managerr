@@ -713,7 +713,7 @@
       }
     },
     "D-02": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d02_implementer",
       "baseSha": "cf987d2",
       "integratedSha": null,
@@ -730,17 +730,18 @@
         "D-02 correction focused tests, race, vet, mod verify, generation, architecture, planning, Linux amd64/arm64 compile passed; shared full checks await X-05 formatting.",
         "412e014d02be2807f34f3762f7f21500f3560562 D-02 independent review round two: changes requested",
         "449f67d028f3e7351a841a72bc3aaf5539137ba3 integrated D-02 review round two receipt",
-        "D-02 correction required: bind explicit key regular-file validation and bounded read to one opened descriptor; preserve projected Secret compatibility and no fallback."
+        "D-02 correction required: bind explicit key regular-file validation and bounded read to one opened descriptor; preserve projected Secret compatibility and no fallback.",
+        "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef D-02 correction round three product",
+        "4048c7ee5035ead345a919e4ffa21ec6e289eef4 D-02 correction round three handoff",
+        "D-02 correction binds explicit key validation and bounded reads to one descriptor; focused tests, race, vet, mod verify, full root tests, generation, architecture, planning, lint, Linux cross-build and CI guardrails passed."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/d02_reviewer",
-        "commit": "412e014d02be2807f34f3762f7f21500f3560562",
-        "findings": [
-          "P1: readKeyFile validates a path with os.Stat, then reopens it through readBoundedFile without validating the opened descriptor; a swapped FIFO could block and a different object could be read. Open once, f.Stat the descriptor, require a bounded regular file, then read from that same descriptor."
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "leaseHistory": [
         {
@@ -781,13 +782,13 @@
         "correctionBaseSha": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
         "correctionReviewPath": "docs/execution/handoffs/D-02-review-round2.md",
         "correctionReviewer": "/root/d02_reviewer",
-        "correctionImplementationCommit": "pending",
-        "correctionHandoffCommit": "pending",
-        "reviewIntegrationCommit": "ad6a2bc7d8e6944a5001cbadf39287af746e64cf"
+        "correctionImplementationCommit": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
+        "correctionHandoffCommit": "4048c7ee5035ead345a919e4ffa21ec6e289eef4",
+        "reviewIntegrationCommit": "449f67d028f3e7351a841a72bc3aaf5539137ba3"
       },
-      "implementationCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
-      "handoffCommit": "93420af525440b8ad81df31af1b22f9276d89fb2",
-      "reviewSourceCommit": "0ee6f0a0f1046d7db44e8bb3e59e46b005037ec5",
+      "implementationCommit": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
+      "handoffCommit": "4048c7ee5035ead345a919e4ffa21ec6e289eef4",
+      "reviewSourceCommit": "f931a1256bd56a9aa373e295bbbbb3b1eaa7adef",
       "reviewHistory": [
         {
           "round": 1,
@@ -2373,7 +2374,7 @@
       ]
     }
   },
-  "nextAction": "X-05 correction round three is assigned for independent fixture literals and Sonarr history enum; D-02 correction round three is awaiting its review.",
+  "nextAction": "D-02 correction round three and X-05 correction round three are in independent review; await exact receipts.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
