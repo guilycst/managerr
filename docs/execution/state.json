@@ -823,7 +823,7 @@
       ]
     },
     "D-03": {
-      "status": "in_progress",
+      "status": "in_review",
       "owner": "/root/d02_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -837,21 +837,18 @@
         "Full checks after dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed.",
         "e05b8d56d784577cd7dda8b0a40ef180992925fa D-03 independent review round one: changes requested",
         "06abd25fc8123ea541ed6e8aea65d9773dc3ce66 integrated D-03 review receipt",
-        "D-03 correction required: reconcile uncertain credential-store writes, bind secret rotation to target identity, reject unusable mapping prefixes, zero all parse-failure buffers, and move external callbacks/storage I/O outside the manager lock."
+        "D-03 correction required: reconcile uncertain credential-store writes, bind secret rotation to target identity, reject unusable mapping prefixes, zero all parse-failure buffers, and move external callbacks/storage I/O outside the manager lock.",
+        "754410462c38c0fb2b95b33c4c5af82634f0fd90 D-03 correction product commit",
+        "fe1a9e784b63902a1e11454219d361100e18dcad D-03 correction handoff commit",
+        "D-03 correction handoff records focused/race/root/module/lint/generation/API/architecture/planning/guardrail and Linux amd64/arm64 checks passed."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": "pending",
         "reviewer": "/root/d02_reviewer",
-        "commit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
-        "findings": [
-          "P1: uncertain credential-store writes can resurrect orphan or unrequested secrets; resolve requires active managed-field membership and read-back reconciliation without blind rollback.",
-          "P1: managed and static secret-only changes preserve approval bindings without target-identity verification; changed resolved static values need opaque binding/review invalidation.",
-          "P1: mapping validation accepts empty/relative source prefixes rejected by adapter consumers.",
-          "P2: failed YAML parsing can retain resolved plaintext buffers, including duplicate-resource rejection paths.",
-          "P2: invalidator and credential-store callbacks run under the manager lock and can deadlock or block reentrant reads."
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-13",
@@ -881,8 +878,8 @@
           "C-03": "8c9bf9a6277e068f9ae6b859fab2c5f7aa4890a1",
           "D-01": "8098e2b552737e5e18848d27b665991fddce18bf"
         },
-        "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
-        "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
+        "reviewSourceCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+        "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
         "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7",
         "correctionRound": 1,
         "correctionOwner": "/root/d02_implementer",
@@ -890,11 +887,13 @@
         "correctionReviewPath": "docs/execution/handoffs/D-03-review-round1.md",
         "correctionReviewer": "/root/d02_reviewer",
         "correctionReviewCommit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
-        "reviewIntegrationCommit": "06abd25fc8123ea541ed6e8aea65d9773dc3ce66"
+        "reviewIntegrationCommit": null,
+        "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+        "reviewCommit": null
       },
-      "implementationCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
-      "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
-      "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+      "implementationCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
+      "handoffCommit": "fe1a9e784b63902a1e11454219d361100e18dcad",
+      "reviewSourceCommit": "754410462c38c0fb2b95b33c4c5af82634f0fd90",
       "reviewHistory": [
         {
           "round": 1,
@@ -2644,7 +2643,7 @@
       "reviewSourceCommit": "3fce4c79f4e52ba3147f300e8a460e9e44c228bc"
     }
   },
-  "nextAction": "D-03 correction and X-14 qBittorrent client review are active in parallel; reviewers must clear exact product commits before integration.",
+  "nextAction": "D-03 correction and X-14 qBittorrent client reviews are active in parallel; coordinator will integrate only approved exact product SHAs.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
