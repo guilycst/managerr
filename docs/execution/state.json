@@ -1289,7 +1289,7 @@
         "correctionRound": 2,
         "correctionOwner": "/root/d02_implementer",
         "correctionBaseSha": "ebdf5112c5be852fc992f337d47e4e0589f52b94",
-        "correctionDispatchCommit": "c9cc3ab",
+        "correctionDispatchCommit": "2c79b600866407f4256b47dfb1913ae1ff5568c9",
         "correctionReviewPath": "docs/execution/handoffs/F-03-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
