@@ -2331,7 +2331,10 @@
         "a3812a94513b74b4d67b412fc90f6d65184872c6 W-02 correction round one handoff records final product tree and focused/race/vet/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; G-01 remains open.",
         "W-02 correction review dispatch is recorded against final product tree f56908a19b775dc5218d485a61ffcf0faebb5ace.",
         "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136 W-02 correction round one independent review requested changes against source f56908a19b775dc5218d485a61ffcf0faebb5ace.",
-        "Round-two review closed initial correction claims but found P1 recovered generations can dispatch while expired handlers remain live, P1 cross-executor cancellation does not reach the handler, P1 empty or contradictory effect evidence can succeed, P2 uncertain dispatch leaves effects pending, and P2 terminal idle cancellation leaks a local reservation. Correction round two is required before integration."
+        "Round-two review closed initial correction claims but found P1 recovered generations can dispatch while expired handlers remain live, P1 cross-executor cancellation does not reach the handler, P1 empty or contradictory effect evidence can succeed, P2 uncertain dispatch leaves effects pending, and P2 terminal idle cancellation leaks a local reservation. Correction round two is required before integration.",
+        "04c2e245a9624287417522c9f876056090016b83 W-02 correction round two product commit closes stale-handler dispatch, cross-executor cancellation, effect evidence validation, uncertain-state recording, and idle reservation cleanup.",
+        "23d1fecb1ff7ff95a24f871acb4847def9fef0a6 W-02 correction round two handoff records deterministic five-finding tests and focused/race/vet/root/nested/module/API/Vacuum/lint/architecture/planning/guardrail/cross-compile checks; G-01 remains open.",
+        "W-02 correction round two review dispatch will use /root/x05_reviewer against source 04c2e245a9624287417522c9f876056090016b83."
       ],
       "review": {
         "status": "changes_requested",
@@ -2390,18 +2393,20 @@
         ],
         "reviewer": "/root/x05_reviewer",
         "reviewCommit": "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136",
-        "correctionRound": 2,
+        "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "f56908a19b775dc5218d485a61ffcf0faebb5ace",
+        "correctionBaseSha": "04c2e245a9624287417522c9f876056090016b83",
         "correctionReviewPath": "docs/execution/handoffs/W-02-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
-        "correctionDispatchCommit": "732b7e16b8b8c896d75e63ddaf434df6a2ff6c89",
-        "correctionStatus": "dispatched",
-        "correctionProductCommits": [],
-        "correctionReviewSourceCommit": null,
+        "correctionImplementationCommit": "04c2e245a9624287417522c9f876056090016b83",
+        "correctionHandoffCommit": "23d1fecb1ff7ff95a24f871acb4847def9fef0a6",
+        "correctionDispatchCommit": null,
+        "correctionStatus": "awaiting_independent_review",
+        "correctionProductCommits": [
+          "04c2e245a9624287417522c9f876056090016b83"
+        ],
+        "correctionReviewSourceCommit": "04c2e245a9624287417522c9f876056090016b83",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -3404,7 +3409,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round two is dispatched to /root/x05_implementer for lease overlap, cross-executor cancellation, exact effect evidence, uncertain-state, and reservation-leak fixes; F-05 is review-approved but capability-blocked; F-03 is complete.",
+  "nextAction": "W-02 correction round two is ready for independent review by /root/x05_reviewer against 04c2e245; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
