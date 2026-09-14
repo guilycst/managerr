@@ -225,7 +225,7 @@ func (client *Client) Stop(ctx context.Context, ref ports.DownloadRef) (ports.Cl
 	if err := client.writeAllowed(operationStop); err != nil {
 		return ports.ClientEffect{}, err
 	}
-	writeErr := client.upstream.Stop(ctx, ref.ExternalID)
+	writeErr := client.upstream.Stop(ctx, snapshot.torrent.Hash)
 	reconciled, readErr := client.readAfterWrite(ctx, ref, false, operationStop)
 	if readErr == nil && isStoppedState(reconciled.torrent.State) {
 		return effect(operationStop, domain.OutcomeApplied, "state_read_back", "state_stopped"), nil
@@ -277,7 +277,7 @@ func (client *Client) Relocate(ctx context.Context, ref ports.DownloadRef, desti
 	if err := client.writeAllowed(operationRelocate); err != nil {
 		return ports.ClientEffect{}, err
 	}
-	writeErr := client.upstream.SetLocation(ctx, ref.ExternalID, desiredRemote)
+	writeErr := client.upstream.SetLocation(ctx, latest.torrent.Hash, desiredRemote)
 	reconciled, readErr := client.readAfterWrite(ctx, ref, true, operationRelocate)
 	if readErr == nil && normalizeRemotePath(reconciled.torrent.ContentPath) == desiredRemote {
 		return effect(operationRelocate, domain.OutcomeApplied, "content_path_read_back"), nil
@@ -350,7 +350,7 @@ func (client *Client) RenameFile(ctx context.Context, ref ports.DownloadRef, sou
 	}
 	oldPath := latest.files[sourceIndex].nativeName
 	newPath := path.Join(path.Dir(oldPath), newName)
-	writeErr := client.upstream.RenameFile(ctx, ref.ExternalID, oldPath, newPath)
+	writeErr := client.upstream.RenameFile(ctx, latest.torrent.Hash, oldPath, newPath)
 	reconciled, readErr := client.readAfterWrite(ctx, ref, true, operationRenameFile)
 	if readErr == nil && renameFileReadBack(reconciled.files, source, destination) {
 		return effect(operationRenameFile, domain.OutcomeApplied, "payload_read_back"), nil
@@ -430,7 +430,7 @@ func (client *Client) RenameFolder(ctx context.Context, ref ports.DownloadRef, s
 	if err := client.writeAllowed(operationRenameFolder); err != nil {
 		return ports.ClientEffect{}, err
 	}
-	writeErr := client.upstream.RenameFolder(ctx, ref.ExternalID, oldPath, newPath)
+	writeErr := client.upstream.RenameFolder(ctx, latest.torrent.Hash, oldPath, newPath)
 	reconciled, readErr := client.readAfterWrite(ctx, ref, true, operationRenameFolder)
 	if readErr == nil && renameFolderReadBack(reconciled.files, source, destination) {
 		return effect(operationRenameFolder, domain.OutcomeApplied, "payload_read_back"), nil
@@ -474,7 +474,7 @@ func (client *Client) Remove(ctx context.Context, ref ports.DownloadRef) (ports.
 	}
 	// deleteFiles=false is deliberate and part of the adapter's safety
 	// contract. No caller-provided flag can widen this operation.
-	writeErr := client.upstream.Delete(ctx, ref.ExternalID, false)
+	writeErr := client.upstream.Delete(ctx, latest.torrent.Hash, false)
 	_, readErr := client.readSnapshotAfterWrite(ctx, ref, false, operationRemove)
 	if errors.Is(readErr, errTorrentNotFound) {
 		return effect(operationRemove, domain.OutcomeApplied, "record_read_back", "record_absent"), nil
