@@ -2404,8 +2404,8 @@
         "correctionCheckout": "shared main",
         "correctionImplementationCommit": null,
         "correctionHandoffCommit": null,
-        "correctionDispatchCommit": null,
-        "correctionStatus": "queued",
+        "correctionDispatchCommit": "af4eca8155f3276aaf6e141d6af0b543b67b9c3a",
+        "correctionStatus": "dispatched",
         "correctionProductCommits": [],
         "correctionReviewSourceCommit": null,
         "reviewerReroute": {
@@ -3426,7 +3426,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round four is queued to /root/x05_implementer for durable barrier retry intent after marker-write outages; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round four is dispatched to /root/x05_implementer for durable barrier retry intent after marker-write outages; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
