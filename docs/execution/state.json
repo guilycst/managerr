@@ -2341,7 +2341,11 @@
         "f402eec6f9c308313399d1c471c73d48a68009f4 W-02 correction round three handoff records deterministic/race coverage, focused/root/nested/module/vet/compile/generation/API/Vacuum/lint/architecture/planning/guardrail checks, and G-01 remains open.",
         "W-02 correction round three review dispatch will use /root/x05_reviewer against source d10bcb6bba9bc59ba80819950991b45cb05bce99.",
         "ef07140a8d41696c4e4514e6860e47e6211b8814 W-02 correction round three independent review requested changes against source d10bcb6bba9bc59ba80819950991b45cb05bce99.",
-        "Round-four review closed no-deadline lease renewal/fencing, exact four-effect unresolved count, and cross-executor initial Observe cancellation. One P2 remains: durable barrier recovery stops after 32 process-local marker retries and later executors do not reconcile until broad startup recovery if all marker writes fail. Correction round four is required before integration."
+        "Round-four review closed no-deadline lease renewal/fencing, exact four-effect unresolved count, and cross-executor initial Observe cancellation. One P2 remains: durable barrier recovery stops after 32 process-local marker retries and later executors do not reconcile until broad startup recovery if all marker writes fail. Correction round four is required before integration.",
+        "a645abe60341a3f21a71aaabf3ba5364eeb10a09 W-02 correction round four product commit persists exact dispatch-barrier intent, supports fresh-executor discovery, and advances claim fences.",
+        "4af1583d393fa9606ce8682585056b7c1ce1d3f8 W-02 correction round four test hardening serializes barrier fixtures and proves 33 marker-write failures recover without blind dispatch.",
+        "8b396e92f89ab8f34ed7f4ee129012822e3007aa W-02 correction round four handoff records outage recovery coverage and focused/full tests, race, vet, module/root, cross-build, generation/API/Vacuum/lint/architecture/planning/guardrail checks; G-01 remains open.",
+        "W-02 correction round four review dispatch will use /root/x05_reviewer against final product tree 4af1583d393fa9606ce8682585056b7c1ce1d3f8."
       ],
       "review": {
         "status": "changes_requested",
@@ -2396,18 +2400,21 @@
         ],
         "reviewer": "/root/x05_reviewer",
         "reviewCommit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
-        "correctionRound": 4,
+        "correctionRound": 5,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
+        "correctionBaseSha": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
         "correctionReviewPath": "docs/execution/handoffs/W-02-review-round5.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": null,
-        "correctionHandoffCommit": null,
-        "correctionDispatchCommit": "af4eca8155f3276aaf6e141d6af0b543b67b9c3a",
-        "correctionStatus": "dispatched",
-        "correctionProductCommits": [],
-        "correctionReviewSourceCommit": null,
+        "correctionImplementationCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
+        "correctionHandoffCommit": "8b396e92f89ab8f34ed7f4ee129012822e3007aa",
+        "correctionDispatchCommit": null,
+        "correctionStatus": "awaiting_independent_review",
+        "correctionProductCommits": [
+          "a645abe60341a3f21a71aaabf3ba5364eeb10a09",
+          "4af1583d393fa9606ce8682585056b7c1ce1d3f8"
+        ],
+        "correctionReviewSourceCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -3426,7 +3433,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round four is dispatched to /root/x05_implementer for durable barrier retry intent after marker-write outages; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round four is ready for independent review by /root/x05_reviewer against 4af1583d; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
