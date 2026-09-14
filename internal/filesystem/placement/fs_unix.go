@@ -236,61 +236,38 @@ func statChild(directory *os.File, name string) (*unix.Stat_t, error) {
 	return &stat, nil
 }
 
-func createExclusiveChild(parent *os.File, name string) (*os.File, error) {
-	fd, err := unix.Openat(int(parent.Fd()), name, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
-	if err != nil {
-		return nil, classifyPlacementError(err)
-	}
-	file := os.NewFile(uintptr(fd), name)
-	if file == nil {
-		_ = unix.Close(fd)
-		return nil, errors.New("create staging file: invalid descriptor")
-	}
-	return file, nil
-}
-
 func publishNoReplace(stage, parent *os.File, stageName, destinationName string) (bool, error) {
-	// The destination is linked from the open staging inode. The caller keeps
-	// the staging pathname for the janitor because unlinking by name cannot be
-	// made conditional on inode identity.
+	// The destination is linked from the open staging inode. Linux uses an
+	// anonymous inode, so there is no staging pathname to clean up. Targets
+	// without a descriptor-bound primitive fail closed before this is reached.
 	if err := linkStageNoReplace(stage, parent, stageName, destinationName); err != nil {
 		return false, classifyPlacementError(err)
 	}
 	return true, nil
 }
 
-func verifyOwnedChild(parent *os.File, name string, expected fs.FileInfo) error {
+func verifyOwnedStage(stage *os.File, expected fs.FileInfo) error {
 	if expected == nil {
 		return fmt.Errorf("%w: missing staging identity", ErrStageChanged)
 	}
-	actual, info, err := openExistingChild(parent, name)
-	if err != nil {
-		return fmt.Errorf("%w: staging path %q is unavailable: %v", ErrStageChanged, name, err)
+	if stage == nil {
+		return fmt.Errorf("%w: missing staging descriptor", ErrStageChanged)
 	}
-	actual.Close()
+	info, err := stage.Stat()
+	if err != nil {
+		return fmt.Errorf("%w: staging descriptor is unavailable: %v", ErrStageChanged, err)
+	}
 	if !sameObject(expected, info) {
-		return fmt.Errorf("%w: staging path %q names another object", ErrStageChanged, name)
+		return fmt.Errorf("%w: staging descriptor names another object", ErrStageChanged)
 	}
 	return nil
 }
 
-func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *os.File, destinationName string) (bool, error) {
-	if err := unix.Linkat(int(sourceParent.Fd()), sourceName, int(destinationParent.Fd()), destinationName, 0); err != nil {
+func linkNoReplace(source *os.File, destinationParent *os.File, destinationName string) (bool, error) {
+	if err := linkOpenSourceNoReplace(source, destinationParent, destinationName); err != nil {
 		return false, classifyPlacementError(err)
 	}
 	return true, nil
-}
-
-func removeEmptyDirectory(rootPath, relative string) error {
-	if relative == "" {
-		return ErrRootTarget
-	}
-	parent, name, err := openExistingParent(rootPath, relative)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-	return classifyPlacementError(unix.Unlinkat(int(parent.Fd()), name, unix.AT_REMOVEDIR))
 }
 
 func syncDirectory(directory *os.File) error {

@@ -71,6 +71,9 @@ func TestCopyPublishesExactDigestAndRecordsEachFile(t *testing.T) {
 	if journal.records[0].Destination.RelativePath != "Movies/film.mkv" {
 		t.Fatalf("journal destination = %#v", journal.records[0].Destination)
 	}
+	if _, err := os.Lstat(filepath.Join(destinationRoot, "Movies", stageName(DefaultStagePrefix, "copy-operation", 0))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful copy stage alias = %v, want absent", err)
+	}
 
 	already, err := placer.CopyWithOperation(context.Background(), "copy-operation-again", request)
 	if err != nil {
@@ -152,7 +155,7 @@ func TestCopyChecksAllDestinationCollisionsBeforePublication(t *testing.T) {
 	}
 }
 
-func TestCopyUsesExclusiveStagingWithoutOverwritingExistingStage(t *testing.T) {
+func TestCopyLeavesNoNamedStagingAlias(t *testing.T) {
 	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
@@ -173,12 +176,20 @@ func TestCopyUsesExclusiveStagingWithoutOverwritingExistingStage(t *testing.T) {
 	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
 		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/movie.mkv"},
 	}}}
-	if _, err := placer.CopyWithOperation(context.Background(), "stage-collision", request); !errors.Is(err, os.ErrExist) {
-		t.Fatalf("stage collision error = %v, want existing-file error", err)
+	if effect, err := placer.CopyWithOperation(context.Background(), "stage-collision", request); err != nil {
+		t.Fatalf("copy with an unrelated staging-name file = effect %#v error %v", effect, err)
 	}
 	assertFileBytes(t, stagePath, "pre-existing stage")
-	if _, err := os.Stat(filepath.Join(destinationRoot, "Movies", "movie.mkv")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("destination after stage collision = %v, want absent", err)
+	destinationInfo, err := os.Stat(filepath.Join(destinationRoot, "Movies", "movie.mkv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageInfo, err := os.Stat(stagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(destinationInfo, stageInfo) {
+		t.Fatal("destination unexpectedly aliases the unrelated staging-name file")
 	}
 }
 
@@ -366,7 +377,7 @@ func TestReconcileHardlinkRequiresApprovedSourceIdentity(t *testing.T) {
 	}
 }
 
-func TestCopyCleanupPreservesReplacementStage(t *testing.T) {
+func TestCopyCancellationReclaimsAnonymousStage(t *testing.T) {
 	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
@@ -384,53 +395,24 @@ func TestCopyCleanupPreservesReplacementStage(t *testing.T) {
 	}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	type result struct {
-		effect ports.FilesystemEffect
-		err    error
-	}
-	done := make(chan result, 1)
-	go func() {
-		effect, err := placer.CopyWithOperation(ctx, "cleanup-race", request)
-		done <- result{effect: effect, err: err}
-	}()
 	stagePath := filepath.Join(destinationRoot, "Movies", stageName(DefaultStagePrefix, "cleanup-race", 0))
-	deadline := time.NewTimer(10 * time.Second)
-	defer deadline.Stop()
-	for {
-		if _, err := os.Stat(stagePath); err == nil {
-			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatal(err)
+	placer.opts.beforeStagePublication = func(_ *os.File, _ string) {
+		if err := os.WriteFile(stagePath, []byte("another actor"), 0o600); err != nil {
+			t.Fatalf("create unrelated staging-name file: %v", err)
 		}
-		select {
-		case <-deadline.C:
-			t.Fatal("timed out waiting for staging path")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+		cancel()
 	}
-	if err := os.Remove(stagePath); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(stagePath, []byte("another actor"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cancel()
-	select {
-	case outcome := <-done:
-		if !errors.Is(outcome.err, context.Canceled) {
-			t.Fatalf("copy after stage substitution = effect %#v error %v, want cancellation", outcome.effect, outcome.err)
-		}
-	case <-deadline.C:
-		t.Fatal("timed out waiting for canceled copy")
+	effect, err := placer.CopyWithOperation(ctx, "cleanup-race", request)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("copy after cancellation = effect %#v error %v, want cancellation", effect, err)
 	}
 	assertFileBytes(t, stagePath, "another actor")
 	if _, err := os.Stat(filepath.Join(destinationRoot, "Movies", "large.mkv")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("destination after stage substitution = %v, want absent", err)
+		t.Fatalf("destination after cancellation = %v, want absent", err)
 	}
 }
 
-func TestCopyPreservesStageReplacementBetweenCheckAndCleanup(t *testing.T) {
+func TestCopyDoesNotTouchUnrelatedStagingNameOnPublicationCollision(t *testing.T) {
 	requirePlacementWrites(t)
 	sourceRoot := canonicalTempDir(t)
 	destinationRoot := canonicalTempDir(t)
@@ -445,11 +427,8 @@ func TestCopyPreservesStageReplacementBetweenCheckAndCleanup(t *testing.T) {
 	destinationPath := filepath.Join(destinationRoot, "Movies", "movie.mkv")
 	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
 		beforeStagePublication: func(*os.File, string) {
-			if err := os.Remove(stagePath); err != nil {
-				t.Fatalf("replace stage: remove original: %v", err)
-			}
 			if err := os.WriteFile(stagePath, []byte("another actor"), 0o600); err != nil {
-				t.Fatalf("replace stage: create replacement: %v", err)
+				t.Fatalf("create unrelated staging-name file: %v", err)
 			}
 			if err := os.WriteFile(destinationPath, []byte("existing destination"), 0o640); err != nil {
 				t.Fatalf("create destination collision: %v", err)
@@ -459,11 +438,95 @@ func TestCopyPreservesStageReplacementBetweenCheckAndCleanup(t *testing.T) {
 	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
 		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/movie.mkv"},
 	}}}
-	if _, err := placer.CopyWithOperation(context.Background(), "check-cleanup-race", request); !errors.Is(err, ErrStageChanged) {
-		t.Fatalf("stage replacement after ownership check = %v, want stage changed", err)
+	if _, err := placer.CopyWithOperation(context.Background(), "check-cleanup-race", request); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("publication collision = %v, want destination exists", err)
 	}
 	assertFileBytes(t, stagePath, "another actor")
 	assertFileBytes(t, destinationPath, "existing destination")
+}
+
+func TestCreatedDirectoryCleanupPreservesReplacement(t *testing.T) {
+	requirePlacementWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+	if err := os.WriteFile(sourcePath, []byte("directory cleanup"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+	syncFailure := errors.New("synthetic directory sync failure")
+	var calls int
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+		SyncDirectory: func(_ *os.File) error {
+			calls++
+			if calls == 1 {
+				replacement := filepath.Join(destinationRoot, "Movies")
+				if err := os.Remove(replacement); err != nil {
+					t.Fatalf("replace created directory: remove: %v", err)
+				}
+				if err := os.Mkdir(replacement, 0o755); err != nil {
+					t.Fatalf("replace created directory: mkdir: %v", err)
+				}
+			}
+			return syncFailure
+		},
+	})
+	request := ports.FilesystemCopyRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Movies/episode.mkv"},
+	}}}
+	if _, err := placer.CopyWithOperation(context.Background(), "directory-cleanup-race", request); !errors.Is(err, syncFailure) || !errors.Is(err, ErrPublicationUnknown) {
+		t.Fatalf("directory cleanup error = %v, want uncertain sync failure", err)
+	}
+	if calls != 1 {
+		t.Fatalf("directory sync calls = %d, want one", calls)
+	}
+	if info, err := os.Stat(filepath.Join(destinationRoot, "Movies")); err != nil || !info.IsDir() {
+		t.Fatalf("replacement directory after cleanup = info %#v error %v, want preserved", info, err)
+	}
+}
+
+func TestHardlinkPublishesApprovedSourceDescriptorAfterPathExchange(t *testing.T) {
+	requirePlacementWrites(t)
+	sourceRoot := canonicalTempDir(t)
+	destinationRoot := canonicalTempDir(t)
+	rootID := mustConfigID(t, "downloads")
+	libraryID := mustConfigID(t, "library")
+	sourcePath := filepath.Join(sourceRoot, "episode.mkv")
+	if err := os.WriteFile(sourcePath, []byte("approved source"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	originalInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fileEntry(t, rootID, sourceRoot, "episode.mkv", domain.ManifestFile)
+	placer := mustPlacer(t, []Root{{ID: rootID, Path: sourceRoot}, {ID: libraryID, Path: destinationRoot}}, Options{
+		beforeHardlinkPublication: func(_ *os.File) {
+			if err := os.Rename(sourcePath, filepath.Join(sourceRoot, "episode-approved.mkv")); err != nil {
+				t.Fatalf("exchange source path: rename: %v", err)
+			}
+			if err := os.WriteFile(sourcePath, []byte("replacement source"), 0o640); err != nil {
+				t.Fatalf("exchange source path: replacement: %v", err)
+			}
+		},
+	})
+	request := ports.FilesystemHardlinkRequest{Files: []ports.FileMap{{
+		Source: source, Destination: domain.FileTarget{RootID: libraryID, RelativePath: "Series/episode.mkv"},
+	}}}
+	effect, err := placer.HardlinkWithOperation(context.Background(), "hardlink-path-exchange", request)
+	if !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("path-exchange hardlink = effect %#v error %v, want source changed", effect, err)
+	}
+	destinationInfo, err := os.Stat(filepath.Join(destinationRoot, "Series", "episode.mkv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(originalInfo, destinationInfo) {
+		t.Fatal("hardlink destination published replacement source inode")
+	}
+	assertFileBytes(t, filepath.Join(destinationRoot, "Series", "episode.mkv"), "approved source")
 }
 
 func TestCopyAndHardlinkSyncCreatedDirectoryParents(t *testing.T) {

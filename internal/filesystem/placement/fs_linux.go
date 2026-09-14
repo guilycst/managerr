@@ -12,39 +12,50 @@ import (
 
 const placementWritesSupported = true
 
-// linkStageNoReplace links the already-open staging inode. Using the open
-// descriptor avoids a pathname substitution between the ownership check and
-// publication. AT_EMPTY_PATH may be unavailable to an unprivileged caller;
-// /proc/self/fd is the equivalent descriptor-bound fallback when procfs is
-// mounted.
-func linkStageNoReplace(stage, parent *os.File, stageName, destinationName string) error {
-	pathFD, err := unix.Openat(int(parent.Fd()), stageName, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+// createExclusiveChild creates an anonymous staging inode in the destination
+// directory. O_TMPFILE gives the operation a descriptor-owned inode with no
+// pathname alias, so close reclaims an unpublished stage and publication does
+// not leave a hidden hardlink beside the destination.
+func createExclusiveChild(parent *os.File, _ string) (*os.File, error) {
+	fd, err := unix.Openat(int(parent.Fd()), ".", unix.O_TMPFILE|unix.O_WRONLY|unix.O_CLOEXEC, 0o600)
 	if err != nil {
-		return err
+		if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.EOPNOTSUPP) || errors.Is(err, unix.ENOSYS) {
+			return nil, fmt.Errorf("%w: anonymous staging is unavailable: %v", ErrUnsupported, err)
+		}
+		return nil, classifyPlacementError(err)
 	}
-	pathFile := os.NewFile(uintptr(pathFD), stageName)
-	if pathFile == nil {
-		_ = unix.Close(pathFD)
-		return errors.New("open staging identity descriptor: invalid descriptor")
+	file := os.NewFile(uintptr(fd), "anonymous-stage")
+	if file == nil {
+		_ = unix.Close(fd)
+		return nil, errors.New("create anonymous staging file: invalid descriptor")
 	}
-	pathInfo, statErr := pathFile.Stat()
-	if statErr != nil {
-		_ = pathFile.Close()
-		return statErr
+	return file, nil
+}
+
+// linkStageNoReplace publishes the already-open anonymous staging inode.
+// AT_EMPTY_PATH binds the source to the descriptor and therefore cannot
+// publish a replacement object at a raced pathname.
+func linkStageNoReplace(stage, parent *os.File, _, destinationName string) error {
+	if stage == nil {
+		return fmt.Errorf("%w: missing staging descriptor", ErrStageChanged)
 	}
-	stageInfo, statErr := stage.Stat()
-	if statErr != nil {
-		_ = pathFile.Close()
-		return statErr
+	err := unix.Linkat(int(stage.Fd()), "", int(parent.Fd()), destinationName, unix.AT_EMPTY_PATH)
+	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOSYS) {
+		return fmt.Errorf("%w: descriptor-bound staging publication is unavailable: %v", ErrUnsupported, err)
 	}
-	if !sameObject(stageInfo, pathInfo) {
-		_ = pathFile.Close()
-		return ErrStageChanged
+	return err
+}
+
+// linkOpenSourceNoReplace publishes from the manifest-validated source
+// descriptor. A source pathname exchange after validation cannot affect the
+// inode selected by this operation.
+func linkOpenSourceNoReplace(source, destinationParent *os.File, destinationName string) error {
+	if source == nil {
+		return fmt.Errorf("%w: missing source descriptor", ErrSourceChanged)
 	}
-	err = unix.Linkat(int(pathFile.Fd()), "", int(parent.Fd()), destinationName, unix.AT_EMPTY_PATH)
-	_ = pathFile.Close()
-	if err == nil || (!errors.Is(err, unix.EPERM) && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOSYS)) {
-		return err
+	err := unix.Linkat(int(source.Fd()), "", int(destinationParent.Fd()), destinationName, unix.AT_EMPTY_PATH)
+	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOSYS) {
+		return fmt.Errorf("%w: descriptor-bound hardlink publication is unavailable: %v", ErrUnsupported, err)
 	}
-	return unix.Linkat(unix.AT_FDCWD, fmt.Sprintf("/proc/self/fd/%d", stage.Fd()), int(parent.Fd()), destinationName, unix.AT_SYMLINK_FOLLOW)
+	return err
 }

@@ -31,8 +31,9 @@ const (
 	// MaxBufferSize keeps a caller-supplied chunk bound from turning one action
 	// into an unexpectedly large allocation.
 	MaxBufferSize = 16 << 20
-	// DefaultStagePrefix identifies files created by this package. Cleanup is
-	// always scoped to a name generated for the current operation.
+	// DefaultStagePrefix identifies the staging namespace used by older or
+	// target-specific implementations. Linux v0.0.1 uses anonymous staging,
+	// so a successful copy has no pathname alias to clean up.
 	DefaultStagePrefix = ".mastarr-stage"
 )
 
@@ -48,7 +49,7 @@ var (
 	ErrSourceChanged        = errors.New("filesystem source changed after approval")
 	ErrDestinationConflict  = errors.New("filesystem destination conflicts with approved content")
 	ErrDestinationExists    = errors.New("filesystem destination appeared during publication")
-	ErrStageChanged         = errors.New("filesystem staging object changed before cleanup")
+	ErrStageChanged         = errors.New("filesystem staging object changed before publication")
 	ErrReconciliationNeeded = errors.New("filesystem effect requires read-only reconciliation")
 	ErrPublicationUnknown   = errors.New("filesystem publication durability is unknown")
 	ErrJournalUnknown       = errors.New("filesystem effect journal durability is unknown")
@@ -86,6 +87,10 @@ type Options struct {
 	// beforeStagePublication is a package-private fault-injection seam used by
 	// synthetic race tests. Production callers cannot install a callback.
 	beforeStagePublication func(*os.File, string)
+	// beforeHardlinkPublication is a package-private fault-injection seam used
+	// to exchange the source pathname after validation. Production callers
+	// cannot install a callback.
+	beforeHardlinkPublication func(*os.File)
 }
 
 // FileEffect is the optional durable-journal projection. It keeps the exact
@@ -645,9 +650,9 @@ func (p *Placer) copyOne(ctx context.Context, operationID string, ordinal int, p
 			_ = stage.Close()
 			stageClosed = true
 		}
-		// A stage pathname may have been replaced after creation. There is no
-		// portable inode-conditional unlink primitive, so leave the stage for
-		// the durable janitor rather than unlinking a mutable pathname here.
+		// Linux stages are anonymous inodes. Closing an unpublished stage
+		// reclaims it without touching a pathname that another actor could have
+		// substituted. Targets without this guarantee fail closed before copy.
 	}
 
 	digest, copyErr := copyAndDigest(ctx, source.file, source.info, stage, plan.source, p.opts.BufferSize)
@@ -671,12 +676,16 @@ func (p *Placer) copyOne(ctx context.Context, operationID string, ordinal int, p
 		cleanupStage()
 		return fileResult{}, err
 	}
-	if err := verifyOwnedChild(parent, stageName, stageInfo); err != nil {
+	if err := verifyOwnedStage(stage, stageInfo); err != nil {
 		cleanupStage()
 		return fileResult{}, err
 	}
 	if p.opts.beforeStagePublication != nil {
 		p.opts.beforeStagePublication(parent, stageName)
+	}
+	if err := ctx.Err(); err != nil {
+		cleanupStage()
+		return fileResult{}, err
 	}
 
 	published, publishErr := publishNoReplace(stage, parent, stageName, name)
@@ -756,7 +765,13 @@ func (p *Placer) hardlinkOne(ctx context.Context, operationID string, ordinal in
 	if err := p.verifySourcePath(plan.source, source.info); err != nil {
 		return fileResult{}, err
 	}
-	published, publishErr := linkNoReplace(source.parent, source.name, parent, name)
+	if p.opts.beforeHardlinkPublication != nil {
+		p.opts.beforeHardlinkPublication(source.file)
+	}
+	if err := ctx.Err(); err != nil {
+		return fileResult{}, err
+	}
+	published, publishErr := linkNoReplace(source.file, parent, name)
 	if publishErr != nil {
 		if !published {
 			if isExist(publishErr) {
@@ -1243,13 +1258,12 @@ func makeCreatedDirectories(rootID domain.ConfigID, paths []string) []createdDir
 }
 
 func (p *Placer) cleanupDirectories(paths []createdDirectory) {
-	for index := len(paths) - 1; index >= 0; index-- {
-		root, ok := p.roots[paths[index].rootID]
-		if !ok {
-			continue
-		}
-		_ = removeEmptyDirectory(root.Path, paths[index].relative)
-	}
+	// There is no portable inode-conditional directory unlink operation. A
+	// pathname can be replaced after creation and before error cleanup, so
+	// preserving every created directory is safer than deleting an unowned
+	// replacement. The root-relative candidates remain identifiable to the
+	// durable janitor once that lifecycle is wired by the executor.
+	_ = paths
 }
 
 func (p *Placer) root(id domain.ConfigID) (Root, error) {

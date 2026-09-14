@@ -184,58 +184,33 @@ func openExistingChild(parent *os.File, name string) (*os.File, fs.FileInfo, err
 	return file, openedInfo, nil
 }
 
-func createExclusiveChild(parent *os.File, name string) (*os.File, error) {
-	full := filepath.Join(parent.Name(), filepath.FromSlash(name))
-	if err := checkNoSymlinkComponents(parent.Name()); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(full, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return nil, classifyPlacementError(err)
-	}
-	return file, nil
+func createExclusiveChild(_ *os.File, _ string) (*os.File, error) {
+	return nil, fmt.Errorf("%w: target lacks descriptor-bound staging publication", ErrUnsupported)
 }
 
-func publishNoReplace(stage, parent *os.File, stageName, destinationName string) (bool, error) {
-	// Writes are disabled on this target, but retain the descriptor-bound
-	// staging contract for any future target-specific implementation.
-	stage := filepath.Join(parent.Name(), filepath.FromSlash(stageName))
-	destination := filepath.Join(parent.Name(), filepath.FromSlash(destinationName))
-	if err := os.Link(stage, destination); err != nil {
-		return false, classifyPlacementError(err)
-	}
-	return true, nil
+func publishNoReplace(_ *os.File, _ *os.File, _, _ string) (bool, error) {
+	return false, fmt.Errorf("%w: target lacks descriptor-bound staging publication", ErrUnsupported)
 }
 
-func verifyOwnedChild(parent *os.File, name string, expected fs.FileInfo) error {
+func verifyOwnedStage(stage *os.File, expected fs.FileInfo) error {
 	if expected == nil {
 		return fmt.Errorf("%w: missing staging identity", ErrStageChanged)
 	}
-	actual, info, err := openExistingChild(parent, name)
-	if err != nil {
-		return fmt.Errorf("%w: staging path %q is unavailable: %v", ErrStageChanged, name, err)
+	if stage == nil {
+		return fmt.Errorf("%w: missing staging descriptor", ErrStageChanged)
 	}
-	actual.Close()
+	info, err := stage.Stat()
+	if err != nil {
+		return fmt.Errorf("%w: staging descriptor is unavailable: %v", ErrStageChanged, err)
+	}
 	if !sameObject(expected, info) {
-		return fmt.Errorf("%w: staging path %q names another object", ErrStageChanged, name)
+		return fmt.Errorf("%w: staging descriptor names another object", ErrStageChanged)
 	}
 	return nil
 }
 
-func linkNoReplace(sourceParent *os.File, sourceName string, destinationParent *os.File, destinationName string) (bool, error) {
-	source := filepath.Join(sourceParent.Name(), filepath.FromSlash(sourceName))
-	destination := filepath.Join(destinationParent.Name(), filepath.FromSlash(destinationName))
-	if err := os.Link(source, destination); err != nil {
-		return false, classifyPlacementError(err)
-	}
-	return true, nil
-}
-
-func removeEmptyDirectory(rootPath, relative string) error {
-	if relative == "" {
-		return ErrRootTarget
-	}
-	return classifyPlacementError(os.Remove(filepath.Join(rootPath, filepath.FromSlash(relative))))
+func linkNoReplace(_ *os.File, _ *os.File, _ string) (bool, error) {
+	return false, fmt.Errorf("%w: target lacks descriptor-bound hardlink publication", ErrUnsupported)
 }
 
 func syncDirectory(directory *os.File) error {
