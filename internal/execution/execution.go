@@ -937,9 +937,10 @@ func (executor *Executor) claimAndProcess(ctx context.Context, action Action) Re
 		processed = executor.processObserved(ctx, claimed, handler)
 	}
 	// Reservations remain durable and local while an effect is unresolved. A
-	// stale worker may return after lease recovery, so retain its local keys on
-	// lease loss as well; the next worker will reconcile the durable row.
-	if processed.State != domain.ActionReconciling && !errors.Is(processed.Err, ErrLeaseLost) {
+	// stale worker releases only its process-local map on lease loss; the
+	// durable outcome metadata remains authoritative for the next worker and
+	// avoids a local reservation leak after reconciliation completes elsewhere.
+	if processed.State != domain.ActionReconciling {
 		executor.releaseReservations(reserved, claimed.ID)
 	}
 	return processed
