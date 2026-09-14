@@ -1171,7 +1171,8 @@
         "3e8f2f52a27b95c4f2cb4f6fd7abbf22496fe9bb F-04 correction round one follow-up product",
         "408f0707cff2d753811ae4c879487f8973c52836 F-04 correction round one handoff",
         "F-04 correction round one focused placement, race, cross-build, module, generation, API, architecture, planning, lint and guardrail checks passed; root checks were rerun after concurrent discovery stabilization.",
-        "F-04 correction review rerouted from /root/x05_reviewer to /root/d02_reviewer after no receipt; state checkpoint records the independent reviewer assignment."
+        "F-04 correction review rerouted from /root/x05_reviewer to /root/d02_reviewer after no receipt; state checkpoint records the independent reviewer assignment.",
+        "Interrupted /root/x05_reviewer provisional scan reported three additional candidate issues for replacement review: successful-copy hidden stage hardlink, replacement-directory cleanup deletion, and fs_other cross-platform compile; no receipt commit exists, so /root/d02_reviewer was asked to verify them."
       ],
       "review": {
         "status": "changes_requested",
@@ -1243,7 +1244,12 @@
           "previousReviewer": "/root/x05_reviewer",
           "status": "interrupted",
           "reason": "review turn could not complete after retry; no receipt commit was produced",
-          "newReviewer": "/root/d02_reviewer"
+          "newReviewer": "/root/d02_reviewer",
+          "provisionalFindings": [
+            "successful-copy hidden stage hardlink",
+            "replacement-directory cleanup deletion",
+            "fs_other cross-platform compile failure"
+          ]
         }
       },
       "implementationCommit": "1733a0998e86bf4c71250fab11e17b41857bbc85",
@@ -2935,7 +2941,7 @@
       ]
     }
   },
-  "nextAction": "F-04 correction review is assigned to /root/d02_reviewer and F-02 correction review to /root/x05_reviewer; await both exact receipts before integration or next-lane dispatch.",
+  "nextAction": "F-04 review by /root/d02_reviewer must verify the three provisional cross-platform/cleanup findings plus prior corrections; F-02 review by /root/x05_reviewer is parallel.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
