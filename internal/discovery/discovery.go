@@ -28,6 +28,7 @@ const (
 	defaultPageSize             = 1_000
 	defaultMaxEntries           = 10_000
 	defaultMaxDepth             = 32
+	defaultMaxFilesystemPages   = 10_000
 	defaultMinimumStableSpacing = 30 * time.Second
 )
 
@@ -147,15 +148,29 @@ type StabilityObservation struct {
 	Reason         string
 }
 
-// ClientCompletionObservation contains the download-client evidence matched
-// to a group. The source connection and item IDs remain instance-scoped.
+// ClientItemObservation is one connection-scoped completion observation. The
+// same upstream item ID may legitimately occur on different connections.
+type ClientItemObservation struct {
+	ConnectionID domain.ConfigID
+	ClientItemID string
+	Hash         string
+	State        ClientCompletionState
+	CompletedAt  *time.Time
+}
+
+// ClientCompletionObservation contains download-client evidence matched to a
+// group. Items is authoritative because connection identity is part of every
+// item. ConnectionID and ClientItemIDs are compatibility projections for the
+// single-connection case and must not be used to correlate across instances.
 type ClientCompletionObservation struct {
 	State         ClientCompletionState
 	ConnectionID  domain.ConfigID
 	ClientItemIDs []string
+	Items         []ClientItemObservation
 	CompletedAt   *time.Time
 	ObservedAt    time.Time
 	Known         bool
+	UnknownItem   bool
 }
 
 // MediaAssociation is a filename-derived suggestion. Episode and absolute
@@ -263,6 +278,7 @@ type Options struct {
 	PageSize             int
 	MaxEntries           int
 	MaxDepth             int
+	MaxFilesystemPages   int
 	MinimumStableSpacing time.Duration
 	ExcludedPrefixes     []string
 	Now                  func() time.Time
@@ -274,6 +290,7 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		PageSize: defaultPageSize, MaxEntries: defaultMaxEntries, MaxDepth: defaultMaxDepth,
+		MaxFilesystemPages:   defaultMaxFilesystemPages,
 		MinimumStableSpacing: defaultMinimumStableSpacing,
 		ExcludedPrefixes:     []string{".mastarr-trash", ".mastarr-staging"},
 		MaxClientPages:       100, MaxClientItems: defaultMaxEntries,
@@ -294,6 +311,9 @@ func normalizeOptions(options Options) (Options, error) {
 	}
 	if options.MaxDepth <= 0 {
 		options.MaxDepth = defaults.MaxDepth
+	}
+	if options.MaxFilesystemPages <= 0 {
+		options.MaxFilesystemPages = defaults.MaxFilesystemPages
 	}
 	if options.MinimumStableSpacing <= 0 {
 		options.MinimumStableSpacing = defaults.MinimumStableSpacing
@@ -410,7 +430,7 @@ func (scanner *Scanner) Scan(ctx context.Context, rootID domain.ConfigID) (ScanR
 	if err := observation.Validate(); err != nil {
 		return result, err
 	}
-	result = ScanResult{Observation: observation, Coverage: coverage}
+	result = ScanResult{Observation: cloneDirectoryObservation(observation), Coverage: cloneCoverage(coverage)}
 	if enumErr != nil {
 		if commitErr := scanner.store.Commit(ctx, observation, nil); commitErr == nil {
 			result.Persisted = true
@@ -460,6 +480,7 @@ type enumerationState struct {
 	partial    bool
 	unknown    bool
 	count      int
+	pageCount  int
 	maxReached bool
 }
 
@@ -493,9 +514,16 @@ func (scanner *Scanner) enumerateDirectory(ctx context.Context, rootID domain.Co
 		return nil
 	}
 	cursor := ""
+	seenCursors := map[string]struct{}{"": {}}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if state.pageCount >= scanner.options.MaxFilesystemPages {
+			state.partial = true
+			state.maxReached = true
+			state.reasons = appendUnique(state.reasons, "enumeration_page_limit")
+			return nil
 		}
 		page, err := scanner.filesystem.EnumeratePage(ctx, rootID, prefix, cursor, scanner.options.PageSize)
 		if err != nil {
@@ -506,6 +534,7 @@ func (scanner *Scanner) enumerateDirectory(ctx context.Context, rootID domain.Co
 			state.reasons = appendUnique(state.reasons, unsupportedReasonCode(prefix, "directory_unavailable"))
 			return nil
 		}
+		state.pageCount++
 		for _, reason := range page.Coverage.ReasonCodes {
 			if evidence, ok := ports.ParseUnsupportedChildReasonCode(reason); ok && scanner.isExcluded(evidence.RelativePath) {
 				continue
@@ -564,11 +593,13 @@ func (scanner *Scanner) enumerateDirectory(ctx context.Context, rootID domain.Co
 		if page.NextCursor == "" || state.maxReached {
 			break
 		}
-		if page.NextCursor == cursor {
+		if _, exists := seenCursors[page.NextCursor]; exists {
 			state.partial = true
-			state.reasons = appendUnique(state.reasons, "enumeration_cursor_repeated")
+			state.maxReached = true
+			state.reasons = appendUnique(state.reasons, "enumeration_cursor_cycle")
 			break
 		}
+		seenCursors[page.NextCursor] = struct{}{}
 		cursor = page.NextCursor
 	}
 	return nil
@@ -604,25 +635,31 @@ func (scanner *Scanner) clientEvidence(ctx context.Context, rootID domain.Config
 		}
 		now := scanner.now()
 		coverage := domain.Coverage{SourceID: coverageID, ConnectionID: source.ConnectionID, RootID: rootID, Completeness: domain.CompletenessComplete, StartedAt: &now, ObservedAt: now}
+		if len(result.items) >= scanner.options.MaxClientItems {
+			markClientCoverageIncomplete(&result, &coverage, domain.CompletenessUnknown, "client_inventory_limit")
+			completed := scanner.now()
+			if completed.Before(now) {
+				completed = now
+			}
+			coverage.CompletedAt = &completed
+			coverage.ObservedAt = completed
+			result.coverages = append(result.coverages, coverage)
+			continue
+		}
 		cursor := ""
+		seenCursors := map[string]struct{}{"": {}}
 		pages := 0
 		for {
 			if err := ctx.Err(); err != nil {
 				return nil, false, nil, nil, err
 			}
 			if pages >= scanner.options.MaxClientPages {
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_limit")
-				coverage.Completeness = domain.CompletenessPartial
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_limit")
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessPartial, "client_inventory_limit")
 				break
 			}
 			page, err := source.Inventory.List(ctx, source.ConnectionID, cursor, scanner.options.PageSize)
 			if err != nil {
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_incomplete")
-				coverage.Completeness = domain.CompletenessUnknown
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_incomplete")
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessUnknown, "client_inventory_incomplete")
 				break
 			}
 			pages++
@@ -630,10 +667,10 @@ func (scanner *Scanner) clientEvidence(ctx context.Context, rootID domain.Config
 			if page.Coverage.ObservedAt.After(coverage.ObservedAt) {
 				coverage.ObservedAt = page.Coverage.ObservedAt
 			}
+			truncated := false
 			for _, item := range page.Items {
 				if len(result.items) >= scanner.options.MaxClientItems {
-					result.incomplete = true
-					result.reasons = appendUnique(result.reasons, "client_inventory_limit")
+					truncated = true
 					break
 				}
 				result.items = append(result.items, downloadSourceItem{source: source, item: cloneDownloadItem(item)})
@@ -645,31 +682,24 @@ func (scanner *Scanner) clientEvidence(ctx context.Context, rootID domain.Config
 			switch page.Coverage.Completeness {
 			case domain.CompletenessComplete:
 			case domain.CompletenessPartial:
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_incomplete")
-				coverage.Completeness = domain.CompletenessPartial
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_incomplete")
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessPartial, "client_inventory_incomplete")
 			case domain.CompletenessUnknown:
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_incomplete")
-				coverage.Completeness = domain.CompletenessUnknown
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_incomplete")
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessUnknown, "client_inventory_incomplete")
 			default:
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_incomplete")
-				coverage.Completeness = domain.CompletenessUnknown
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_incomplete")
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessUnknown, "client_inventory_incomplete")
 			}
-			if page.NextCursor == "" || len(result.items) >= scanner.options.MaxClientItems {
+			if truncated || (len(result.items) >= scanner.options.MaxClientItems && page.NextCursor != "") {
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessPartial, "client_inventory_limit")
 				break
 			}
-			if page.NextCursor == cursor {
-				result.incomplete = true
-				result.reasons = appendUnique(result.reasons, "client_inventory_cursor_repeated")
-				coverage.Completeness = domain.CompletenessPartial
-				coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, "client_inventory_cursor_repeated")
+			if page.NextCursor == "" {
 				break
 			}
+			if _, exists := seenCursors[page.NextCursor]; exists {
+				markClientCoverageIncomplete(&result, &coverage, domain.CompletenessPartial, "client_inventory_cursor_cycle")
+				break
+			}
+			seenCursors[page.NextCursor] = struct{}{}
 			cursor = page.NextCursor
 		}
 		completed := scanner.now()
@@ -681,6 +711,15 @@ func (scanner *Scanner) clientEvidence(ctx context.Context, rootID domain.Config
 		result.coverages = append(result.coverages, coverage)
 	}
 	return result.items, result.incomplete, uniqueReasons(result.reasons), result.coverages, nil
+}
+
+func markClientCoverageIncomplete(result *clientEvidenceResult, coverage *domain.Coverage, completeness domain.Completeness, reason string) {
+	result.incomplete = true
+	result.reasons = appendUnique(result.reasons, reason)
+	coverage.ReasonCodes = appendUnique(coverage.ReasonCodes, reason)
+	if completeness == domain.CompletenessUnknown || coverage.Completeness == domain.CompletenessComplete {
+		coverage.Completeness = completeness
+	}
 }
 
 type groupFiles struct {
@@ -731,6 +770,9 @@ func buildDiscovery(key string, files []domain.FileManifestEntry, coverage domai
 	discovery.Videos, discovery.Subtitles, discovery.Companions, discovery.Kind = classifyFiles(files)
 	discovery.Stability = stabilityFor(files, prior.Stability, options.MinimumStableSpacing, now)
 	discovery.Provenance, discovery.ClientCompletion = correlateClient(discovery.RootID, key, files, clientItems, now)
+	if (clientIncomplete || !clientCoverageComplete(discovery.ClientCoverage)) && discovery.ClientCompletion.State == ClientCompletionComplete {
+		discovery.ClientCompletion.State = ClientCompletionUnknown
+	}
 	if len(discovery.Provenance) > 0 {
 		discovery.ProvenanceState = ProvenanceKnown
 	}
@@ -758,9 +800,12 @@ func groupKey(relativePath string) string {
 			stem = subtitleGroupStem(stem)
 		}
 		if stem == "" {
-			return base
+			stem = base
 		}
-		return stem
+		// Root files and top-level directories share one path namespace. Keep
+		// root-file groups explicitly tagged so Movie.mkv cannot merge with
+		// Movie/Other.mkv while subtitle/video siblings retain one key.
+		return "file:" + stem
 	}
 	parts := strings.Split(directory, "/")
 	return parts[0]
@@ -796,7 +841,6 @@ var (
 	xEpisodePattern      = regexp.MustCompile(`(?i)(?:^|[^0-9])(\d{1,2})x(\d{1,4})(?:[^0-9]+(?:e|x)?(\d{1,4}))?`)
 	seasonPattern        = regexp.MustCompile(`(?i)(?:season[ ._-]*|^s)(\d{1,2})(?:[^0-9]|$)`)
 	animeNumberPattern   = regexp.MustCompile(`(?:^|[\[\( _.-])(\d{2,4})(?:[\]\) _.-]|$)`)
-	languagePattern      = regexp.MustCompile(`(?i)(?:^|[ ._-])([a-z]{2,3})(?:$|[ ._-])`)
 )
 
 func classifyFiles(files []domain.FileManifestEntry) ([]MediaAssociation, []SubtitleAssociation, []Companion, GroupKind) {
@@ -834,8 +878,14 @@ func classifyFiles(files []domain.FileManifestEntry) ([]MediaAssociation, []Subt
 		if len(subtitleEntries) > 0 || len(companions) > 0 {
 			groupKind = GroupUnknown
 		}
-	} else if len(videos) > 1 && groupKind != GroupAnime && groupKind != GroupMixed {
-		groupKind = GroupSeasonPack
+	} else if len(videos) > 1 {
+		switch groupKind {
+		case GroupAnime:
+		case GroupEpisode, GroupSeasonPack:
+			groupKind = GroupSeasonPack
+		default:
+			groupKind = GroupMixed
+		}
 	}
 	subtitles := make([]SubtitleAssociation, 0, len(subtitleEntries))
 	videoPaths := make([]string, 0, len(videos))
@@ -956,10 +1006,10 @@ func animeAbsoluteNumber(base string) *int {
 		if err != nil || number < 1 || number > 9999 {
 			continue
 		}
-		// Four-digit tokens in a plain movie name are normally a year. A
-		// bracketed or separator-delimited two/three-digit token is a much
-		// stronger anime absolute-number hint.
-		if len(match[1]) == 4 && !strings.ContainsAny(match[0], "[]()") {
+		// Four-digit tokens in common movie names are years even when wrapped
+		// in parentheses. Keep year-like evidence ambiguous until a later
+		// title/episode mapping confirms anime semantics.
+		if len(match[1]) == 4 && number >= 1000 && number <= 2999 {
 			continue
 		}
 		return intPointer(number)
@@ -984,8 +1034,12 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 	forced := containsToken(base, "forced")
 	hearingImpaired := containsToken(base, "sdh") || containsToken(base, "hi") || containsToken(base, "hearing impaired")
 	language := ""
-	if match := languagePattern.FindStringSubmatch(base); len(match) == 2 {
-		language = strings.ToLower(match[1])
+	for _, token := range strings.Fields(strings.NewReplacer(".", " ", "_", " ", "-", " ").Replace(strings.ToLower(base))) {
+		if len(token) < 2 || len(token) > 3 || !isASCIIWord(token) || isSubtitleLabel(token) {
+			continue
+		}
+		language = token
+		break
 	}
 	pairID := ""
 	if extension := strings.ToLower(path.Ext(relativePath)); extension == ".idx" || extension == ".sub" {
@@ -1003,6 +1057,15 @@ func subtitleFor(relativePath string, videoPaths []string) SubtitleAssociation {
 		result.Reason = "subtitle has no matching video"
 	}
 	return result
+}
+
+func isSubtitleLabel(value string) bool {
+	switch strings.ToLower(value) {
+	case "forced", "sdh", "hi":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeStem(value string) string {
@@ -1062,7 +1125,13 @@ func correlateClient(rootID domain.ConfigID, groupPath string, files []domain.Fi
 		}
 		provenance = append(provenance, domain.Provenance{ConnectionID: candidate.source.ConnectionID, ClientItemID: candidate.item.ExternalID, Hash: candidate.item.Hash, CompletedAt: completedAt, DescriptorID: descriptorID, SourcePath: sourcePath})
 		candidateState := completionState(candidate.item)
-		completion = mergeCompletion(completion, candidateState, candidate.source.ConnectionID, candidate.item.ExternalID, completedAt)
+		completion = mergeCompletion(completion, ClientItemObservation{
+			ConnectionID: candidate.source.ConnectionID,
+			ClientItemID: candidate.item.ExternalID,
+			Hash:         candidate.item.Hash,
+			State:        candidateState,
+			CompletedAt:  completedAt,
+		})
 	}
 	return provenance, completion
 }
@@ -1098,17 +1167,31 @@ func completionState(item ports.DownloadItem) ClientCompletionState {
 	}
 }
 
-func mergeCompletion(current ClientCompletionObservation, state ClientCompletionState, connectionID domain.ConfigID, itemID string, completedAt *time.Time) ClientCompletionObservation {
+func mergeCompletion(current ClientCompletionObservation, item ClientItemObservation) ClientCompletionObservation {
 	current.Known = true
-	if current.ConnectionID == "" {
-		current.ConnectionID = connectionID
+	if current.ConnectionID == "" && len(current.Items) == 0 {
+		current.ConnectionID = item.ConnectionID
+	} else if current.ConnectionID != item.ConnectionID {
+		current.ConnectionID = ""
 	}
-	if itemID != "" && !containsString(current.ClientItemIDs, itemID) {
-		current.ClientItemIDs = append(current.ClientItemIDs, itemID)
+	current.Items = append(current.Items, cloneClientItemObservation(item))
+	if item.ClientItemID != "" {
+		// Keep this compatibility projection lossless in the presence of
+		// equal IDs from different connections. Callers needing identity use
+		// Items, which always includes ConnectionID.
+		current.ClientItemIDs = append(current.ClientItemIDs, item.ClientItemID)
 	}
-	if completedAt != nil && (current.CompletedAt == nil || completedAt.Before(*current.CompletedAt)) {
-		value := *completedAt
+	if item.CompletedAt != nil && (current.CompletedAt == nil || item.CompletedAt.Before(*current.CompletedAt)) {
+		value := *item.CompletedAt
 		current.CompletedAt = &value
+	}
+	if item.State == ClientCompletionUnknown {
+		current.UnknownItem = true
+		current.State = ClientCompletionUnknown
+		return current
+	}
+	if current.UnknownItem {
+		return current
 	}
 	// In-progress evidence wins over a completed item so a multi-source or
 	// duplicate-path group never becomes ready prematurely.
@@ -1124,8 +1207,8 @@ func mergeCompletion(current ClientCompletionObservation, state ClientCompletion
 			return 0
 		}
 	}
-	if priority(state) > priority(current.State) {
-		current.State = state
+	if priority(item.State) > priority(current.State) {
+		current.State = item.State
 	}
 	return current
 }
@@ -1203,10 +1286,22 @@ func readinessFor(discovery Discovery) domain.Readiness {
 	if discovery.Stability.State == StabilityChanging {
 		return domain.ReadinessChanging
 	}
-	if discovery.Stability.State != StabilityStable || discovery.Coverage.Completeness != domain.CompletenessComplete || discovery.ClientCompletion.State != ClientCompletionComplete {
+	if discovery.Stability.State != StabilityStable || discovery.Coverage.Completeness != domain.CompletenessComplete || discovery.ClientCompletion.State != ClientCompletionComplete || !clientCoverageComplete(discovery.ClientCoverage) {
 		return domain.ReadinessUnknown
 	}
 	return domain.ReadinessReady
+}
+
+func clientCoverageComplete(coverages []domain.Coverage) bool {
+	if len(coverages) == 0 {
+		return false
+	}
+	for _, coverage := range coverages {
+		if coverage.Completeness != domain.CompletenessComplete {
+			return false
+		}
+	}
+	return true
 }
 
 func reviewForDiscovery(discovery Discovery) []ReviewReason {
@@ -1225,6 +1320,9 @@ func reviewForDiscovery(discovery Discovery) []ReviewReason {
 	}
 	if discovery.Coverage.Completeness != domain.CompletenessComplete {
 		result = appendReview(result, ReviewCoveragePartial)
+	}
+	if len(discovery.ClientCoverage) > 0 && !clientCoverageComplete(discovery.ClientCoverage) {
+		result = appendReview(result, ReviewClientInventoryIncomplete)
 	}
 	for _, video := range discovery.Videos {
 		if video.Confidence == ConfidenceAmbiguous {
@@ -1484,6 +1582,33 @@ func (discovery Discovery) Validate() error {
 	if discovery.ClientCompletion.ObservedAt.IsZero() {
 		return fmt.Errorf("%w: client completion observation is incomplete", ErrInvalidObservation)
 	}
+	if discovery.ClientCompletion.ConnectionID != "" && !discovery.ClientCompletion.ConnectionID.Valid() {
+		return fmt.Errorf("%w: client completion has an invalid connection", ErrInvalidObservation)
+	}
+	if discovery.ClientCompletion.Known && len(discovery.ClientCompletion.Items) == 0 && !discovery.ClientCompletion.ConnectionID.Valid() {
+		return fmt.Errorf("%w: known client completion requires item evidence", ErrInvalidObservation)
+	}
+	if discovery.ClientCompletion.UnknownItem && discovery.ClientCompletion.State != ClientCompletionUnknown {
+		return fmt.Errorf("%w: unknown client item requires unknown aggregate state", ErrInvalidObservation)
+	}
+	itemConnections := make(map[domain.ConfigID]struct{}, len(discovery.ClientCompletion.Items))
+	for index, item := range discovery.ClientCompletion.Items {
+		if !item.ConnectionID.Valid() {
+			return fmt.Errorf("%w: client completion item %d has an invalid connection", ErrInvalidObservation, index)
+		}
+		if item.ClientItemID == "" && item.Hash == "" {
+			return fmt.Errorf("%w: client completion item %d has no identity", ErrInvalidObservation, index)
+		}
+		switch item.State {
+		case ClientCompletionComplete, ClientCompletionDownloading, ClientCompletionProcessing, ClientCompletionUnknown:
+		default:
+			return fmt.Errorf("%w: client completion item %d has an invalid state", ErrInvalidObservation, index)
+		}
+		itemConnections[item.ConnectionID] = struct{}{}
+	}
+	if len(itemConnections) > 1 && discovery.ClientCompletion.ConnectionID != "" {
+		return fmt.Errorf("%w: aggregate client completion cannot select one of multiple connections", ErrInvalidObservation)
+	}
 	for index, coverage := range discovery.ClientCoverage {
 		if err := coverage.Validate(); err != nil {
 			return fmt.Errorf("%w: client coverage %d: %v", ErrInvalidObservation, index, err)
@@ -1491,9 +1616,6 @@ func (discovery Discovery) Validate() error {
 		if coverage.ConnectionID == "" || !coverage.ConnectionID.Valid() {
 			return fmt.Errorf("%w: client coverage %d has invalid connection", ErrInvalidObservation, index)
 		}
-	}
-	if discovery.ClientCompletion.Known && !discovery.ClientCompletion.ConnectionID.Valid() {
-		return fmt.Errorf("%w: known client completion requires a connection", ErrInvalidObservation)
 	}
 	seen := make(map[string]struct{}, len(discovery.Files))
 	for index, entry := range discovery.Files {
@@ -1654,7 +1776,7 @@ func cloneEntries(entries []domain.FileManifestEntry) []domain.FileManifestEntry
 
 func cloneDirectoryObservation(observation DirectoryObservation) DirectoryObservation {
 	observation.Entries = cloneEntries(observation.Entries)
-	observation.Coverage.ReasonCodes = append([]string(nil), observation.Coverage.ReasonCodes...)
+	observation.Coverage = cloneCoverage(observation.Coverage)
 	observation.UnsupportedChildren = append([]ports.UnsupportedChildEvidence(nil), observation.UnsupportedChildren...)
 	return observation
 }
@@ -1664,6 +1786,8 @@ func cloneDiscovery(discovery Discovery) Discovery {
 	discovery.Videos = append([]MediaAssociation(nil), discovery.Videos...)
 	for index := range discovery.Videos {
 		discovery.Videos[index].EpisodeNumbers = append([]int(nil), discovery.Videos[index].EpisodeNumbers...)
+		discovery.Videos[index].SeasonNumber = cloneIntPointer(discovery.Videos[index].SeasonNumber)
+		discovery.Videos[index].AbsoluteNumber = cloneIntPointer(discovery.Videos[index].AbsoluteNumber)
 	}
 	discovery.Subtitles = append([]SubtitleAssociation(nil), discovery.Subtitles...)
 	for index := range discovery.Subtitles {
@@ -1685,10 +1809,8 @@ func cloneDiscovery(discovery Discovery) Discovery {
 		}
 	}
 	discovery.ClientCompletion.ClientItemIDs = append([]string(nil), discovery.ClientCompletion.ClientItemIDs...)
-	if discovery.ClientCompletion.CompletedAt != nil {
-		value := *discovery.ClientCompletion.CompletedAt
-		discovery.ClientCompletion.CompletedAt = &value
-	}
+	discovery.ClientCompletion.Items = cloneClientItemObservations(discovery.ClientCompletion.Items)
+	discovery.ClientCompletion.CompletedAt = cloneTimePointer(discovery.ClientCompletion.CompletedAt)
 	discovery.Stability.Files = append([]FileStability(nil), discovery.Stability.Files...)
 	for index := range discovery.Stability.Files {
 		if discovery.Stability.Files[index].PreviousObservedAt != nil {
@@ -1697,7 +1819,7 @@ func cloneDiscovery(discovery Discovery) Discovery {
 		}
 	}
 	discovery.ReviewReasons = append([]ReviewReason(nil), discovery.ReviewReasons...)
-	discovery.Coverage.ReasonCodes = append([]string(nil), discovery.Coverage.ReasonCodes...)
+	discovery.Coverage = cloneCoverage(discovery.Coverage)
 	discovery.ClientCoverage = cloneCoverages(discovery.ClientCoverage)
 	discovery.UnsupportedChildren = append([]ports.UnsupportedChildEvidence(nil), discovery.UnsupportedChildren...)
 	return discovery
@@ -1709,18 +1831,48 @@ func cloneCoverages(coverages []domain.Coverage) []domain.Coverage {
 	}
 	result := make([]domain.Coverage, len(coverages))
 	for index, coverage := range coverages {
-		result[index] = coverage
-		result[index].ReasonCodes = append([]string(nil), coverage.ReasonCodes...)
-		if coverage.StartedAt != nil {
-			value := *coverage.StartedAt
-			result[index].StartedAt = &value
-		}
-		if coverage.CompletedAt != nil {
-			value := *coverage.CompletedAt
-			result[index].CompletedAt = &value
-		}
+		result[index] = cloneCoverage(coverage)
 	}
 	return result
+}
+
+func cloneCoverage(coverage domain.Coverage) domain.Coverage {
+	coverage.ReasonCodes = append([]string(nil), coverage.ReasonCodes...)
+	coverage.StartedAt = cloneTimePointer(coverage.StartedAt)
+	coverage.CompletedAt = cloneTimePointer(coverage.CompletedAt)
+	return coverage
+}
+
+func cloneClientItemObservation(item ClientItemObservation) ClientItemObservation {
+	item.CompletedAt = cloneTimePointer(item.CompletedAt)
+	return item
+}
+
+func cloneClientItemObservations(items []ClientItemObservation) []ClientItemObservation {
+	if len(items) == 0 {
+		return nil
+	}
+	result := make([]ClientItemObservation, len(items))
+	for index, item := range items {
+		result[index] = cloneClientItemObservation(item)
+	}
+	return result
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copyValue := *value
+	return &copyValue
 }
 
 func cloneDiscoveries(discoveries []Discovery) []Discovery {

@@ -316,6 +316,257 @@ func TestScannerTreatsMissingFilesystemCoverageAsUnknown(t *testing.T) {
 	}
 }
 
+func TestScannerBoundsNonAdjacentFilesystemCursorCycles(t *testing.T) {
+	clock := time.Date(2026, 9, 14, 19, 0, 0, 0, time.UTC)
+	filesystem := &cursorFilesystem{rootID: testRoot, next: map[string]string{"": "a", "a": "b", "b": "a"}}
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, nil, Options{MaxFilesystemPages: 20, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filesystem.calls != 3 || result.Coverage.Completeness != domain.CompletenessPartial || !hasReason(result.Coverage.ReasonCodes, "enumeration_cursor_cycle") {
+		t.Fatalf("non-adjacent cursor cycle was not bounded: calls=%d coverage=%+v", filesystem.calls, result.Coverage)
+	}
+}
+
+func TestScannerBoundsFilesystemPageBudget(t *testing.T) {
+	clock := time.Date(2026, 9, 14, 19, 30, 0, 0, time.UTC)
+	filesystem := &cursorFilesystem{rootID: testRoot, next: map[string]string{"": "a", "a": "b", "b": "c", "c": "d"}}
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, nil, Options{MaxFilesystemPages: 3, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filesystem.calls != 3 || result.Coverage.Completeness != domain.CompletenessPartial || !hasReason(result.Coverage.ReasonCodes, "enumeration_page_limit") {
+		t.Fatalf("filesystem page budget was not enforced: calls=%d coverage=%+v", filesystem.calls, result.Coverage)
+	}
+}
+
+func TestClientCoverageAndUnknownItemsCannotClaimReady(t *testing.T) {
+	clock := time.Date(2026, 9, 14, 20, 0, 0, 0, time.UTC)
+	filesystem := newFixtureFilesystem(testRoot, clock)
+	filesystem.setRootFiles(fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie"))
+	completeAt := clock.Add(-time.Minute)
+	item := ports.DownloadItem{ExternalID: "complete", State: "completed", ProcessingDone: true, Hash: "complete", CompletedAt: &completeAt, Payload: []domain.FileManifestEntry{fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie")}}
+	partialInventory := &fixedInventory{rootID: testRoot, coverage: domain.CompletenessPartial, items: []ports.DownloadItem{item}}
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, []DownloadSource{{ConnectionID: testConnection, Inventory: partialInventory}}, Options{MinimumStableSpacing: 30 * time.Second, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.Scan(context.Background(), testRoot); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute)
+	second, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie := discoveryByPath(t, second.Discoveries, "file:Movie")
+	if movie.ClientCompletion.State == ClientCompletionComplete || movie.Readiness == domain.ReadinessReady || movie.ClientCoverage[0].Completeness != domain.CompletenessPartial {
+		t.Fatalf("partial client coverage was overclaimed: %+v", movie)
+	}
+	if !hasReview(movie.ReviewReasons, ReviewClientInventoryIncomplete) {
+		t.Fatalf("partial client coverage lost review reason: %v", movie.ReviewReasons)
+	}
+
+	unknown := item
+	unknown.ExternalID = "unknown"
+	unknown.Hash = "unknown"
+	unknown.State = "client-state-not-modeled"
+	unknown.ProcessingDone = false
+	completeInventory := &fixedInventory{rootID: testRoot, coverage: domain.CompletenessComplete, items: []ports.DownloadItem{item, unknown}}
+	unknownScanner, err := New(filesystem, NewMemoryStore(), []DownloadSource{{ConnectionID: testConnection, Inventory: completeInventory}}, Options{MinimumStableSpacing: 30 * time.Second, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unknownScanner.Scan(context.Background(), testRoot); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute)
+	second, err = unknownScanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie = discoveryByPath(t, second.Discoveries, "file:Movie")
+	if movie.ClientCompletion.State != ClientCompletionUnknown || !movie.ClientCompletion.UnknownItem || movie.Readiness == domain.ReadinessReady || len(movie.ClientCompletion.Items) != 2 {
+		t.Fatalf("correlated unknown item was overclaimed: %+v", movie.ClientCompletion)
+	}
+}
+
+func TestClientItemLimitMarksAffectedConnectionCoverage(t *testing.T) {
+	clock := time.Date(2026, 9, 14, 21, 0, 0, 0, time.UTC)
+	filesystem := newFixtureFilesystem(testRoot, clock)
+	filesystem.setRootFiles(fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie"))
+	items := []ports.DownloadItem{
+		{ExternalID: "one", State: "completed", ProcessingDone: true, Hash: "one", Payload: []domain.FileManifestEntry{fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie")}},
+		{ExternalID: "two", State: "completed", ProcessingDone: true, Hash: "two", Payload: []domain.FileManifestEntry{fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie")}},
+	}
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, []DownloadSource{{ConnectionID: testConnection, Inventory: &fixedInventory{rootID: testRoot, coverage: domain.CompletenessComplete, items: items}}}, Options{MaxClientItems: 1, MinimumStableSpacing: 30 * time.Second, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.Scan(context.Background(), testRoot); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute)
+	result, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie := discoveryByPath(t, result.Discoveries, "file:Movie")
+	if len(movie.ClientCoverage) != 1 || movie.ClientCoverage[0].Completeness != domain.CompletenessPartial || !hasReason(movie.ClientCoverage[0].ReasonCodes, "client_inventory_limit") || movie.ClientCompletion.State == ClientCompletionComplete || movie.Readiness == domain.ReadinessReady {
+		t.Fatalf("item truncation was not per-source incomplete evidence: %+v", movie)
+	}
+}
+
+func TestClientCompletionKeepsConnectionScopedIdentities(t *testing.T) {
+	clock := time.Date(2026, 9, 14, 22, 0, 0, 0, time.UTC)
+	filesystem := newFixtureFilesystem(testRoot, clock)
+	filesystem.setRootFiles(fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie"))
+	item := ports.DownloadItem{ExternalID: "same-id", State: "completed", ProcessingDone: true, Hash: "same-hash", Payload: []domain.FileManifestEntry{fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 100, "movie")}}
+	sources := []DownloadSource{
+		{ConnectionID: "qbt-one", Inventory: &fixedInventory{rootID: testRoot, coverage: domain.CompletenessComplete, items: []ports.DownloadItem{item}}},
+		{ConnectionID: "qbt-two", Inventory: &fixedInventory{rootID: testRoot, coverage: domain.CompletenessComplete, items: []ports.DownloadItem{item}}},
+	}
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, sources, Options{MinimumStableSpacing: 30 * time.Second, Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.Scan(context.Background(), testRoot); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Minute)
+	result, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie := discoveryByPath(t, result.Discoveries, "file:Movie")
+	if len(movie.ClientCompletion.Items) != 2 || movie.ClientCompletion.ConnectionID != "" || len(movie.Provenance) != 2 {
+		t.Fatalf("connection-scoped client evidence collapsed: completion=%+v provenance=%+v", movie.ClientCompletion, movie.Provenance)
+	}
+	connections := map[domain.ConfigID]bool{}
+	for _, observed := range movie.ClientCompletion.Items {
+		connections[observed.ConnectionID] = true
+	}
+	if !connections["qbt-one"] || !connections["qbt-two"] {
+		t.Fatalf("client completion lost source identity: %+v", movie.ClientCompletion.Items)
+	}
+}
+
+func TestGroupingKeepsAmbiguityAndRootNamespacesExplicit(t *testing.T) {
+	files := []domain.FileManifestEntry{
+		fixtureFile(testRoot, "Movie.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie-root"),
+		fixtureFile(testRoot, "Movie/Other.mkv", domain.ManifestFile, domain.RoleVideo, 1, "movie-dir"),
+		fixtureFile(testRoot, "Another.mkv", domain.ManifestFile, domain.RoleVideo, 1, "another"),
+	}
+	groups := groupEntries(files, fixtureCoverage(testRoot, testRuntime, domain.CompletenessComplete), nil, nil, false, nil, nil, DefaultOptions(), time.Date(2026, 9, 14, 23, 0, 0, 0, time.UTC))
+	if len(groups) != 3 {
+		t.Fatalf("root file and directory namespaces collided: %+v", groups)
+	}
+	rootGroup := discoveryByPath(t, groups, "file:Movie")
+	if rootGroup.Files[0].RelativePath != "Movie.mkv" {
+		t.Fatalf("root file group key changed unexpectedly: %+v", rootGroup)
+	}
+	directoryGroup := discoveryByPath(t, groups, "Movie")
+	if directoryGroup.Files[0].RelativePath != "Movie/Other.mkv" {
+		t.Fatalf("directory group was not retained separately: %+v", directoryGroup)
+	}
+	ambiguous := discoveryByPath(t, groups, "file:Another")
+	if ambiguous.Kind != GroupMovie {
+		t.Fatalf("single ambiguous movie changed kind: %q", ambiguous.Kind)
+	}
+
+	movieFiles := []domain.FileManifestEntry{
+		fixtureFile(testRoot, "First.mkv", domain.ManifestFile, domain.RoleVideo, 1, "first"),
+		fixtureFile(testRoot, "Second.mkv", domain.ManifestFile, domain.RoleVideo, 1, "second"),
+	}
+	_, _, _, kind := classifyFiles(movieFiles)
+	if kind != GroupMixed {
+		t.Fatalf("multiple ambiguous movies were classified as %q, want %q", kind, GroupMixed)
+	}
+}
+
+func TestMediaAndSubtitleClassificationRejectsYearAsAnimeAndLabelAsLanguage(t *testing.T) {
+	movie := associationFor("Example Film (2024).mkv")
+	if movie.Kind != domain.MediaMovie || movie.Confidence != ConfidenceAmbiguous {
+		t.Fatalf("movie year was classified as anime: %+v", movie)
+	}
+	subtitle := subtitleFor("Movie.sdh.en.srt", []string{"Movie.mkv"})
+	if subtitle.Language != "en" || !subtitle.HearingImpaired || subtitle.Confidence != ConfidenceExact {
+		t.Fatalf("subtitle label was parsed as language: %+v", subtitle)
+	}
+}
+
+func TestMemoryStoreDeepClonesPointerBearingEvidence(t *testing.T) {
+	clock := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
+	filesystem := newFixtureFilesystem(testRoot, clock)
+	store := NewMemoryStore()
+	scanner, err := New(filesystem, store, nil, Options{Now: func() time.Time { return clock }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := scanner.Scan(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack := discoveryByPath(t, result.Discoveries, "Pack")
+	if len(pack.Videos) == 0 || pack.Videos[0].SeasonNumber == nil {
+		t.Fatalf("fixture did not produce pointer-bearing association: %+v", pack.Videos)
+	}
+	*pack.Videos[0].SeasonNumber = 99
+	if result.Observation.Coverage.StartedAt == nil || result.Observation.Coverage.CompletedAt == nil {
+		t.Fatalf("fixture observation did not produce coverage pointers: %+v", result.Observation.Coverage)
+	}
+	originalStarted := *result.Observation.Coverage.StartedAt
+	originalCompleted := *result.Observation.Coverage.CompletedAt
+	result.Observation.Coverage.StartedAt = timePointer(originalStarted.Add(24 * time.Hour))
+	result.Observation.Coverage.CompletedAt = timePointer(originalCompleted.Add(24 * time.Hour))
+
+	stored, err := store.ListDiscoveries(context.Background(), testRoot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedPack := discoveryByPath(t, stored, "Pack")
+	if storedPack.Videos[0].SeasonNumber == nil || *storedPack.Videos[0].SeasonNumber == 99 {
+		t.Fatalf("scan-result mutation changed stored association: %+v", storedPack.Videos[0])
+	}
+	history, err := store.ListDirectoryObservations(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Coverage.StartedAt == nil || !history[0].Coverage.StartedAt.Equal(originalStarted) || history[0].Coverage.CompletedAt == nil || !history[0].Coverage.CompletedAt.Equal(originalCompleted) {
+		t.Fatalf("scan-result mutation changed stored coverage pointers: %+v", history)
+	}
+
+	*storedPack.Videos[0].SeasonNumber = 77
+	storedAgain, err := store.ListDiscoveries(context.Background(), testRoot, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread := discoveryByPath(t, storedAgain, "Pack"); reread.Videos[0].SeasonNumber == nil || *reread.Videos[0].SeasonNumber == 77 {
+		t.Fatalf("list-result mutation changed stored association: %+v", reread.Videos[0])
+	}
+	history[0].Coverage.CompletedAt = timePointer(originalCompleted.Add(48 * time.Hour))
+	historyAgain, err := store.ListDirectoryObservations(context.Background(), testRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historyAgain[0].Coverage.CompletedAt == nil || !historyAgain[0].Coverage.CompletedAt.Equal(originalCompleted) {
+		t.Fatalf("list-result mutation changed stored coverage: %+v", historyAgain[0].Coverage)
+	}
+}
+
 type fixturePage struct {
 	items    []domain.FileManifestEntry
 	coverage domain.Completeness
@@ -442,6 +693,67 @@ func (inventory *fixtureInventory) List(ctx context.Context, connectionID domain
 	return ports.Page[ports.DownloadItem]{Items: items, Coverage: fixtureCoverage(testRoot, testRuntime, domain.CompletenessComplete)}, nil
 }
 
+type fixedInventory struct {
+	rootID      domain.ConfigID
+	coverage    domain.Completeness
+	items       []ports.DownloadItem
+	connections int
+}
+
+func (inventory *fixedInventory) List(ctx context.Context, connectionID domain.ConfigID, cursor string, limit int) (ports.Page[ports.DownloadItem], error) {
+	if err := ctx.Err(); err != nil {
+		return ports.Page[ports.DownloadItem]{}, err
+	}
+	if cursor != "" {
+		return ports.Page[ports.DownloadItem]{Coverage: fixtureCoverage(inventory.rootID, testRuntime, inventory.coverage)}, nil
+	}
+	inventory.connections++
+	items := make([]ports.DownloadItem, len(inventory.items))
+	for index, item := range inventory.items {
+		items[index] = cloneDownloadItem(item)
+	}
+	_ = limit
+	return ports.Page[ports.DownloadItem]{Items: items, Coverage: fixtureCoverage(inventory.rootID, testRuntime, inventory.coverage)}, nil
+}
+
+type cursorFilesystem struct {
+	rootID domain.ConfigID
+	next   map[string]string
+	calls  int
+}
+
+func (filesystem *cursorFilesystem) Enumerate(ctx context.Context, rootID domain.ConfigID, relativePrefix string, limit int) (ports.Page[domain.FileManifestEntry], error) {
+	return filesystem.EnumeratePage(ctx, rootID, relativePrefix, "", limit)
+}
+
+func (filesystem *cursorFilesystem) EnumeratePage(ctx context.Context, rootID domain.ConfigID, relativePrefix, cursor string, limit int) (ports.Page[domain.FileManifestEntry], error) {
+	if err := ctx.Err(); err != nil {
+		return ports.Page[domain.FileManifestEntry]{}, err
+	}
+	if rootID != filesystem.rootID || relativePrefix != "" {
+		return ports.Page[domain.FileManifestEntry]{}, errors.New("wrong cursor filesystem scope")
+	}
+	filesystem.calls++
+	next, ok := filesystem.next[cursor]
+	if !ok {
+		next = ""
+	}
+	_ = limit
+	return ports.Page[domain.FileManifestEntry]{Coverage: fixtureCoverage(rootID, testRuntime, domain.CompletenessComplete), NextCursor: next}, nil
+}
+
+func (filesystem *cursorFilesystem) Stat(context.Context, domain.FileTarget) (ports.FilesystemObservation, error) {
+	return ports.FilesystemObservation{}, errors.New("not implemented in cursor fixture")
+}
+
+func (filesystem *cursorFilesystem) Hash(context.Context, domain.FileTarget) (string, error) {
+	return "", errors.New("not implemented in cursor fixture")
+}
+
+func (filesystem *cursorFilesystem) Capabilities(context.Context, domain.ConfigID) ([]domain.Capability, error) {
+	return nil, nil
+}
+
 func fixtureCoverage(rootID domain.ConfigID, sourceID domain.RuntimeID, completeness domain.Completeness) domain.Coverage {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	return domain.Coverage{SourceID: sourceID, RootID: rootID, Completeness: completeness, ObservedAt: now}
@@ -468,6 +780,15 @@ func firstMovieFirstSeen(t *testing.T, discoveries []Discovery, relativePath str
 }
 
 func hasReview(reasons []ReviewReason, expected ReviewReason) bool {
+	for _, reason := range reasons {
+		if reason == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func hasReason(reasons []string, expected string) bool {
 	for _, reason := range reasons {
 		if reason == expected {
 			return true
