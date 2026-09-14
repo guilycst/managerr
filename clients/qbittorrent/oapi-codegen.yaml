@@ -2,4 +2,4 @@ package: generated
 generate:
   models: true
   client: true
-output: generated/client.gen.go
+output: internal/generated/client.gen.go

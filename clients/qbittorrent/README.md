@@ -27,8 +27,9 @@ The handwritten client exposes these operations:
 - rename one named torrent file or folder;
 - remove one named torrent record while retaining payload files.
 
-Control methods are deliberately narrow. Every request names one nonempty
-hash, and callers cannot pass a pipe-separated all-torrents value. `SetLocation`
+Control methods are deliberately narrow. Every request names one 40- or
+64-character hexadecimal torrent hash; empty, malformed, pipe-separated and
+case-insensitive `all` values are rejected before authentication. `SetLocation`
 accepts qBittorrent's containing directory; the root adapter derives that
 directory from an approved final content path and verifies the resulting paths
 afterward. Rename methods preserve qBittorrent's native `oldPath` and
@@ -57,7 +58,9 @@ failures are classified by the typed `UpstreamError` codes
 
 Only the documented HTTP 200 response is accepted for login, each read and
 each control command; other 2xx statuses are typed as unsupported before body
-decoding. Control success also requires the exact upstream `Ok.` body. JSON
+decoding. Login requires the exact upstream `Ok.` body; control success is the
+documented HTTP 200 status-only response with an empty body. An unexpected
+nonempty control body remains unknown. JSON
 responses are decoded with exact case-sensitive field names, duplicate-member
 rejection, raw UTF-8 validation, unknown-field rejection, trailing-data checks,
 and presence validation for every OpenAPI-required member of inventory,
@@ -110,8 +113,9 @@ dot segments, percent-encoded path bytes, backslashes and repeated separators
 are rejected so request URI interpretation remains stable across proxies.
 
 The generated models and typed operation request builders in
-`generated/client.gen.go` come from oapi-codegen **v2.8.0**. Regenerate from
-this directory with:
+`internal/generated/client.gen.go` come from oapi-codegen **v2.8.0**. The
+generated package is module-internal, so external consumers cannot reach raw
+control request builders. Regenerate from this directory with:
 
 ```sh
 GOWORK=off go generate ./...
@@ -134,9 +138,11 @@ GOWORK=off go mod verify
 
 The generated control models and request builders are compatibility artifacts;
 the handwritten client keeps cookie authentication, deadlines, status
-normalization and typed upstream errors in this module. A 401 or 403 on a
-control request invalidates the selected session and returns without retrying
-the mutation, so callers must reconcile before any later attempt. Descriptor
-export, client-specific scope translation and Mastarr root runtime capability
-gates remain separate migration work; adding these methods to this module does
-not enable writes in the root application.
+normalization and typed upstream errors in this module. A 401 on a control
+request invalidates the selected session and returns without retrying the
+mutation. A 403 on Stop, rename or metadata removal has the same
+authentication handling; a SetLocation 403 represents target-directory
+permission failure, maps to the typed conflict outcome and keeps the SID
+installed. Descriptor export, client-specific scope translation and Mastarr
+root runtime capability gates remain separate migration work; adding these
+methods to this module does not enable writes in the root application.

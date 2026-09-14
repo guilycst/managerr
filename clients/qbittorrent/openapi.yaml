@@ -411,8 +411,9 @@ paths:
       summary: Stop one or more torrents
       description: |
         Stop the explicitly named torrent hashes. The compatibility client
-        never uses an empty hash list, which would broaden this request to
-        every torrent in qBittorrent.
+        never uses an empty hash list, the pipe separator or qBittorrent's
+        case-insensitive `all` sentinel, which would broaden this request to
+        every torrent.
       x-mastarr-control: true
       parameters:
         - $ref: '#/components/parameters/CookieHeader'
@@ -424,13 +425,7 @@ paths:
               $ref: '#/components/schemas/StopTorrentsRequest'
       responses:
         '200':
-          description: The named torrent stop command was accepted.
-          content:
-            text/plain:
-              schema:
-                type: string
-                enum: [Ok.]
-              example: Ok.
+          description: The named torrent stop command was accepted; response body is empty.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -448,7 +443,8 @@ paths:
       description: |
         The location is qBittorrent's containing download directory. A
         caller must derive it from the approved final content path and
-        reconcile the resulting content path separately.
+        reconcile the resulting content path separately. The compatibility
+        client rejects the pipe separator and case-insensitive `all` sentinel.
       x-mastarr-control: true
       parameters:
         - $ref: '#/components/parameters/CookieHeader'
@@ -460,17 +456,11 @@ paths:
               $ref: '#/components/schemas/SetTorrentLocationRequest'
       responses:
         '200':
-          description: The containing-directory move command was accepted.
-          content:
-            text/plain:
-              schema:
-                type: string
-                enum: [Ok.]
-              example: Ok.
+          description: The containing-directory move command was accepted; response body is empty.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/PermissionDenied'
         '409':
           $ref: '#/components/responses/Conflict'
         default:
@@ -496,13 +486,7 @@ paths:
               $ref: '#/components/schemas/RenameTorrentFileRequest'
       responses:
         '200':
-          description: The file rename command was accepted.
-          content:
-            text/plain:
-              schema:
-                type: string
-                enum: [Ok.]
-              example: Ok.
+          description: The file rename command was accepted; response body is empty.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -532,13 +516,7 @@ paths:
               $ref: '#/components/schemas/RenameTorrentFolderRequest'
       responses:
         '200':
-          description: The folder rename command was accepted.
-          content:
-            text/plain:
-              schema:
-                type: string
-                enum: [Ok.]
-              example: Ok.
+          description: The folder rename command was accepted; response body is empty.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -568,13 +546,7 @@ paths:
               $ref: '#/components/schemas/DeleteTorrentsRequest'
       responses:
         '200':
-          description: The metadata-only removal command was accepted.
-          content:
-            text/plain:
-              schema:
-                type: string
-                enum: [Ok.]
-              example: Ok.
+          description: The metadata-only removal command was accepted; response body is empty.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -613,6 +585,12 @@ components:
             type: string
     Forbidden:
       description: Authentication is forbidden or the WebUI has banned the client IP.
+      content:
+        text/plain:
+          schema:
+            type: string
+    PermissionDenied:
+      description: The target directory does not permit the requested location change.
       content:
         text/plain:
           schema:

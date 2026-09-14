@@ -513,7 +513,8 @@ type ClientInterface interface {
 	//
 	// The location is qBittorrent's containing download directory. A
 	// caller must derive it from the approved final content path and
-	// reconcile the resulting content path separately.
+	// reconcile the resulting content path separately. The compatibility
+	// client rejects the pipe separator and case-insensitive `all` sentinel.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -524,7 +525,8 @@ type ClientInterface interface {
 	//
 	// The location is qBittorrent's containing download directory. A
 	// caller must derive it from the approved final content path and
-	// reconcile the resulting content path separately.
+	// reconcile the resulting content path separately. The compatibility
+	// client rejects the pipe separator and case-insensitive `all` sentinel.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type.
 	//
@@ -534,8 +536,9 @@ type ClientInterface interface {
 	// StopTorrentsWithBody Stop one or more torrents
 	//
 	// Stop the explicitly named torrent hashes. The compatibility client
-	// never uses an empty hash list, which would broaden this request to
-	// every torrent in qBittorrent.
+	// never uses an empty hash list, the pipe separator or qBittorrent's
+	// case-insensitive `all` sentinel, which would broaden this request to
+	// every torrent.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -545,8 +548,9 @@ type ClientInterface interface {
 	// StopTorrentsWithFormdataBody Stop one or more torrents
 	//
 	// Stop the explicitly named torrent hashes. The compatibility client
-	// never uses an empty hash list, which would broaden this request to
-	// every torrent in qBittorrent.
+	// never uses an empty hash list, the pipe separator or qBittorrent's
+	// case-insensitive `all` sentinel, which would broaden this request to
+	// every torrent.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type.
 	//
@@ -828,7 +832,8 @@ func (c *Client) RenameTorrentFolderWithFormdataBody(ctx context.Context, params
 //
 // The location is qBittorrent's containing download directory. A
 // caller must derive it from the approved final content path and
-// reconcile the resulting content path separately.
+// reconcile the resulting content path separately. The compatibility
+// client rejects the pipe separator and case-insensitive `all` sentinel.
 //
 // Takes any type of body and a specified content type.
 //
@@ -849,7 +854,8 @@ func (c *Client) SetTorrentLocationWithBody(ctx context.Context, params *SetTorr
 //
 // The location is qBittorrent's containing download directory. A
 // caller must derive it from the approved final content path and
-// reconcile the resulting content path separately.
+// reconcile the resulting content path separately. The compatibility
+// client rejects the pipe separator and case-insensitive `all` sentinel.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type.
 //
@@ -869,8 +875,9 @@ func (c *Client) SetTorrentLocationWithFormdataBody(ctx context.Context, params 
 // StopTorrentsWithBody Stop one or more torrents
 //
 // Stop the explicitly named torrent hashes. The compatibility client
-// never uses an empty hash list, which would broaden this request to
-// every torrent in qBittorrent.
+// never uses an empty hash list, the pipe separator or qBittorrent's
+// case-insensitive `all` sentinel, which would broaden this request to
+// every torrent.
 //
 // Takes any type of body and a specified content type.
 //
@@ -890,8 +897,9 @@ func (c *Client) StopTorrentsWithBody(ctx context.Context, params *StopTorrentsP
 // StopTorrentsWithFormdataBody Stop one or more torrents
 //
 // Stop the explicitly named torrent hashes. The compatibility client
-// never uses an empty hash list, which would broaden this request to
-// every torrent in qBittorrent.
+// never uses an empty hash list, the pipe separator or qBittorrent's
+// case-insensitive `all` sentinel, which would broaden this request to
+// every torrent.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type.
 //
@@ -1886,7 +1894,8 @@ type ClientWithResponsesInterface interface {
 	//
 	// The location is qBittorrent's containing download directory. A
 	// caller must derive it from the approved final content path and
-	// reconcile the resulting content path separately.
+	// reconcile the resulting content path separately. The compatibility
+	// client rejects the pipe separator and case-insensitive `all` sentinel.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1897,7 +1906,8 @@ type ClientWithResponsesInterface interface {
 	//
 	// The location is qBittorrent's containing download directory. A
 	// caller must derive it from the approved final content path and
-	// reconcile the resulting content path separately.
+	// reconcile the resulting content path separately. The compatibility
+	// client rejects the pipe separator and case-insensitive `all` sentinel.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1907,8 +1917,9 @@ type ClientWithResponsesInterface interface {
 	// StopTorrentsWithBodyWithResponse Stop one or more torrents
 	//
 	// Stop the explicitly named torrent hashes. The compatibility client
-	// never uses an empty hash list, which would broaden this request to
-	// every torrent in qBittorrent.
+	// never uses an empty hash list, the pipe separator or qBittorrent's
+	// case-insensitive `all` sentinel, which would broaden this request to
+	// every torrent.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1918,8 +1929,9 @@ type ClientWithResponsesInterface interface {
 	// StopTorrentsWithFormdataBodyWithResponse Stop one or more torrents
 	//
 	// Stop the explicitly named torrent hashes. The compatibility client
-	// never uses an empty hash list, which would broaden this request to
-	// every torrent in qBittorrent.
+	// never uses an empty hash list, the pipe separator or qBittorrent's
+	// case-insensitive `all` sentinel, which would broaden this request to
+	// every torrent.
 	//
 	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -2636,7 +2648,8 @@ func (c *ClientWithResponses) RenameTorrentFolderWithFormdataBodyWithResponse(ct
 //
 // The location is qBittorrent's containing download directory. A
 // caller must derive it from the approved final content path and
-// reconcile the resulting content path separately.
+// reconcile the resulting content path separately. The compatibility
+// client rejects the pipe separator and case-insensitive `all` sentinel.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2653,7 +2666,8 @@ func (c *ClientWithResponses) SetTorrentLocationWithBodyWithResponse(ctx context
 //
 // The location is qBittorrent's containing download directory. A
 // caller must derive it from the approved final content path and
-// reconcile the resulting content path separately.
+// reconcile the resulting content path separately. The compatibility
+// client rejects the pipe separator and case-insensitive `all` sentinel.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2669,8 +2683,9 @@ func (c *ClientWithResponses) SetTorrentLocationWithFormdataBodyWithResponse(ctx
 // StopTorrentsWithBodyWithResponse Stop one or more torrents
 //
 // Stop the explicitly named torrent hashes. The compatibility client
-// never uses an empty hash list, which would broaden this request to
-// every torrent in qBittorrent.
+// never uses an empty hash list, the pipe separator or qBittorrent's
+// case-insensitive `all` sentinel, which would broaden this request to
+// every torrent.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2686,8 +2701,9 @@ func (c *ClientWithResponses) StopTorrentsWithBodyWithResponse(ctx context.Conte
 // StopTorrentsWithFormdataBodyWithResponse Stop one or more torrents
 //
 // Stop the explicitly named torrent hashes. The compatibility client
-// never uses an empty hash list, which would broaden this request to
-// every torrent in qBittorrent.
+// never uses an empty hash list, the pipe separator or qBittorrent's
+// case-insensitive `all` sentinel, which would broaden this request to
+// every torrent.
 //
 // Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
 //

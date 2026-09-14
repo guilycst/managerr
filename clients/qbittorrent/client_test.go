@@ -400,7 +400,7 @@ func TestControlOperationsEncodeFormsAndUseSID(t *testing.T) {
 				t.Errorf("%s form[%q] = %#v, want %q", expectation.path, key, values, want)
 			}
 		}
-		_, _ = io.WriteString(w, "Ok.")
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
@@ -429,7 +429,13 @@ func TestControlOperationsEncodeFormsAndUseSID(t *testing.T) {
 }
 
 func TestDeleteRejectsPayloadRemovalFlagBeforeDispatch(t *testing.T) {
-	client, err := New(Config{Endpoint: "http://synthetic.invalid", Username: testUsername, Password: testPassword})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -439,6 +445,67 @@ func TestDeleteRejectsPayloadRemovalFlagBeforeDispatch(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "deleteFiles") {
 		t.Fatalf("Delete(true) error exposes request details: %v", err)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("Delete(true) requests = %d, want zero login/control requests", got)
+	}
+}
+
+func TestControlWrappersRejectReservedAndMalformedHashesBeforeDispatch(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	invalidHashes := []struct {
+		name string
+		hash string
+	}{
+		{name: "empty", hash: ""},
+		{name: "reserved lowercase all", hash: "all"},
+		{name: "reserved uppercase all", hash: "ALL"},
+		{name: "reserved mixed case all", hash: "aLl"},
+		{name: "pipe separated", hash: testHash + "|" + testHash},
+		{name: "malformed", hash: "not-a-qbittorrent-hash"},
+	}
+	for _, invalid := range invalidHashes {
+		t.Run(invalid.name, func(t *testing.T) {
+			operations := []struct {
+				name   string
+				invoke func(string) error
+			}{
+				{name: "stop", invoke: func(hash string) error { return client.Stop(context.Background(), hash) }},
+				{name: "set location", invoke: func(hash string) error {
+					return client.SetLocation(context.Background(), hash, "/synthetic/location")
+				}},
+				{name: "rename file", invoke: func(hash string) error {
+					return client.RenameFile(context.Background(), hash, "old.mkv", "new.mkv")
+				}},
+				{name: "rename folder", invoke: func(hash string) error {
+					return client.RenameFolder(context.Background(), hash, "Old", "New")
+				}},
+				{name: "delete metadata", invoke: func(hash string) error {
+					return client.Delete(context.Background(), hash, false)
+				}},
+			}
+			for _, operation := range operations {
+				t.Run(operation.name, func(t *testing.T) {
+					err := operation.invoke(invalid.hash)
+					if err == nil || !IsCode(err, ErrorInvalidInput) {
+						t.Fatalf("error = %v, want invalid input", err)
+					}
+				})
+			}
+		})
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("invalid control requests = %d, want zero login/control requests", got)
 	}
 }
 
@@ -486,7 +553,56 @@ func TestControlStatusErrorsAreTypedAndSanitized(t *testing.T) {
 	}
 }
 
-func TestControlSuccessRequiresExactOKBody(t *testing.T) {
+func TestSetLocationForbiddenPreservesSession(t *testing.T) {
+	var loginCalls atomic.Int32
+	var controlCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == apiLogin {
+			loginCalls.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
+			_, _ = io.WriteString(w, "Ok.")
+			return
+		}
+		if r.URL.Path == apiSetLocation {
+			controlCalls.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "synthetic target permission denied")
+			return
+		}
+		if r.URL.Path == apiStop {
+			controlCalls.Add(1)
+			return
+		}
+		t.Errorf("unexpected request path %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: server.URL, Username: testUsername, Password: testPassword})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = client.SetLocation(context.Background(), testHash, "/synthetic/location")
+	var upstream UpstreamError
+	if !errors.As(err, &upstream) || upstream.Code != ErrorConflict || upstream.Status != http.StatusForbidden || upstream.Operation != "qbit.torrents.set_location" || upstream.Retryable {
+		t.Fatalf("SetLocation error = %#v, want nonretryable conflict 403", err)
+	}
+	if strings.Contains(err.Error(), "synthetic target permission denied") {
+		t.Fatalf("SetLocation error leaked upstream body: %v", err)
+	}
+
+	if err := client.Stop(context.Background(), testHash); err != nil {
+		t.Fatalf("Stop after SetLocation 403: %v", err)
+	}
+	if got := loginCalls.Load(); got != 1 {
+		t.Fatalf("login calls after SetLocation 403 = %d, want session preserved", got)
+	}
+	if got := controlCalls.Load(); got != 2 {
+		t.Fatalf("control calls = %d, want SetLocation and Stop", got)
+	}
+}
+
+func TestControlSuccessRejectsUnexpectedBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == apiLogin {
 			http.SetCookie(w, &http.Cookie{Name: "SID", Value: testSID, Path: "/"})
@@ -502,7 +618,7 @@ func TestControlSuccessRequiresExactOKBody(t *testing.T) {
 	}
 	err = client.Stop(context.Background(), testHash)
 	if err == nil || !IsCode(err, ErrorUnknown) {
-		t.Fatalf("Stop malformed success error = %v, want typed unknown", err)
+		t.Fatalf("Stop unexpected body error = %v, want typed unknown", err)
 	}
 }
 

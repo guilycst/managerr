@@ -24,7 +24,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	generated "github.com/guilycst/mastarr/clients/qbittorrent/generated"
+	generated "github.com/guilycst/mastarr/clients/qbittorrent/internal/generated"
 )
 
 const (
@@ -625,7 +625,14 @@ func (c *Client) postControl(ctx context.Context, operation, endpoint string, fo
 		return err
 	}
 	body, status, _, _, err := c.requestOnce(ctx, operation, http.MethodPost, endpoint, nil, credential.sid, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", 16<<10)
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+	if status == http.StatusUnauthorized {
+		c.invalidateSession(credential.generation)
+		return statusError(operation, status)
+	}
+	if status == http.StatusForbidden {
+		if endpoint == apiSetLocation {
+			return controlPermissionError(operation, status)
+		}
 		c.invalidateSession(credential.generation)
 		return statusError(operation, status)
 	}
@@ -635,7 +642,7 @@ func (c *Client) postControl(ctx context.Context, operation, endpoint string, fo
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(bytes.TrimSpace(body), []byte("Ok.")) {
+	if len(body) != 0 {
 		return malformed(operation)
 	}
 	return nil
@@ -650,7 +657,7 @@ func controlHashForm(hash, operation string) (url.Values, error) {
 }
 
 func controlHashValue(hash, operation string) (string, error) {
-	if !validBoundedText(hash, maxHashChars, true) || strings.Contains(hash, "|") || strings.IndexFunc(hash, unicode.IsSpace) >= 0 {
+	if strings.EqualFold(hash, "all") || !validInventoryHash(hash) {
 		return "", invalidInput(operation)
 	}
 	return hash, nil
@@ -661,6 +668,10 @@ func validateControlPath(value, operation string) error {
 		return invalidInput(operation)
 	}
 	return nil
+}
+
+func controlPermissionError(operation string, status int) UpstreamError {
+	return UpstreamError{Code: ErrorConflict, Operation: operation, Status: status}
 }
 
 func (c *Client) readVersion(ctx context.Context, operation, endpoint string) (string, error) {
