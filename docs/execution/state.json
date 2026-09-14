@@ -2329,22 +2329,23 @@
         "8a5574ddb0154b50812dca2ad632acd343e803a6 W-02 correction round one product commit fences recovery ownership, retains unresolved work, enforces effect identity, cooperative cancellation, transactional journals, and expired-lease fixtures.",
         "f56908a19b775dc5218d485a61ffcf0faebb5ace W-02 correction follow-up product commit releases stale process-local reservation maps after lease loss while retaining durable reservation metadata until reconciliation.",
         "a3812a94513b74b4d67b412fc90f6d65184872c6 W-02 correction round one handoff records final product tree and focused/race/vet/root/module/API/Vacuum/lint/architecture/planning/guardrail checks; G-01 remains open.",
-        "W-02 correction review dispatch is recorded against final product tree f56908a19b775dc5218d485a61ffcf0faebb5ace."
+        "W-02 correction review dispatch is recorded against final product tree f56908a19b775dc5218d485a61ffcf0faebb5ace.",
+        "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136 W-02 correction round one independent review requested changes against source f56908a19b775dc5218d485a61ffcf0faebb5ace.",
+        "Round-two review closed initial correction claims but found P1 recovered generations can dispatch while expired handlers remain live, P1 cross-executor cancellation does not reach the handler, P1 empty or contradictory effect evidence can succeed, P2 uncertain dispatch leaves effects pending, and P2 terminal idle cancellation leaks a local reservation. Correction round two is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34",
+        "commit": "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136",
         "findings": [
-          "P1: stale worker can finalize success after lease recovery and generation change",
-          "P1: unresolved action releases overlap reservation before reconciliation",
-          "P1: changed or omitted per-target read-back effects still yield applied success",
-          "P1: durable cancellation does not signal an in-flight handler context",
-          "P2: transactional journal support is optional at the executor boundary",
-          "P2: in-memory expired-lease fixture predicate is inverted"
+          "P1: recovered generation can dispatch while expired handler remains externally live",
+          "P1: durable cancellation from another executor does not reach the in-flight handler context",
+          "P1: empty or contradictory effect evidence can produce succeeded/applied",
+          "P2: uncertain dispatch leaves exact effects pending",
+          "P2: terminal idle cancellation leaks a same-executor local reservation"
         ],
-        "round": 1
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2388,22 +2389,19 @@
           "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ],
         "reviewer": "/root/x05_reviewer",
-        "reviewCommit": "e65de463ef8258aac5bf02a2a97e7a5e3a36ac34",
-        "correctionRound": 1,
+        "reviewCommit": "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136",
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "a4b152e20f8f82d53ba6d3c901737804357cc807",
-        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round2.md",
+        "correctionBaseSha": "f56908a19b775dc5218d485a61ffcf0faebb5ace",
+        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "f56908a19b775dc5218d485a61ffcf0faebb5ace",
-        "correctionHandoffCommit": "a3812a94513b74b4d67b412fc90f6d65184872c6",
-        "correctionDispatchCommit": "962a21bebe7526103f03c92c2241a7c14911fbb5",
-        "correctionStatus": "awaiting_independent_review",
-        "correctionProductCommits": [
-          "8a5574ddb0154b50812dca2ad632acd343e803a6",
-          "f56908a19b775dc5218d485a61ffcf0faebb5ace"
-        ],
-        "correctionReviewSourceCommit": "f56908a19b775dc5218d485a61ffcf0faebb5ace",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionStatus": "queued",
+        "correctionProductCommits": [],
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -2419,6 +2417,14 @@
           "status": "changes_requested",
           "sourceCommit": "a4b152e20f8f82d53ba6d3c901737804357cc807",
           "receipt": "docs/execution/handoffs/W-02-review-round1.md"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "6e5c8c6d8d882dc5cdf3237fc47e7d571ba69136",
+          "status": "changes_requested",
+          "sourceCommit": "f56908a19b775dc5218d485a61ffcf0faebb5ace",
+          "receipt": "docs/execution/handoffs/W-02-review-round2.md"
         }
       ]
     },
@@ -3398,7 +3404,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round one is ready for independent review by /root/x05_reviewer against f56908a; F-05 remains capability-blocked; F-03 is complete.",
+  "nextAction": "W-02 correction round two is queued to /root/x05_implementer for lease overlap, cross-executor cancellation, exact effect evidence, uncertain-state, and reservation-leak fixes; F-05 is review-approved but capability-blocked; F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
