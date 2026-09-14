@@ -823,7 +823,7 @@
       ]
     },
     "D-03": {
-      "status": "in_review",
+      "status": "in_progress",
       "owner": "/root/d02_implementer",
       "baseSha": "8e3536c8a0dc138946113e59d21e5523f775d409",
       "integratedSha": null,
@@ -834,14 +834,23 @@
         "17e623cddbe307fa96879b5bdfc7aa56b8bfd711 D-03 handoff identity correction",
         "D-03 handoff records the coordinator-owned direct gopkg.in/yaml.v3@v3.0.1 dependency as the remaining root-module blocker.",
         "1a1e5d1c8899d19174c8785d2770a5bff89769d7 direct pinned gopkg.in/yaml.v3@v3.0.1 dependency added by coordinator; root module blocker resolved.",
-        "Full checks after dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed."
+        "Full checks after dependency: ./scripts/generate.sh --check, ./scripts/check-lint.sh, ./scripts/check-guardrails.sh --ci and python3 scripts/check_planning.py passed.",
+        "e05b8d56d784577cd7dda8b0a40ef180992925fa D-03 independent review round one: changes requested",
+        "06abd25fc8123ea541ed6e8aea65d9773dc3ce66 integrated D-03 review receipt",
+        "D-03 correction required: reconcile uncertain credential-store writes, bind secret rotation to target identity, reject unusable mapping prefixes, zero all parse-failure buffers, and move external callbacks/storage I/O outside the manager lock."
       ],
       "review": {
-        "status": "pending",
-        "decision": "pending",
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/d02_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
+        "findings": [
+          "P1: uncertain credential-store writes can resurrect orphan or unrequested secrets; resolve requires active managed-field membership and read-back reconciliation without blind rollback.",
+          "P1: managed and static secret-only changes preserve approval bindings without target-identity verification; changed resolved static values need opaque binding/review invalidation.",
+          "P1: mapping validation accepts empty/relative source prefixes rejected by adapter consumers.",
+          "P2: failed YAML parsing can retain resolved plaintext buffers, including duplicate-resource rejection paths.",
+          "P2: invalidator and credential-store callbacks run under the manager lock and can deadlock or block reentrant reads."
+        ],
         "round": 1
       },
       "dispatch": {
@@ -874,11 +883,29 @@
         },
         "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
         "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
-        "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7"
+        "dependencyCommit": "1a1e5d1c8899d19174c8785d2770a5bff89769d7",
+        "correctionRound": 1,
+        "correctionOwner": "/root/d02_implementer",
+        "correctionBaseSha": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+        "correctionReviewPath": "docs/execution/handoffs/D-03-review-round1.md",
+        "correctionReviewer": "/root/d02_reviewer",
+        "correctionReviewCommit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
+        "reviewIntegrationCommit": "06abd25fc8123ea541ed6e8aea65d9773dc3ce66"
       },
       "implementationCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
       "handoffCommit": "17e623cddbe307fa96879b5bdfc7aa56b8bfd711",
-      "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322"
+      "reviewSourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/d02_reviewer",
+          "commit": "e05b8d56d784577cd7dda8b0a40ef180992925fa",
+          "status": "changes_requested",
+          "sourceCommit": "3e86f117155753e7165f38e0f9290bdcc78bc322",
+          "receipt": "docs/execution/handoffs/D-03-review-round1.md",
+          "integratedCommit": "06abd25fc8123ea541ed6e8aea65d9773dc3ce66"
+        }
+      ]
     },
     "D-04": {
       "status": "planned",
