@@ -2345,17 +2345,19 @@
         "a645abe60341a3f21a71aaabf3ba5364eeb10a09 W-02 correction round four product commit persists exact dispatch-barrier intent, supports fresh-executor discovery, and advances claim fences.",
         "4af1583d393fa9606ce8682585056b7c1ce1d3f8 W-02 correction round four test hardening serializes barrier fixtures and proves 33 marker-write failures recover without blind dispatch.",
         "8b396e92f89ab8f34ed7f4ee129012822e3007aa W-02 correction round four handoff records outage recovery coverage and focused/full tests, race, vet, module/root, cross-build, generation/API/Vacuum/lint/architecture/planning/guardrail checks; G-01 remains open.",
-        "W-02 correction round four review dispatch will use /root/x05_reviewer against final product tree 4af1583d393fa9606ce8682585056b7c1ce1d3f8."
+        "W-02 correction round four review dispatch will use /root/x05_reviewer against final product tree 4af1583d393fa9606ce8682585056b7c1ce1d3f8.",
+        "a82461e2954f8a7cadd25f714c720ab1f7fe3727 W-02 correction round four independent review requested changes against source 4af1583d393fa9606ce8682585056b7c1ce1d3f8.",
+        "Round-five review closed action-marker outage recovery, SQLite restart recovery, mismatched-ID fencing, lease renewal, exact counts, and cross-executor initial-observe cancellation. One P2 remains: if the prerequisite attempt-level dispatch barrier marker fails through all bounded retries, no durable retry intent survives and fresh executors do not reconcile. Correction round five is required before integration."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
+        "commit": "a82461e2954f8a7cadd25f714c720ab1f7fe3727",
         "findings": [
-          "P2: durable dispatch-barrier retry intent is lost after bounded marker-write failures, leaving later executors unable to reconcile"
+          "P2: prerequisite attempt-level barrier marker failure through the retry window still strands reconciliation until restart"
         ],
-        "round": 4
+        "round": 5
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2399,22 +2401,19 @@
           "a4b152e20f8f82d53ba6d3c901737804357cc807"
         ],
         "reviewer": "/root/x05_reviewer",
-        "reviewCommit": "ef07140a8d41696c4e4514e6860e47e6211b8814",
+        "reviewCommit": "a82461e2954f8a7cadd25f714c720ab1f7fe3727",
         "correctionRound": 5,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
-        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round5.md",
+        "correctionReviewPath": "docs/execution/handoffs/W-02-review-round6.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionCheckout": "shared main",
-        "correctionImplementationCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
-        "correctionHandoffCommit": "8b396e92f89ab8f34ed7f4ee129012822e3007aa",
-        "correctionDispatchCommit": "b5a122a50b1be17d085215194259271a67a6f257",
-        "correctionStatus": "review_dispatched",
-        "correctionProductCommits": [
-          "a645abe60341a3f21a71aaabf3ba5364eeb10a09",
-          "4af1583d393fa9606ce8682585056b7c1ce1d3f8"
-        ],
-        "correctionReviewSourceCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
+        "correctionImplementationCommit": null,
+        "correctionHandoffCommit": null,
+        "correctionDispatchCommit": null,
+        "correctionStatus": "queued",
+        "correctionProductCommits": [],
+        "correctionReviewSourceCommit": null,
         "reviewerReroute": {
           "previousReviewer": "/root/d02_reviewer",
           "status": "rerouted_before_dispatch",
@@ -2454,6 +2453,14 @@
           "status": "changes_requested",
           "sourceCommit": "d10bcb6bba9bc59ba80819950991b45cb05bce99",
           "receipt": "docs/execution/handoffs/W-02-review-round4.md"
+        },
+        {
+          "round": 5,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "a82461e2954f8a7cadd25f714c720ab1f7fe3727",
+          "status": "changes_requested",
+          "sourceCommit": "4af1583d393fa9606ce8682585056b7c1ce1d3f8",
+          "receipt": "docs/execution/handoffs/W-02-review-round5.md"
         }
       ]
     },
@@ -3433,7 +3440,7 @@
       ]
     }
   },
-  "nextAction": "W-02 correction round four review is dispatched to /root/x05_reviewer against 4af1583d; F-05 remains capability-blocked and F-03 is complete.",
+  "nextAction": "W-02 correction round five is queued to /root/x05_implementer for durable retry intent when the prerequisite marker cannot be written; F-05 remains capability-blocked and F-03 is complete.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
