@@ -24,6 +24,10 @@ Read state.json for publication verification and current execution phase.
 
 - Public MIT repository; root API/domain/worker module, nested HTTP-only UI/BFF,
   nested tools module, oapi-codegen, SQLite/sqlc/golang-migrate, Goshtoso UI.
+- Every upstream service has its own nested client module under `clients/`; root
+  adapters translate generated DTOs and errors without leaking them into domain
+  or public API code. qBittorrent and NZBGet are complete; Sonarr, Radarr,
+  Jellyfin and Seerr are planned as independent client lanes.
 - Directory discovery plus qBittorrent/NZBGet provenance/descriptors; full Arr catalog;
   multiple instances; separate registration/import/Jellyfin/Seerr observations.
 - Two approvals for unknown Arr titles; independent action API; durable API-owned

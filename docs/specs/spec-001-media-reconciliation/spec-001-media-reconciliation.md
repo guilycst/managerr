@@ -46,9 +46,12 @@ flowchart LR
   Domain --> DB[(SQLite)]
   Domain --> Ports[Typed outbound ports]
   Ports --> FS[Mounted filesystem]
-  Ports --> Clients[qBittorrent and NZBGet]
-  Ports --> Arr[Radarr and Sonarr]
-  Ports --> Catalog[Jellyfin and Seerr]
+  Ports --> QB[clients/qbittorrent]
+  Ports --> NZB[clients/nzbget]
+  Ports --> SON[clients/sonarr]
+  Ports --> RAD[clients/radarr]
+  Ports --> JF[clients/jellyfin]
+  Ports --> SE[clients/seerr]
 ```
 
 The API process also hosts the executor and scan scheduler. v0.0.1 supports one

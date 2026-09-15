@@ -990,6 +990,208 @@
       "deliverable": "Coordinator gathers exact commit/CI/review evidence and known limitations, reruns only invalidated checks, and prepares v0.0.1 readiness. Do not tag, publish images, release or deploy without release-specific authorization.",
       "handoff": "docs/execution/handoffs/V-04.md",
       "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-15",
+      "lane": "X",
+      "title": "Build standalone Sonarr client module",
+      "dependsOn": [
+        "C-05",
+        "X-03"
+      ],
+      "ownedPaths": [
+        "clients/sonarr/"
+      ],
+      "acceptance": [
+        "A-07",
+        "A-09",
+        "A-10",
+        "A-45"
+      ],
+      "deliverable": "Create a nested clients/sonarr Go module with a narrow Mastarr-owned OpenAPI contract for catalog, options, series/episode files and native manual-import previews. Generate typed code, keep API-key transport, deadlines, bounded decoding, typed errors and synthetic fixtures inside the module, and defer writes to a reviewed extension.",
+      "handoff": "docs/execution/handoffs/X-15.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-16",
+      "lane": "X",
+      "title": "Build standalone Radarr client module",
+      "dependsOn": [
+        "C-05",
+        "X-03"
+      ],
+      "ownedPaths": [
+        "clients/radarr/"
+      ],
+      "acceptance": [
+        "A-07",
+        "A-09",
+        "A-10",
+        "A-45"
+      ],
+      "deliverable": "Create a nested clients/radarr Go module with a narrow Mastarr-owned OpenAPI contract for catalog, options, movie/file observations and native manual-import previews. Generate typed code, keep API-key transport, deadlines, bounded decoding, typed errors and synthetic fixtures inside the module, and defer writes to a reviewed extension.",
+      "handoff": "docs/execution/handoffs/X-16.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-17",
+      "lane": "X",
+      "title": "Build standalone Jellyfin client module",
+      "dependsOn": [
+        "C-05",
+        "X-04"
+      ],
+      "ownedPaths": [
+        "clients/jellyfin/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-45",
+        "A-55"
+      ],
+      "deliverable": "Create a nested clients/jellyfin Go module with a narrow Mastarr-owned OpenAPI contract for system information, libraries, items/provider IDs and tested refresh scopes. Generate typed code, keep token transport, deadlines, bounded decoding, refresh observation, typed errors and synthetic fixtures inside the module.",
+      "handoff": "docs/execution/handoffs/X-17.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-18",
+      "lane": "X",
+      "title": "Build standalone Seerr client module",
+      "dependsOn": [
+        "C-05",
+        "X-04"
+      ],
+      "ownedPaths": [
+        "clients/seerr/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-45",
+        "A-54"
+      ],
+      "deliverable": "Create a nested clients/seerr Go module with a narrow Mastarr-owned OpenAPI contract for paginated media and request reads. Generate typed code, keep configured API-key or bearer transport, deadlines, bounded decoding, pagination termination, typed errors and synthetic fixtures inside the module, with no Seerr writes in v0.0.1.",
+      "handoff": "docs/execution/handoffs/X-18.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-19",
+      "lane": "X",
+      "title": "Migrate Arr read adapters to standalone clients",
+      "dependsOn": [
+        "X-15",
+        "X-16",
+        "X-03"
+      ],
+      "ownedPaths": [
+        "internal/adapters/arr/read/",
+        "tests/fixtures/arr/read/"
+      ],
+      "acceptance": [
+        "A-07",
+        "A-08",
+        "A-09",
+        "A-10",
+        "A-16"
+      ],
+      "deliverable": "Translate Sonarr and Radarr module DTOs and typed errors into existing Arr read ports without generated-type leakage; preserve pagination, native status, instance identity and unknown coverage, and record a bootstrap blocker if a published module is unavailable.",
+      "handoff": "docs/execution/handoffs/X-19.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-20",
+      "lane": "X",
+      "title": "Migrate Arr write adapters to standalone clients",
+      "dependsOn": [
+        "X-06",
+        "X-15",
+        "X-16"
+      ],
+      "ownedPaths": [
+        "internal/adapters/arr/write/",
+        "tests/fixtures/arr/write/"
+      ],
+      "acceptance": [
+        "A-12",
+        "A-13",
+        "A-16",
+        "A-17",
+        "A-33"
+      ],
+      "deliverable": "Move Arr registration and manual-import transport behind standalone Sonarr and Radarr modules while keeping root validation, preview binding, read-back and capability gates. Keep native writes blocked while G-01 is unresolved and record unpublished-module bootstrap blockers.",
+      "handoff": "docs/execution/handoffs/X-20.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-21",
+      "lane": "X",
+      "title": "Migrate Jellyfin adapters to the standalone client",
+      "dependsOn": [
+        "X-09",
+        "X-17",
+        "X-04"
+      ],
+      "ownedPaths": [
+        "internal/adapters/jellyfin/read/",
+        "internal/adapters/jellyfin/write/",
+        "tests/fixtures/jellyfin/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-33",
+        "A-55"
+      ],
+      "deliverable": "Translate standalone Jellyfin DTOs and typed errors into read and refresh ports, preserving provider IDs, mapping evidence, accepted refresh responses and separate eventual availability without crossing the root adapter boundary.",
+      "handoff": "docs/execution/handoffs/X-21.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "X-22",
+      "lane": "X",
+      "title": "Migrate Seerr adapters to the standalone client",
+      "dependsOn": [
+        "X-04",
+        "X-18"
+      ],
+      "ownedPaths": [
+        "internal/adapters/seerr/",
+        "tests/fixtures/seerr/"
+      ],
+      "acceptance": [
+        "A-08",
+        "A-09",
+        "A-54"
+      ],
+      "deliverable": "Translate Seerr media/request DTOs and typed errors into the read-only request catalog port, preserving native status, pagination coverage, instance topology and unavailable states without adding writes.",
+      "handoff": "docs/execution/handoffs/X-22.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
+    },
+    {
+      "id": "C-06",
+      "lane": "C",
+      "title": "Extend generation and CI across every client module",
+      "dependsOn": [
+        "C-05",
+        "X-15",
+        "X-16",
+        "X-17",
+        "X-18"
+      ],
+      "ownedPaths": [
+        "scripts/generate.sh",
+        "scripts/check-guardrails.sh",
+        "scripts/check-lint.sh",
+        ".github/workflows/checks.yml"
+      ],
+      "acceptance": [
+        "A-43",
+        "A-45"
+      ],
+      "deliverable": "Add Sonarr, Radarr, Jellyfin and Seerr to deterministic generation, lint, architecture, module verification, cross-build and CI matrices. Run every module independently with GOWORK=off and forbid local go.work or replace directives.",
+      "handoff": "docs/execution/handoffs/C-06.md",
+      "verificationScope": "Prove the assigned contribution to linked acceptance cases; full cross-system cases close in verification tasks. Record exact checks at dispatch and outcomes in handoff."
     }
   ]
 }

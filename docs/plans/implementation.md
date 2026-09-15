@@ -339,6 +339,129 @@ versioned upstream evidence.
 - Handoff: `docs/execution/handoffs/X-14.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
 
+### X-15: Build standalone Sonarr client module
+
+Lane X. Dependencies: C-05, X-03.
+
+Create the independent `clients/sonarr` Go module with a narrow, Mastarr-owned
+OpenAPI compatibility document for the catalog, options, series/episode file
+observations and native manual-import preview reads used by Mastarr. Generate
+typed code with the pinned oapi-codegen tool. Keep API-key authentication,
+deadlines, bounded decoding, typed upstream errors and synthetic httptest
+fixtures inside the module. Do not add write methods in this initial slice;
+registration/import writes require a later reviewed contract extension.
+
+- Owned paths: `clients/sonarr/`.
+- Acceptance contributions: A-07, A-09, A-10, A-45.
+- Handoff: `docs/execution/handoffs/X-15.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-16: Build standalone Radarr client module
+
+Lane X. Dependencies: C-05, X-03.
+
+Create the independent `clients/radarr` Go module with a narrow, Mastarr-owned
+OpenAPI compatibility document for the catalog, options, movie/file
+observations and native manual-import preview reads used by Mastarr. Generate
+typed code with the pinned oapi-codegen tool. Keep API-key authentication,
+deadlines, bounded decoding, typed upstream errors and synthetic httptest
+fixtures inside the module. Do not add write methods in this initial slice;
+registration/import writes require a later reviewed contract extension.
+
+- Owned paths: `clients/radarr/`.
+- Acceptance contributions: A-07, A-09, A-10, A-45.
+- Handoff: `docs/execution/handoffs/X-16.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-17: Build standalone Jellyfin client module
+
+Lane X. Dependencies: C-05, X-04.
+
+Create the independent `clients/jellyfin` Go module with a narrow,
+Mastarr-owned OpenAPI compatibility document for system information, libraries,
+items/provider IDs and tested refresh scopes. Generate typed code with the
+pinned oapi-codegen tool. Keep token authentication, deadlines, bounded
+decoding, refresh response observation, typed upstream errors and synthetic
+httptest fixtures inside the module. A refresh request is accepted separately
+from eventual library availability.
+
+- Owned paths: `clients/jellyfin/`.
+- Acceptance contributions: A-08, A-09, A-45, A-55.
+- Handoff: `docs/execution/handoffs/X-17.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-18: Build standalone Seerr client module
+
+Lane X. Dependencies: C-05, X-04.
+
+Create the independent `clients/seerr` Go module with a narrow, Mastarr-owned
+OpenAPI compatibility document for paginated media and request reads. Generate
+typed code with the pinned oapi-codegen tool. Keep configured API-key or bearer
+authentication, deadlines, bounded decoding, pagination termination, typed
+upstream errors and synthetic httptest fixtures inside the module. Seerr has no
+write methods in v0.0.1 and must not assume hidden or discovery-only APIs.
+
+- Owned paths: `clients/seerr/`.
+- Acceptance contributions: A-08, A-09, A-45, A-54.
+- Handoff: `docs/execution/handoffs/X-18.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-19: Migrate Arr read adapters to standalone clients
+
+Lane X. Dependencies: X-15, X-16, X-03.
+
+Translate Sonarr and Radarr module DTOs and typed errors into the existing Arr
+read ports without leaking generated types. Preserve pagination, native status,
+instance-scoped identities and unknown coverage. If a module release is not
+available, keep the current adapter and record the bootstrap blocker.
+
+- Owned paths: `internal/adapters/arr/read/`, `tests/fixtures/arr/read/`.
+- Acceptance contributions: A-07, A-08, A-09, A-10, A-16.
+- Handoff: `docs/execution/handoffs/X-19.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-20: Migrate Arr write adapters to standalone clients
+
+Lane X. Dependencies: X-06, X-15, X-16.
+
+Move Arr registration and manual-import transport behind the standalone Sonarr
+and Radarr modules while retaining root-owned validation, preview binding,
+read-back and capability gates. Do not enable native writes while G-01 remains
+unresolved; an unpublished module remains a recorded bootstrap blocker.
+
+- Owned paths: `internal/adapters/arr/write/`, `tests/fixtures/arr/write/`.
+- Acceptance contributions: A-12, A-13, A-16, A-17, A-33.
+- Handoff: `docs/execution/handoffs/X-20.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-21: Migrate Jellyfin adapters to the standalone client
+
+Lane X. Dependencies: X-09, X-17, X-04.
+
+Translate the standalone Jellyfin DTOs and typed errors into read and refresh
+ports. Preserve provider IDs, mapping evidence, accepted refresh responses and
+separate eventual availability. No generated types or direct upstream calls
+cross the root adapter boundary.
+
+- Owned paths: `internal/adapters/jellyfin/read/`, `internal/adapters/jellyfin/write/`, `tests/fixtures/jellyfin/`.
+- Acceptance contributions: A-08, A-09, A-33, A-55.
+- Handoff: `docs/execution/handoffs/X-21.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### X-22: Migrate Seerr adapters to the standalone client
+
+Lane X. Dependencies: X-04, X-18.
+
+Translate Seerr media/request DTOs and typed errors into the read-only request
+catalog port. Preserve native status, pagination coverage, instance topology
+and unavailable states. Do not add request creation, approval or other Seerr
+writes.
+
+- Owned paths: `internal/adapters/seerr/`, `tests/fixtures/seerr/`.
+- Acceptance contributions: A-08, A-09, A-54.
+- Handoff: `docs/execution/handoffs/X-22.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
 ### X-05: Prove upstream write safety in disposable fixtures
 
 Lane X. Dependencies: C-00, X-12, X-13, X-03, X-04, F-01.
@@ -472,6 +595,21 @@ committed and reproducible without `go.work` or local replace directives.
 - Owned paths: `scripts/generate.sh`, `scripts/check-guardrails.sh`, `scripts/check-lint.sh`, `.github/workflows/checks.yml`.
 - Acceptance contributions: A-43, A-45.
 - Handoff: `docs/execution/handoffs/C-05.md`.
+- Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
+
+### C-06: Extend generation and CI across every client module
+
+Lane C. Dependencies: C-05, X-15, X-16, X-17 and X-18.
+
+Add Sonarr, Radarr, Jellyfin and Seerr to deterministic generation, lint,
+architecture, module verification, cross-build and CI matrices. Generation must
+run from each module's committed contract and leave generated output unchanged.
+Every module is checked independently with `GOWORK=off`; no local `go.work` or
+replace directive is allowed.
+
+- Owned paths: `scripts/generate.sh`, `scripts/check-guardrails.sh`, `scripts/check-lint.sh`, `.github/workflows/checks.yml`.
+- Acceptance contributions: A-43, A-45.
+- Handoff: `docs/execution/handoffs/C-06.md`.
 - Exit gate: focused checks pass, exact commit/effect evidence recorded, independent review clears findings, coordinator integrates.
 
 ### U-00: Select public Goshtoso components and compatible runtime

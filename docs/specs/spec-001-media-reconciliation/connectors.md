@@ -24,6 +24,32 @@ inventory. Normalize typed errors: unavailable, rate_limited, unauthorized,
 invalid_input, conflict, unsupported and outcome_unknown. Preserve sanitized
 upstream status/command identifiers for evidence.
 
+## Standalone client modules
+
+Each upstream service has one nested Go module. The module owns its upstream
+compatibility document, generated DTOs, transport and authentication, typed
+upstream errors, synthetic fixtures and version/limitation README. A module may
+depend on its own standard-library and generated-code runtime dependencies, but
+never on Mastarr root packages, domain types, ports, storage, workflow, adapters
+or another client module. Root adapters translate generated values into Mastarr
+ports immediately, so generated upstream types never reach the domain or public
+Mastarr API.
+
+| Upstream | Module | Contract and initial surface |
+| --- | --- | --- |
+| qBittorrent | `clients/qbittorrent` | Mastarr-owned OpenAPI compatibility contract; read inventory first, control methods only after a control-lane contract and evidence gate. |
+| NZBGet | `clients/nzbget` | Mastarr-owned OpenRPC contract with `by-position` parameters; version, groups, files and history first. |
+| Sonarr | `clients/sonarr` | Mastarr-owned narrow OpenAPI contract for catalog, options and native preview reads; write methods are added only by a reviewed extension. |
+| Radarr | `clients/radarr` | Mastarr-owned narrow OpenAPI contract for catalog, options and native preview reads; write methods are added only by a reviewed extension. |
+| Jellyfin | `clients/jellyfin` | Mastarr-owned narrow OpenAPI contract for system, libraries, items and tested refresh scopes. |
+| Seerr | `clients/seerr` | Mastarr-owned narrow OpenAPI contract for media and request reads; no writes in v0.0.1. |
+
+Generated output is committed and reproducible from the module-local contract.
+Authentication, deadlines, bounded decoding, response normalization and typed
+error mapping stay inside the module. Root integration uses a published module
+version; if that version is not available yet, the existing adapter remains in
+place and the bootstrap blocker is recorded rather than adding a local replace.
+
 HTTP adapters use bounded clients, certificate verification, context deadlines,
 secret redaction and pagination termination. Retries in HTTP helpers must not
 silently repeat mutating requests. Durable action execution owns retry policy.

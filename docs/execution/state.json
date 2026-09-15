@@ -3599,9 +3599,81 @@
           "integratedCommit": "d579039edd04737385e8a24142691f576c5a2349"
         }
       ]
+    },
+    "X-15": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-16": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-17": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-18": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-19": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-20": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-21": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "X-22": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
+    },
+    "C-06": {
+      "status": "planned",
+      "owner": null,
+      "baseSha": null,
+      "integratedSha": null,
+      "evidence": [],
+      "review": null
     }
   },
-  "nextAction": "Add and dispatch the remaining independent client-module lanes for Sonarr, Radarr, Jellyfin, and Seerr after updating the plan and task registry; keep root adapters translating DTOs and preserve G-01 write blockers.",
+  "nextAction": "Dispatch X-15 standalone Sonarr client module from this clean planning checkpoint; keep one independent reviewer and extend CI only after all four new modules exist.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
@@ -3614,5 +3686,32 @@
     "license": "MIT",
     "verifiedPlanningCommit": "2cc1f131def11174d9fe9033c61cef0af3794bf4",
     "verification": "GitHub repository metadata and origin/main matched the published planning commit on 2026-09-11"
+  },
+  "clientModulePolicy": {
+    "status": "required",
+    "modules": [
+      "clients/qbittorrent",
+      "clients/nzbget",
+      "clients/sonarr",
+      "clients/radarr",
+      "clients/jellyfin",
+      "clients/seerr"
+    ],
+    "contract": "one versioned Mastarr-owned compatibility document per upstream; generated output committed and reproducible",
+    "boundary": "clients do not import Mastarr root/domain/ports/storage/workflow/adapters or another client; root adapters translate DTOs and errors",
+    "bootstrap": "root integration consumes published nested module versions; unpublished modules leave current adapters in place with a recorded blocker",
+    "initialLanes": [
+      "X-15",
+      "X-16",
+      "X-17",
+      "X-18"
+    ],
+    "migrationLanes": [
+      "X-19",
+      "X-20",
+      "X-21",
+      "X-22"
+    ],
+    "ciLane": "C-06"
   }
 }
