@@ -3826,7 +3826,9 @@
       "baseSha": "bd75b061730bca31f0fb2164a168539ffaa7cb9c",
       "integratedSha": null,
       "evidence": [
-        "dispatched after C-05 generation/CI and X-04 Jellyfin observations passed; owns only clients/jellyfin and its handoff."
+        "dispatched after C-05 generation/CI and X-04 Jellyfin observations passed; owns only clients/jellyfin and its handoff.",
+        "f9e0754853e1855af37e61ac96c8bc70a7e017d4 X-17 product commit adds independent Jellyfin OpenAPI 3.1.1 client with read-only system/library/item/provider observations, explicit refresh acceptance, token transport, bounded decoding, typed errors and synthetic fixtures.",
+        "9eb1edadf323fccd3278a30a0f19a765cbf63de9 X-17 handoff records module generation, race/vet/mod-verify, Vacuum, lint, cross-build and root guardrail evidence; aggregate C-06 matrix inclusion remains open."
       ],
       "review": {
         "status": "pending",
@@ -3866,8 +3868,15 @@
         "dependencyCommits": {
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b"
-        }
-      }
+        },
+        "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
+        "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
+        "reviewSourceCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
+        "status": "product_ready"
+      },
+      "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
+      "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
+      "reviewSourceCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4"
     },
     "X-18": {
       "status": "planned",
@@ -3918,7 +3927,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-17 Jellyfin client module from base bd75b061730bca31f0fb2164a168539ffaa7cb9c; product and handoff must stay under clients/jellyfin, then send to /root/x05_reviewer for independent review.",
+  "nextAction": "Independently review X-17 Jellyfin product f9e0754853e1855af37e61ac96c8bc70a7e017d4 using handoff 9eb1edadf323fccd3278a30a0f19a765cbf63de9; integrate only an approved review receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
