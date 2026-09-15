@@ -2312,7 +2312,8 @@
       "evidence": [
         "dispatched from 8c7e62d5e9ead37c93053dd83bbae01ea7af04bf after approved dependencies F-03, X-12, X-13, X-03, and X-04.",
         "W-01 owns internal/reconciliation/ and internal/planning/ and implements per-instance evidence aggregation, bounded exact manifests, semantic desired predicates, conflicts, and immutable revisions bound to meaningful config/source identity.",
-        "Initial W-01 dispatch errored before product work because the selected model was at capacity; no product or handoff files changed. Retry is queued with the same owner, base, and paths."
+        "Initial W-01 dispatch errored before product work because the selected model was at capacity; no product or handoff files changed. Retry is queued with the same owner, base, and paths.",
+        "The queued retry also errored before product work because the selected model remained at capacity; no product or handoff files changed. Rerouting the unchanged W-01 scope to /root/x05_implementer from the current clean checkpoint."
       ],
       "review": {
         "status": "pending",
@@ -2366,9 +2367,18 @@
         },
         "retryAttempt": {
           "owner": "/root/d02_implementer",
-          "status": "queued",
+          "status": "errored",
           "baseSha": "8c7e62d5e9ead37c93053dd83bbae01ea7af04bf",
-          "dispatchCheckpoint": "7ccc05b924f4f7083240d2c0ada571eb930ee0ca"
+          "dispatchCheckpoint": "7ccc05b924f4f7083240d2c0ada571eb930ee0ca",
+          "reason": "selected model was still at capacity before product work began; no files or handoff were changed",
+          "endedAt": "2026-09-15"
+        },
+        "rerouteAttempt": {
+          "owner": "/root/x05_implementer",
+          "status": "queued",
+          "baseSha": "9f5094584b53b02862c775163d2a9a0a6fc1b6ce",
+          "dispatchCheckpoint": "9f5094584b53b02862c775163d2a9a0a6fc1b6ce",
+          "reviewer": "/root/x05_reviewer"
         }
       }
     },
@@ -3533,7 +3543,7 @@
       ]
     }
   },
-  "nextAction": "W-01 retry is queued to /root/d02_implementer from clean base 8c7e62d5; no product files changed. F-05 remains capability-blocked; F-03 and W-02 are complete.",
+  "nextAction": "Complete the recorded W-01 reroute from 9f5094584b53b02862c775163d2a9a0a6fc1b6ce, review it independently, then continue only with dependency-eligible lanes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
