@@ -1,0 +1,670 @@
+openapi: 3.1.1
+info:
+  title: Mastarr Sonarr v3 compatibility API
+  version: 0.0.1
+  description: |
+    Mastarr-owned, read-only compatibility contract for the Sonarr v3 API.
+    It is intentionally narrow and covers the observations needed to reconcile
+    manually downloaded media: system status, series catalog, root folders,
+    quality profiles, episodes and episode files, and the native manual-import
+    preview. Registration and import execution are outside this contract.
+  x-mastarr-compatibility:
+    upstream: Sonarr API v3
+    candidateProductVersions: Sonarr 3.x
+    contractVersion: 0.0.1
+    readOnly: true
+    evidence: docs/specs/spec-001-media-reconciliation/connectors.md
+servers:
+  - url: https://sonarr.invalid/api/v3
+    description: Synthetic compatibility server; deployments provide Config.Endpoint.
+security:
+  - SonarrAPIKey: []
+paths:
+  /system/status:
+    get:
+      tags: [system]
+      operationId: GetSystemStatus
+      summary: Read Sonarr status and version
+      responses:
+        '200':
+          description: Sonarr system status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /series:
+    get:
+      tags: [catalog]
+      operationId: ListSeries
+      summary: Read the Sonarr series catalog
+      responses:
+        '200':
+          description: Complete catalog snapshot, bounded by the client
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Series'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /series/{seriesId}:
+    get:
+      tags: [catalog]
+      operationId: GetSeries
+      summary: Read one series by native ID
+      parameters:
+        - $ref: '#/components/parameters/SeriesID'
+      responses:
+        '200':
+          description: Series record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Series'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /rootfolder:
+    get:
+      tags: [options]
+      operationId: ListRootFolders
+      summary: Read configured Sonarr root folders
+      responses:
+        '200':
+          description: Root folder options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RootFolder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /qualityprofile:
+    get:
+      tags: [options]
+      operationId: ListQualityProfiles
+      summary: Read configured Sonarr quality profiles
+      responses:
+        '200':
+          description: Quality profile options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QualityProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /episode:
+    get:
+      tags: [episodes]
+      operationId: ListEpisodes
+      summary: Read episodes for one series
+      description: |
+        includeEpisodeFile=true is required by Mastarr reconciliation callers
+        when file association evidence is needed. Sonarr otherwise returns an
+        episodeFileId without the nested episodeFile observation.
+      parameters:
+        - name: seriesId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: includeEpisodeFile
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Episode snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Episode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /episodefile:
+    get:
+      tags: [episodes]
+      operationId: ListEpisodeFiles
+      summary: Read episode files for one series
+      parameters:
+        - name: seriesId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: Episode-file snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EpisodeFile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /manualimport:
+    get:
+      tags: [manual-import]
+      operationId: PreviewManualImport
+      summary: Read Sonarr's native manual-import preview
+      description: |
+        This endpoint only previews candidate files. It never executes an
+        import. The caller supplies the exact native folder and may optionally
+        scope the preview to a series and download identity.
+      parameters:
+        - name: folder
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+        - name: filterExistingFiles
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - name: seriesId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: downloadId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        '200':
+          description: Native manual-import candidates and rejection evidence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ManualImportResource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+components:
+  securitySchemes:
+    SonarrAPIKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Sonarr API key supplied by the deployment, never logged by Mastarr.
+  parameters:
+    SeriesID:
+      name: seriesId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  responses:
+    Unauthorized:
+      description: API key missing or rejected
+    Forbidden:
+      description: Upstream permission failure
+    NotFound:
+      description: Native record was not found
+    UpstreamFailure:
+      description: Sanitized upstream failure
+  schemas:
+    SystemStatus:
+      type: object
+      additionalProperties: true
+      required: [version]
+      properties:
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        branch:
+          type: string
+          maxLength: 128
+        appName:
+          type: string
+          maxLength: 128
+        instanceName:
+          type: string
+          maxLength: 256
+        isDebug:
+          type: boolean
+        isProduction:
+          type: boolean
+        isAdmin:
+          type: boolean
+        isUserInteractive:
+          type: boolean
+        startupPath:
+          type: string
+          maxLength: 4096
+        appData:
+          type: string
+          maxLength: 4096
+        osName:
+          type: string
+          maxLength: 128
+        osVersion:
+          type: string
+          maxLength: 128
+        isLinux:
+          type: boolean
+        isWindows:
+          type: boolean
+        isOsx:
+          type: boolean
+        isDocker:
+          type: boolean
+        runtimeVersion:
+          type: string
+          maxLength: 128
+        runtimeName:
+          type: string
+          maxLength: 128
+        startTime:
+          type: string
+          maxLength: 128
+
+    Series:
+      type: object
+      additionalProperties: true
+      required: [id, title, path, monitored]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        year:
+          type: integer
+          format: int32
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        monitored:
+          type: boolean
+        seasonFolder:
+          type: boolean
+        seriesType:
+          type: string
+          maxLength: 64
+        tvdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        tvMazeId:
+          type: integer
+          format: int64
+          minimum: 0
+        imdbId:
+          type: string
+          maxLength: 128
+        providerIds:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+
+    RootFolder:
+      type: object
+      additionalProperties: true
+      required: [id, path, accessible]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        accessible:
+          type: boolean
+        freeSpace:
+          type: integer
+          format: int64
+          minimum: 0
+
+    QualityProfile:
+      type: object
+      additionalProperties: true
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 512
+
+    Episode:
+      type: object
+      additionalProperties: true
+      required: [id, seriesId, seasonNumber, episodeNumber, hasFile]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        seriesId:
+          type: integer
+          format: int64
+          minimum: 1
+        episodeFileId:
+          type: integer
+          format: int64
+          minimum: 0
+        seasonNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        episodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        absoluteEpisodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        sceneAbsoluteEpisodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        title:
+          type: string
+          maxLength: 1024
+        hasFile:
+          type: boolean
+        episodeFile:
+          $ref: '#/components/schemas/EpisodeFile'
+
+    EpisodeFile:
+      type: object
+      additionalProperties: true
+      required: [id, path, size]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        relativePath:
+          type: string
+          maxLength: 4096
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        dateAdded:
+          type: string
+          maxLength: 128
+        episodeIds:
+          type: array
+          maxItems: 10000
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+
+    SeriesReference:
+      type: object
+      additionalProperties: true
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        tvdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        tvMazeId:
+          type: integer
+          format: int64
+          minimum: 0
+
+    EpisodeReference:
+      type: object
+      additionalProperties: true
+      required: [id, seriesId, seasonNumber, episodeNumber]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        seriesId:
+          type: integer
+          format: int64
+          minimum: 1
+        episodeFileId:
+          type: integer
+          format: int64
+          minimum: 0
+        seasonNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        episodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        absoluteEpisodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        sceneAbsoluteEpisodeNumber:
+          type: integer
+          format: int32
+          minimum: 0
+
+    Language:
+      type: object
+      additionalProperties: true
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    Quality:
+      type: object
+      additionalProperties: true
+      properties:
+        quality:
+          type: object
+          additionalProperties: true
+          properties:
+            id:
+              type: integer
+              format: int32
+            name:
+              type: string
+              maxLength: 256
+            source:
+              type: string
+              maxLength: 64
+            resolution:
+              type: integer
+              format: int32
+        revision:
+          type: object
+          additionalProperties: true
+          properties:
+            version:
+              type: integer
+              format: int32
+            real:
+              type: integer
+              format: int32
+            isRepack:
+              type: boolean
+
+    ImportRejection:
+      type: object
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          maxLength: 256
+        message:
+          type: string
+          maxLength: 2048
+
+    ManualImportResource:
+      type: object
+      additionalProperties: true
+      required: [id, path, relativePath, name, size]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        relativePath:
+          type: string
+          maxLength: 4096
+        folderName:
+          type: string
+          maxLength: 4096
+        name:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        series:
+          $ref: '#/components/schemas/SeriesReference'
+        seasonNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        episodes:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/EpisodeReference'
+        episodeFileId:
+          type: integer
+          format: int64
+          minimum: 0
+        releaseGroup:
+          type: string
+          maxLength: 512
+        quality:
+          $ref: '#/components/schemas/Quality'
+        languages:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/Language'
+        downloadId:
+          type: string
+          maxLength: 512
+        releaseType:
+          type: string
+          maxLength: 128
+        customFormatScore:
+          type: integer
+          format: int32
+        indexerFlags:
+          type: integer
+          format: int32
+        forced:
+          type: boolean
+        isForced:
+          type: boolean
+        hearingImpaired:
+          type: boolean
+        isHearingImpaired:
+          type: boolean
+        rejections:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/ImportRejection'
