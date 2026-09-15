@@ -41,15 +41,18 @@ native text are checked. Unknown upstream members are accepted for forward
 compatibility but remain in generated DTO storage only; normalized public
 observations copy only the typed fields in this module.
 
-Radarr's native manual-import query has two meanings. `PreviewManualImport`
-requires a downloaded folder and can carry a native `downloadId`; it rejects a
-movie ID so a source-folder preview cannot silently become a registered-library
-scan. `PreviewLibraryImport` (also available as `PreviewMovieImport`) sends
-only a movie ID and verifies every returned movie association. Candidates
-preserve exact paths, sizes, movie identity, movie-file identity, typed
-quality/language/release data and native rejection `reason` text. No subtitle
-pairing or filesystem/path mapping is inferred. Callers still need an explicit
-reviewed association before any later root workflow action.
+Radarr's native manual-import service requires a source folder (or a tracked
+download whose path is resolved by Radarr). `PreviewManualImport` always sends
+the explicit folder and can carry a native `downloadId` and optional `movieId`
+to narrow that source. `PreviewLibraryImport` (also available as
+`PreviewMovieImport`) is retained as a compatibility name for a movie-bound
+preview, but it also requires and sends an explicit folder; it never treats a
+registered movie's library path as an import source. A missing folder is
+rejected locally before network dispatch. Candidates preserve exact paths,
+sizes, movie identity, movie-file identity, typed quality/language/release data
+and native rejection `reason` text. No subtitle pairing or filesystem/path
+mapping is inferred. Callers still need an explicit reviewed association before
+any later root workflow action.
 
 Generated code is produced by pinned `oapi-codegen` v2.8.0 and lives under
 `internal/generated`; it is committed and never hand-edited. From this

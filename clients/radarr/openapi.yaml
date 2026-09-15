@@ -161,16 +161,16 @@ paths:
       summary: Read Radarr's native manual-import preview
       description: |
         This endpoint only previews candidate files. It never executes an
-        import. Radarr has two native query modes which must not be combined:
-        downloaded-folder mode supplies folder and may supply downloadId;
-        registered-library mode supplies movieId without folder or
-        downloadId. The handwritten client exposes those modes as distinct
-        request types so a movieId cannot silently change a folder preview
-        into a library scan.
+        import. Radarr's native manual-import service requires a source folder
+        (or a tracked download whose path is resolved by Radarr). Mastarr
+        keeps the compatibility request path-bound and always supplies folder;
+        downloadId and movieId optionally narrow that source. movieId does not
+        resolve a registered movie's library path and must never be sent by
+        itself.
       parameters:
         - name: folder
           in: query
-          required: false
+          required: true
           schema:
             type: string
             minLength: 1

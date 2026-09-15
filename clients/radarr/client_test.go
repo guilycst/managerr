@@ -245,17 +245,17 @@ func TestManualImportFolderPreviewIsReadOnlyAndPreservesTypedEvidence(t *testing
 	}
 }
 
-func TestManualImportFolderPreviewRejectsMovieScopeBeforeNetwork(t *testing.T) {
+func TestManualImportPreviewRejectsInvalidMovieScopeBeforeNetwork(t *testing.T) {
 	var calls int
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls++
 		http.Error(writer, "unexpected request", http.StatusTeapot)
 	})
 	client, _ := newFixtureClient(t, handler, Config{})
-	movieID := int64(101)
+	movieID := int64(0)
 	_, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads", MovieID: &movieID})
 	if !IsCode(err, ErrorInvalidInput) || calls != 0 {
-		t.Fatalf("ambiguous preview error = %v, calls=%d", err, calls)
+		t.Fatalf("invalid movie preview error = %v, calls=%d", err, calls)
 	}
 	if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{}); !IsCode(err, ErrorInvalidInput) || calls != 0 {
 		t.Fatalf("empty preview error = %v, calls=%d", err, calls)
@@ -266,15 +266,31 @@ func TestManualImportLibraryPreviewUsesNativeMovieScope(t *testing.T) {
 	var gotQuery urlValues
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		gotQuery = urlValues{folder: request.URL.Query().Get("folder"), movieID: request.URL.Query().Get("movieId"), downloadID: request.URL.Query().Get("downloadId"), filter: request.URL.Query().Get("filterExistingFiles")}
-		writeFixtureJSON(t, writer, `[{"id":702,"path":"/library/movies/Synthetic Film.mkv","relativePath":"Synthetic Film.mkv","name":"Synthetic Film.mkv","size":100,"movie":{"id":101,"title":"Synthetic Film (2024)"},"rejections":[]}]`)
+		writeFixtureJSON(t, writer, `[{"id":702,"path":"/downloads/incoming/Synthetic Film.mkv","relativePath":"Synthetic Film.mkv","name":"Synthetic Film.mkv","size":100,"movie":{"id":101,"title":"Synthetic Film (2024)"},"rejections":[]}]`)
 	})
 	client, _ := newFixtureClient(t, handler, Config{})
-	page, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{MovieID: 101, FilterExistingFiles: true})
+	page, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{Folder: "/downloads/incoming", MovieID: 101, FilterExistingFiles: true})
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("library preview = %#v, err=%v", page, err)
 	}
-	if gotQuery != (urlValues{movieID: "101", filter: "true"}) {
+	if gotQuery != (urlValues{folder: "/downloads/incoming", movieID: "101", filter: "true"}) {
 		t.Fatalf("native query = %#v", gotQuery)
+	}
+}
+
+func TestManualImportLibraryPreviewRejectsMissingPathBeforeNetwork(t *testing.T) {
+	var calls int
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		http.Error(writer, "missing source path should not reach the server", http.StatusBadRequest)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	_, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{MovieID: 101})
+	if !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("missing path error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("missing path reached network: %d", calls)
 	}
 }
 
@@ -296,7 +312,7 @@ func TestManualImportLibraryPreviewRejectsForeignMovieAndMissingReference(t *tes
 				writeFixtureJSON(t, writer, body)
 			})
 			client, _ := newFixtureClient(t, handler, Config{})
-			if _, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{MovieID: 101}); !IsCode(err, ErrorMalformed) {
+			if _, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{Folder: "/downloads", MovieID: 101}); !IsCode(err, ErrorMalformed) {
 				t.Fatalf("error = %v", err)
 			}
 		})

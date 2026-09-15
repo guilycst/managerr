@@ -148,7 +148,7 @@ type MovieID = int64
 
 // PreviewManualImportParams defines parameters for PreviewManualImport.
 type PreviewManualImportParams struct {
-	Folder              *string `form:"folder,omitempty" json:"folder,omitempty"`
+	Folder              string  `form:"folder" json:"folder"`
 	FilterExistingFiles *bool   `form:"filterExistingFiles,omitempty" json:"filterExistingFiles,omitempty"`
 	MovieId             *int64  `form:"movieId,omitempty" json:"movieId,omitempty"`
 	DownloadId          *string `form:"downloadId,omitempty" json:"downloadId,omitempty"`
@@ -1848,12 +1848,12 @@ type ClientInterface interface {
 	// PreviewManualImport Read Radarr's native manual-import preview
 	//
 	// This endpoint only previews candidate files. It never executes an
-	// import. Radarr has two native query modes which must not be combined:
-	// downloaded-folder mode supplies folder and may supply downloadId;
-	// registered-library mode supplies movieId without folder or
-	// downloadId. The handwritten client exposes those modes as distinct
-	// request types so a movieId cannot silently change a folder preview
-	// into a library scan.
+	// import. Radarr's native manual-import service requires a source folder
+	// (or a tracked download whose path is resolved by Radarr). Mastarr
+	// keeps the compatibility request path-bound and always supplies folder;
+	// downloadId and movieId optionally narrow that source. movieId does not
+	// resolve a registered movie's library path and must never be sent by
+	// itself.
 	//
 	// Corresponds with GET /manualimport (the `PreviewManualImport` operationId).
 	PreviewManualImport(ctx context.Context, params *PreviewManualImportParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1892,12 +1892,12 @@ type ClientInterface interface {
 // PreviewManualImport Read Radarr's native manual-import preview
 //
 // This endpoint only previews candidate files. It never executes an
-// import. Radarr has two native query modes which must not be combined:
-// downloaded-folder mode supplies folder and may supply downloadId;
-// registered-library mode supplies movieId without folder or
-// downloadId. The handwritten client exposes those modes as distinct
-// request types so a movieId cannot silently change a folder preview
-// into a library scan.
+// import. Radarr's native manual-import service requires a source folder
+// (or a tracked download whose path is resolved by Radarr). Mastarr
+// keeps the compatibility request path-bound and always supplies folder;
+// downloadId and movieId optionally narrow that source. movieId does not
+// resolve a registered movie's library path and must never be sent by
+// itself.
 //
 // Corresponds with GET /manualimport (the `PreviewManualImport` operationId).
 func (c *Client) PreviewManualImport(ctx context.Context, params *PreviewManualImportParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2030,16 +2030,12 @@ func NewPreviewManualImportRequest(server string, params *PreviewManualImportPar
 		// per the OpenAPI spec (e.g. "color=blue,black,brown").
 		var rawQueryFragments []string
 
-		if params.Folder != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "folder", *params.Folder, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "folder", params.Folder, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
 			}
-
 		}
 
 		if params.FilterExistingFiles != nil {
@@ -2331,12 +2327,12 @@ type ClientWithResponsesInterface interface {
 	// PreviewManualImportWithResponse Read Radarr's native manual-import preview
 	//
 	// This endpoint only previews candidate files. It never executes an
-	// import. Radarr has two native query modes which must not be combined:
-	// downloaded-folder mode supplies folder and may supply downloadId;
-	// registered-library mode supplies movieId without folder or
-	// downloadId. The handwritten client exposes those modes as distinct
-	// request types so a movieId cannot silently change a folder preview
-	// into a library scan.
+	// import. Radarr's native manual-import service requires a source folder
+	// (or a tracked download whose path is resolved by Radarr). Mastarr
+	// keeps the compatibility request path-bound and always supplies folder;
+	// downloadId and movieId optionally narrow that source. movieId does not
+	// resolve a registered movie's library path and must never be sent by
+	// itself.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -2676,12 +2672,12 @@ func (r GetSystemStatusResponse) ContentType() string {
 // PreviewManualImportWithResponse Read Radarr's native manual-import preview
 //
 // This endpoint only previews candidate files. It never executes an
-// import. Radarr has two native query modes which must not be combined:
-// downloaded-folder mode supplies folder and may supply downloadId;
-// registered-library mode supplies movieId without folder or
-// downloadId. The handwritten client exposes those modes as distinct
-// request types so a movieId cannot silently change a folder preview
-// into a library scan.
+// import. Radarr's native manual-import service requires a source folder
+// (or a tracked download whose path is resolved by Radarr). Mastarr
+// keeps the compatibility request path-bound and always supplies folder;
+// downloadId and movieId optionally narrow that source. movieId does not
+// resolve a registered movie's library path and must never be sent by
+// itself.
 //
 // Returns a wrapper object for the known response body format(s).
 //

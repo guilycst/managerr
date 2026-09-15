@@ -527,9 +527,9 @@ func (client *Client) ListMovieFile(ctx context.Context, movieID int64) (Page[Mo
 	return client.ListMovieFiles(ctx, movieID)
 }
 
-// ManualImportQuery describes Radarr's downloaded-folder preview mode. A
-// movie ID is rejected here because Radarr treats movieId without downloadId
-// as a registered-library query. Use PreviewLibraryImport for that mode.
+// ManualImportQuery describes Radarr's downloaded-folder preview mode. Folder
+// is always required because Radarr's native manual-import service needs a
+// source path; MovieID, when supplied, narrows that source to one movie.
 type ManualImportQuery struct {
 	Folder              string
 	FilterExistingFiles bool
@@ -537,12 +537,15 @@ type ManualImportQuery struct {
 	DownloadID          string
 }
 
-// LibraryImportQuery selects Radarr's registered-library manual-import mode.
-// It is intentionally separate from ManualImportQuery so the source folder
-// cannot be silently ignored by the upstream API.
+// LibraryImportQuery is retained as a compatibility name for a movie-bound
+// preview. It is path-bound: Folder is required and is never resolved from a
+// registered movie record. Radarr does not provide a movieId-only library
+// manual-import scan.
 type LibraryImportQuery struct {
+	Folder              string
 	MovieID             int64
 	FilterExistingFiles bool
+	DownloadID          string
 }
 
 // MovieImportQuery is a descriptive alias for LibraryImportQuery.
@@ -619,11 +622,16 @@ func (client *Client) PreviewManualImport(ctx context.Context, query ManualImpor
 		return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview")
 	}
 	if query.MovieID != nil {
-		return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview.mode")
+		if *query.MovieID <= 0 {
+			return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview.movie_id")
+		}
 	}
 	values := url.Values{
 		"folder":              []string{query.Folder},
 		"filterExistingFiles": []string{fmt.Sprintf("%t", query.FilterExistingFiles)},
+	}
+	if query.MovieID != nil {
+		values.Set("movieId", fmt.Sprintf("%d", *query.MovieID))
 	}
 	if query.DownloadID != "" {
 		if validateBoundedID(query.DownloadID, maxDownloadIDChars) != nil {
@@ -634,18 +642,25 @@ func (client *Client) PreviewManualImport(ctx context.Context, query ManualImpor
 	return client.previewManualImport(ctx, "radarr.manualimport.preview.folder", values, 0)
 }
 
-// PreviewLibraryImport performs Radarr's registered-library manual-import
-// mode. It sends movieId without folder or downloadId and verifies every
-// returned nested movie association against the requested movie.
+// PreviewLibraryImport performs a path-bound, movie-scoped manual-import
+// preview. The compatibility name remains for callers that used the first
+// draft, but Folder is mandatory and is sent to Radarr with movieId.
 func (client *Client) PreviewLibraryImport(ctx context.Context, query LibraryImportQuery) (Page[ManualImportCandidate], error) {
-	if query.MovieID <= 0 {
+	if validateNativePath(query.Folder) != nil || query.MovieID <= 0 {
 		return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview.library")
 	}
 	values := url.Values{
+		"folder":              []string{query.Folder},
 		"movieId":             []string{fmt.Sprintf("%d", query.MovieID)},
 		"filterExistingFiles": []string{fmt.Sprintf("%t", query.FilterExistingFiles)},
 	}
-	return client.previewManualImport(ctx, "radarr.manualimport.preview.library", values, query.MovieID)
+	if query.DownloadID != "" {
+		if validateBoundedID(query.DownloadID, maxDownloadIDChars) != nil {
+			return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview.library")
+		}
+		values.Set("downloadId", query.DownloadID)
+	}
+	return client.previewManualImport(ctx, "radarr.manualimport.preview.movie", values, query.MovieID)
 }
 
 // PreviewMovieImport is an explicit movie-named alias for PreviewLibraryImport.
