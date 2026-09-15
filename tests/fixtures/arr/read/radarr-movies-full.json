@@ -4,6 +4,7 @@
     "title": "Synthetic Film (2024)",
     "tmdbId": 4242,
     "imdbId": "tt0000042",
+    "path": "/downloads/movies/Synthetic Film (2024)",
     "monitored": true,
     "movieFile": {
       "id": 501,
@@ -16,6 +17,7 @@
     "id": 102,
     "title": "Missing Synthetic Film",
     "tmdbId": 5252,
+    "path": "/downloads/movies/Missing Synthetic Film",
     "monitored": false
   }
 ]

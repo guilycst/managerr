@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	radarrnative "github.com/guilycst/mastarr/clients/radarr"
+	sonarrnative "github.com/guilycst/mastarr/clients/sonarr"
 	"github.com/guilycst/mastarr/internal/domain"
 	"github.com/guilycst/mastarr/internal/ports"
 )
@@ -85,6 +87,8 @@ type Client struct {
 	endpoint  *url.URL
 	http      *http.Client
 	cursorKey []byte
+	sonarr    *sonarrnative.Client
+	radarr    *radarrnative.Client
 }
 
 var _ ports.MediaManagerReadPort = (*Client)(nil)
@@ -154,7 +158,37 @@ func New(config Config) (*Client, error) {
 	}
 	config.RootPaths = cloneRootPaths(config.RootPaths)
 	config.Mappings = append([]domain.PathMapping(nil), config.Mappings...)
-	return &Client{config: config, endpoint: endpoint, http: client, cursorKey: cursorKey}, nil
+	nativeHTTP := *client
+	var sonarrClient *sonarrnative.Client
+	var radarrClient *radarrnative.Client
+	switch config.Kind {
+	case domain.ConnectionSonarr:
+		sonarrClient, err = sonarrnative.New(sonarrnative.Config{
+			Endpoint:         config.Endpoint,
+			APIKey:           config.APIKey,
+			HTTPClient:       &nativeHTTP,
+			MaxResponseBytes: config.MaxResponseSize,
+			MaxItems:         config.MaxRecords,
+			MaxEpisodes:      config.MaxFiles,
+			MaxFiles:         config.MaxFiles,
+		})
+		if err != nil {
+			return nil, errors.New("Sonarr compatibility client setup failed")
+		}
+	case domain.ConnectionRadarr:
+		radarrClient, err = radarrnative.New(radarrnative.Config{
+			Endpoint:         config.Endpoint,
+			APIKey:           config.APIKey,
+			HTTPClient:       &nativeHTTP,
+			MaxResponseBytes: config.MaxResponseSize,
+			MaxItems:         config.MaxRecords,
+			MaxMovieFiles:    config.MaxFiles,
+		})
+		if err != nil {
+			return nil, errors.New("Radarr compatibility client setup failed")
+		}
+	}
+	return &Client{config: config, endpoint: endpoint, http: client, cursorKey: cursorKey, sonarr: sonarrClient, radarr: radarrClient}, nil
 }
 
 // NewClient is an explicit constructor alias.
@@ -195,7 +229,9 @@ func (client *Client) Capabilities(ctx context.Context, connectionID domain.Conf
 // authenticated snapshot. The adapter never sends page/pageSize to these
 // endpoints: doing so would make an Arr full-array response look like a
 // complete page and lose records after the first local page.
-func (client *Client) List(ctx context.Context, connectionID domain.ConfigID, cursor string, requestedLimit int) (ports.Page[ports.MediaRecord], error) {
+// listLegacy is retained as a compatibility fallback for response shapes that
+// the standalone clients deliberately reject.
+func (client *Client) listLegacy(ctx context.Context, connectionID domain.ConfigID, cursor string, requestedLimit int) (ports.Page[ports.MediaRecord], error) {
 	var result ports.Page[ports.MediaRecord]
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return result, err
@@ -421,6 +457,15 @@ func (client *Client) Options(ctx context.Context, connectionID domain.ConfigID)
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
+	}
+	if client.nativeAvailable() {
+		result, err := client.nativeOptions(ctx, connectionID)
+		if err == nil {
+			return result, nil
+		}
+		if !nativeCompatibilityFallback(err) {
+			return result, err
+		}
 	}
 	rootsBody, err := client.get(ctx, "arr.options.root_folders", apiRootFolders, nil)
 	if err != nil {
@@ -777,6 +822,15 @@ func (client *Client) ReprocessRequestFromNativePreviewWithPairs(request NativeP
 }
 
 func (client *Client) previewImport(ctx context.Context, connectionID domain.ConfigID, request ports.ImportPreviewRequest, downloadID string) (ports.ImportPreview, error) {
+	if client.nativeAvailable() {
+		preview, err := client.nativePreviewImport(ctx, connectionID, request, downloadID)
+		if err == nil {
+			return preview, nil
+		}
+		if !nativeCompatibilityFallback(err) {
+			return preview, err
+		}
+	}
 	if err := validateConnectionScope(client.config.ConnectionID, connectionID); err != nil {
 		return ports.ImportPreview{}, err
 	}
@@ -1149,6 +1203,15 @@ func (client *Client) ObserveImport(ctx context.Context, connectionID domain.Con
 	}
 	if _, err := parsePositiveInt(externalID); err != nil {
 		return result, invalidInput("arr.import.external_id")
+	}
+	if client.nativeAvailable() {
+		result, err := client.nativeObserveImport(ctx, connectionID, externalID)
+		if err == nil {
+			return result, nil
+		}
+		if !nativeCompatibilityFallback(err) {
+			return result, err
+		}
 	}
 	var files []ports.MediaFile
 	switch client.config.Kind {

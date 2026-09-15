@@ -3,6 +3,7 @@
     "id": 701,
     "path": "/downloads/incoming/Synthetic Film (2024).mkv",
     "relativePath": "Synthetic Film (2024).mkv",
+    "name": "Synthetic Film (2024).mkv",
     "size": 123456789,
     "movie": {"id": 101, "title": "Synthetic Film (2024)", "tmdbId": 4242},
     "downloadId": "synthetic-download-1",
@@ -12,6 +13,7 @@
     "id": 702,
     "path": "/downloads/incoming/Other Film.mkv",
     "relativePath": "Other Film.mkv",
+    "name": "Other Film.mkv",
     "size": 888,
     "movie": {"id": 101, "title": "Synthetic Film (2024)", "tmdbId": 4242},
     "rejections": [
@@ -22,6 +24,7 @@
     "id": 703,
     "path": "/downloads/incoming/Synthetic Film (2024).en.srt",
     "relativePath": "Synthetic Film (2024).en.srt",
+    "name": "Synthetic Film (2024).en.srt",
     "size": 4567,
     "movie": {"id": 101, "title": "Synthetic Film (2024)", "tmdbId": 4242},
     "languages": [{"name": "English", "isoCode": "en"}],

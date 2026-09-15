@@ -4,9 +4,11 @@
     "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 1,
+    "hasFile": true,
     "episodeFileId": 801,
     "episodeFile": {
       "id": 801,
+      "seriesId": 201,
       "path": "/downloads/series/Synthetic Series - S01E01-E02.mkv",
       "size": 222222222
     }
@@ -16,9 +18,11 @@
     "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 2,
+    "hasFile": true,
     "episodeFileId": 801,
     "episodeFile": {
       "id": 801,
+      "seriesId": 201,
       "path": "/downloads/series/Synthetic Series - S01E01-E02.mkv",
       "size": 222222222
     }
@@ -28,9 +32,11 @@
     "seriesId": 201,
     "seasonNumber": 1,
     "episodeNumber": 3,
+    "hasFile": true,
     "episodeFileId": 802,
     "episodeFile": {
       "id": 802,
+      "seriesId": 201,
       "path": "/unmapped/Synthetic Series - S01E03.mkv",
       "size": 333333333
     }
