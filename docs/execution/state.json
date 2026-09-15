@@ -4067,7 +4067,10 @@
         "baseSha": "ba746f38f7473a019a539f16267e07ac9e230407",
         "ownedPaths": [
           "internal/adapters/arr/read/",
-          "tests/fixtures/arr/read/"
+          "tests/fixtures/arr/read/",
+          "go.mod",
+          "go.sum",
+          "docs/execution/handoffs/X-19.md"
         ],
         "expectedChecks": [
           "A-07",
@@ -4076,6 +4079,7 @@
           "A-10",
           "A-16",
           "standalone Sonarr and Radarr DTO/error translation without generated-type leakage",
+          "root module requirements use public pseudo-versions and no local replace",
           "unpublished nested-module bootstrap check with no local replace",
           "synthetic adapter fixture coverage and read-only behavior",
           "GOWORK=off root tests/race/vet/mod verify, generation, Vacuum, lint and architecture",
