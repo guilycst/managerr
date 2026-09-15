@@ -4094,17 +4094,18 @@
         "a6c5eabb396794d8c8a69555686fbbdeb106f5f7 independent review round three verified staged candidate validation, the 18-pair matrix and all scoped checks, but requested changes solely because the fresh full aggregate timed out at 180s in root storage race; no C-06 code defect was found.",
         "0ebf28ea059e0629b24755d240d090f03426d882 integrated C-06 round-three review receipt; root storage race completion remains a verification blocker.",
         "Coordinator diagnostic at ea1b9a6: GOWORK=off go test -race -count=1 -mod=readonly ./internal/storage completed uncached in 214.466s; a subsequent full aggregate passed from warmed cache. This explains the 180-second clean-checkout bound without weakening the race gate; fresh-cache aggregate verification is still required.",
-        "ba5f136fd1622a3ba461222df67630777333f0b3 C-06 correction round three handoff: fresh-cache ./scripts/check-guardrails.sh --ci timed out at 360s after internal/storage race passed in 201.281s; direct fresh-cache storage race passed in 209.2s (package 196.341s), with timeout later in tools-module continuation before final verification/cross-build output. No product or script changes were made."
+        "ba5f136fd1622a3ba461222df67630777333f0b3 C-06 correction round three handoff: fresh-cache ./scripts/check-guardrails.sh --ci timed out at 360s after internal/storage race passed in 201.281s; direct fresh-cache storage race passed in 209.2s (package 196.341s), with timeout later in tools-module continuation before final verification/cross-build output. No product or script changes were made.",
+        "94b65ac42f56a4742641906ece31df8c66508145 independent C-06 round-four review confirms product paths are unchanged and withholds approval: fresh aggregate exit 124 at 360.0s after storage passed, raw aggregate log SHA256 4a95684d785d24bb2786d53d732611aefd26fdc5e86c9d0dba10493bff06f27e, direct storage log SHA256 1355d70db69fd2696fd3f06b4ed0c5fcd5fb18981a68824fc5825d41361a20e5, warmed success does not close fresh gate."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "a6c5eabb396794d8c8a69555686fbbdeb106f5f7",
+        "commit": "94b65ac42f56a4742641906ece31df8c66508145",
         "findings": [
-          "R3 verification full aggregate race gate timed out at 180s in root storage race; scoped checks pass and no C-06 code finding"
+          "R4 verification full aggregate timed out at 360s after root storage race passed and during tools-module continuation; scoped checks pass and no C-06 code finding"
         ],
-        "round": 3
+        "round": 4
       },
       "dispatch": {
         "assignedAt": "2026-09-15",
@@ -4146,19 +4147,19 @@
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
         "reviewSourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
         "status": "changes_requested",
-        "reviewCommit": "a6c5eabb396794d8c8a69555686fbbdeb106f5f7",
-        "reviewIntegrationCommit": "0ebf28ea059e0629b24755d240d090f03426d882",
-        "reviewRound": 3,
+        "reviewCommit": "94b65ac42f56a4742641906ece31df8c66508145",
+        "reviewIntegrationCommit": "7a6b6fcc06e16fb2c22d449403ac06a9bd92535c",
+        "reviewRound": 4,
         "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "8ef25aec0b601256242b10e67cfd4bca36816b63",
         "correctionReviewPath": "docs/execution/handoffs/C-06-review-round4.md",
         "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "verification_pending",
+        "correctionStatus": "blocked",
         "correctionImplementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
         "correctionHandoffCommit": "ba5f136fd1622a3ba461222df67630777333f0b3",
-        "verificationNote": "Fresh-cache aggregate timed out at 360s after storage passed and during tools-module continuation; direct uncached storage race passed. Independent round-four review is required, and no feature lane may start until the full aggregate completes."
+        "verificationNote": "Fresh-cache aggregate timed out at 360s after storage passed and during tools-module continuation; direct uncached storage race passed and independent round-four review withheld approval. Diagnose the later phase or rerun with a reviewed longer bound; no feature lane may start until the full aggregate completes."
       },
       "implementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
       "handoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98",
@@ -4190,11 +4191,20 @@
           "sourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
           "receipt": "docs/execution/handoffs/C-06-review-round3.md",
           "integratedCommit": "0ebf28ea059e0629b24755d240d090f03426d882"
+        },
+        {
+          "round": 4,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "94b65ac42f56a4742641906ece31df8c66508145",
+          "status": "changes_requested",
+          "sourceCommit": "ba5f136fd1622a3ba461222df67630777333f0b3",
+          "receipt": "docs/execution/handoffs/C-06-review-round4.md",
+          "integratedCommit": "7a6b6fcc06e16fb2c22d449403ac06a9bd92535c"
         }
       ]
     }
   },
-  "nextAction": "Request independent round-four review of C-06 correction handoff ba5f136fd1622a3ba461222df67630777333f0b3; preserve the full guardrail blocker because the fresh-cache aggregate timed out after storage passed. Do not dispatch feature lanes until the full aggregate completes.",
+  "nextAction": "C-06 remains blocked after independent round-four review. Diagnose the later tools-module phase or rerun the exact fresh-cache aggregate with a reviewed longer bound, record exact evidence, and keep all feature lanes paused until the full aggregate completes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
