@@ -2315,14 +2315,41 @@
         "Initial W-01 dispatch errored before product work because the selected model was at capacity; no product or handoff files changed. Retry is queued with the same owner, base, and paths.",
         "The queued retry also errored before product work because the selected model remained at capacity; no product or handoff files changed. Rerouting the unchanged W-01 scope to /root/x05_implementer from the current clean checkpoint.",
         "3c4067d4d2562fbe3740a252bfd14f411824ed77 W-01 product commit: per-instance evidence aggregation, bounded manifests, semantic predicates, conflict detection, and immutable plan revisions with focused synthetic tests.",
-        "df02e766ebe1d1919b5faa95a08b5f9da23738c3 W-01 handoff records exact acceptance evidence and all requested checks passed; G-01 remains open."
+        "df02e766ebe1d1919b5faa95a08b5f9da23738c3 W-01 handoff records exact acceptance evidence and all requested checks passed; G-01 remains open.",
+        "ff16c554aa93459130ea88dd184fb2b80bdac382 independent review round one: changes requested with three P1 and two P2 findings; receipt integrated as dca41abdd99361cee7de0c7dcc10892323c773f2."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "ff16c554aa93459130ea88dd184fb2b80bdac382",
+        "findings": [
+          {
+            "id": "R1",
+            "severity": "P1",
+            "summary": "blocking conflicts can be bypassed by mutating derived Status and BlockingIssues without changing the plan digest"
+          },
+          {
+            "id": "R2",
+            "severity": "P1",
+            "summary": "Arr import selections and subtitle video references are not cross-validated against the exact manifest"
+          },
+          {
+            "id": "R3",
+            "severity": "P1",
+            "summary": "target connection configuration revisions are optional, so a plan can omit the target fence"
+          },
+          {
+            "id": "R4",
+            "severity": "P2",
+            "summary": "stale absence coverage remains ConfirmedAbsent after aggregation time advances past CoverageMaxAge"
+          },
+          {
+            "id": "R5",
+            "severity": "P2",
+            "summary": "scalar pointer fields alias caller-owned values and mutate prior immutable plans"
+          }
+        ],
         "round": 1
       },
       "dispatch": {
@@ -2386,11 +2413,31 @@
         },
         "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
         "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
-        "reviewRound": 1
+        "reviewRound": 1,
+        "reviewCommit": "ff16c554aa93459130ea88dd184fb2b80bdac382",
+        "reviewIntegrationCommit": "dca41abdd99361cee7de0c7dcc10892323c773f2",
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "dca41abdd99361cee7de0c7dcc10892323c773f2",
+        "correctionReviewPath": "docs/execution/handoffs/W-01-review-round2.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "queued"
       },
       "implementationCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
       "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
-      "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77"
+      "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "ff16c554aa93459130ea88dd184fb2b80bdac382",
+          "status": "changes_requested",
+          "sourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+          "receipt": "docs/execution/handoffs/W-01-review-round1.md",
+          "integratedCommit": "dca41abdd99361cee7de0c7dcc10892323c773f2"
+        }
+      ],
+      "nextAction": "Implement W-01 correction round 1 from dca41abdd99361cee7de0c7dcc10892323c773f2, addressing R1-R5, then review the correction independently."
     },
     "W-02": {
       "status": "done",
