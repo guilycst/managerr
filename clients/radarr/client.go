@@ -621,10 +621,12 @@ func (client *Client) PreviewManualImport(ctx context.Context, query ManualImpor
 	if validateNativePath(query.Folder) != nil {
 		return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview")
 	}
+	expectedMovieID := int64(0)
 	if query.MovieID != nil {
 		if *query.MovieID <= 0 {
 			return Page[ManualImportCandidate]{}, invalidInput("radarr.manualimport.preview.movie_id")
 		}
+		expectedMovieID = *query.MovieID
 	}
 	values := url.Values{
 		"folder":              []string{query.Folder},
@@ -639,7 +641,7 @@ func (client *Client) PreviewManualImport(ctx context.Context, query ManualImpor
 		}
 		values.Set("downloadId", query.DownloadID)
 	}
-	return client.previewManualImport(ctx, "radarr.manualimport.preview.folder", values, 0)
+	return client.previewManualImport(ctx, "radarr.manualimport.preview.folder", values, expectedMovieID)
 }
 
 // PreviewLibraryImport performs a path-bound, movie-scoped manual-import

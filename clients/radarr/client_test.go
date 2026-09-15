@@ -245,6 +245,43 @@ func TestManualImportFolderPreviewIsReadOnlyAndPreservesTypedEvidence(t *testing
 	}
 }
 
+func TestManualImportFolderPreviewRejectsForeignOrMissingScopedMovie(t *testing.T) {
+	movieID := int64(101)
+	tests := map[string]string{
+		"foreign movie": `[{"id":701,"path":"/downloads/incoming/other.mkv","relativePath":"other.mkv","name":"other.mkv","size":10,"movie":{"id":999,"title":"Other Movie"},"rejections":[]}]`,
+		"missing movie": `[{"id":701,"path":"/downloads/incoming/unknown.mkv","relativePath":"unknown.mkv","name":"unknown.mkv","size":10,"rejections":[]}]`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Query().Get("folder") != "/downloads/incoming" || request.URL.Query().Get("movieId") != "101" {
+					t.Errorf("scoped query = %s", request.URL.RawQuery)
+				}
+				writeFixtureJSON(t, writer, body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads/incoming", MovieID: &movieID}); !IsCode(err, ErrorMalformed) {
+				t.Fatalf("foreign/missing scoped evidence error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPreviewImportForwardsMovieScope(t *testing.T) {
+	movieID := int64(101)
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("folder") != "/downloads/incoming" || request.URL.Query().Get("movieId") != "101" {
+			t.Errorf("scoped query = %s", request.URL.RawQuery)
+		}
+		writeFixtureJSON(t, writer, `[{"id":703,"path":"/downloads/incoming/movie.mkv","relativePath":"movie.mkv","name":"movie.mkv","size":10,"movie":{"id":101,"title":"Synthetic Film"},"rejections":[]}]`)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	page, err := client.PreviewImport(context.Background(), ManualImportQuery{Folder: "/downloads/incoming", MovieID: &movieID})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Movie == nil || page.Items[0].Movie.ID != movieID {
+		t.Fatalf("scoped preview = %#v, err=%v", page, err)
+	}
+}
+
 func TestManualImportPreviewRejectsInvalidMovieScopeBeforeNetwork(t *testing.T) {
 	var calls int
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
