@@ -94,12 +94,18 @@ paths:
         default:
           $ref: '#/components/responses/UpstreamFailure'
 
-  /Users/Me/Views:
+  /UserViews:
     get:
       tags: [libraries]
       operationId: ListCurrentUserViews
-      summary: Read the current user's Jellyfin library views
-      description: The fallback used when the configured server exposes views instead of media folders.
+      summary: Read Jellyfin library views for the authenticated or selected user
+      description: |
+        Jellyfin's canonical UserViews route uses the authenticated token's
+        user context when userId is omitted. A caller with an explicit user
+        identity supplies it as this query parameter. This is the fallback
+        used when the configured server exposes views instead of media folders.
+      parameters:
+        - $ref: '#/components/parameters/UserIDQuery'
       responses:
         '200':
           description: Current user view collection
@@ -125,9 +131,10 @@ paths:
       summary: Read a bounded Jellyfin item page
       description: |
         Items is an offset-based endpoint. A page is never promoted to a
-        complete inventory unless the caller has independently established a
-        stable collection boundary; the normalized page retains coverage and
-        total metadata for that decision.
+        complete inventory unless its native total and offset establish a
+        stable collection boundary. Missing or contradictory total/offset
+        metadata remains unknown or malformed; the normalized page retains
+        coverage for that decision.
       parameters:
         - name: ParentId
           in: query
@@ -262,6 +269,15 @@ components:
       name: userId
       in: path
       required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    UserIDQuery:
+      name: userId
+      in: query
+      required: false
+      description: Optional explicit user identity; otherwise token user context applies.
       schema:
         type: string
         minLength: 1

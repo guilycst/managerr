@@ -74,6 +74,9 @@ type ItemID = string
 // UserID defines model for UserID.
 type UserID = string
 
+// UserIDQuery defines model for UserIDQuery.
+type UserIDQuery = string
+
 // ListItemsParams defines parameters for ListItems.
 type ListItemsParams struct {
 	ParentId            *string `form:"ParentId,omitempty" json:"ParentId,omitempty"`
@@ -101,6 +104,12 @@ type ListMediaFolders200JSONResponseBody0 = []Library
 // ListMediaFolders200JSONResponseBody defines parameters for ListMediaFolders.
 type ListMediaFolders200JSONResponseBody struct {
 	union json.RawMessage
+}
+
+// ListCurrentUserViewsParams defines parameters for ListCurrentUserViews.
+type ListCurrentUserViewsParams struct {
+	// UserId Optional explicit user identity; otherwise token user context applies.
+	UserId *UserIDQuery `form:"userId,omitempty" json:"userId,omitempty"`
 }
 
 // ListCurrentUserViews200JSONResponseBody0 defines parameters for ListCurrentUserViews.
@@ -444,9 +453,10 @@ type ClientInterface interface {
 	// ListItems Read a bounded Jellyfin item page
 	//
 	// Items is an offset-based endpoint. A page is never promoted to a
-	// complete inventory unless the caller has independently established a
-	// stable collection boundary; the normalized page retains coverage and
-	// total metadata for that decision.
+	// complete inventory unless its native total and offset establish a
+	// stable collection boundary. Missing or contradictory total/offset
+	// metadata remains unknown or malformed; the normalized page retains
+	// coverage for that decision.
 	//
 	// Corresponds with GET /Items (the `ListItems` operationId).
 	ListItems(ctx context.Context, params *ListItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -481,12 +491,15 @@ type ClientInterface interface {
 	// Corresponds with GET /System/Info/Public (the `GetSystemInfo` operationId).
 	GetSystemInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListCurrentUserViews Read the current user's Jellyfin library views
+	// ListCurrentUserViews Read Jellyfin library views for the authenticated or selected user
 	//
-	// The fallback used when the configured server exposes views instead of media folders.
+	// Jellyfin's canonical UserViews route uses the authenticated token's
+	// user context when userId is omitted. A caller with an explicit user
+	// identity supplies it as this query parameter. This is the fallback
+	// used when the configured server exposes views instead of media folders.
 	//
-	// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
-	ListCurrentUserViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with GET /UserViews (the `ListCurrentUserViews` operationId).
+	ListCurrentUserViews(ctx context.Context, params *ListCurrentUserViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListUserViews Read a user's Jellyfin library views
 	//
@@ -497,9 +510,10 @@ type ClientInterface interface {
 // ListItems Read a bounded Jellyfin item page
 //
 // Items is an offset-based endpoint. A page is never promoted to a
-// complete inventory unless the caller has independently established a
-// stable collection boundary; the normalized page retains coverage and
-// total metadata for that decision.
+// complete inventory unless its native total and offset establish a
+// stable collection boundary. Missing or contradictory total/offset
+// metadata remains unknown or malformed; the normalized page retains
+// coverage for that decision.
 //
 // Corresponds with GET /Items (the `ListItems` operationId).
 func (c *Client) ListItems(ctx context.Context, params *ListItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -584,13 +598,16 @@ func (c *Client) GetSystemInfo(ctx context.Context, reqEditors ...RequestEditorF
 	return c.Client.Do(req)
 }
 
-// ListCurrentUserViews Read the current user's Jellyfin library views
+// ListCurrentUserViews Read Jellyfin library views for the authenticated or selected user
 //
-// The fallback used when the configured server exposes views instead of media folders.
+// Jellyfin's canonical UserViews route uses the authenticated token's
+// user context when userId is omitted. A caller with an explicit user
+// identity supplies it as this query parameter. This is the fallback
+// used when the configured server exposes views instead of media folders.
 //
-// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
-func (c *Client) ListCurrentUserViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListCurrentUserViewsRequest(c.Server)
+// Corresponds with GET /UserViews (the `ListCurrentUserViews` operationId).
+func (c *Client) ListCurrentUserViews(ctx context.Context, params *ListCurrentUserViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCurrentUserViewsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -882,7 +899,7 @@ func NewGetSystemInfoRequest(server string) (*http.Request, error) {
 }
 
 // NewListCurrentUserViewsRequest constructs an http.Request for the ListCurrentUserViews method
-func NewListCurrentUserViewsRequest(server string) (*http.Request, error) {
+func NewListCurrentUserViewsRequest(server string, params *ListCurrentUserViewsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -890,7 +907,7 @@ func NewListCurrentUserViewsRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/Users/Me/Views")
+	operationPath := fmt.Sprintf("/UserViews")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -898,6 +915,33 @@ func NewListCurrentUserViewsRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.UserId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "userId", *params.UserId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -989,9 +1033,10 @@ type ClientWithResponsesInterface interface {
 	// ListItemsWithResponse Read a bounded Jellyfin item page
 	//
 	// Items is an offset-based endpoint. A page is never promoted to a
-	// complete inventory unless the caller has independently established a
-	// stable collection boundary; the normalized page retains coverage and
-	// total metadata for that decision.
+	// complete inventory unless its native total and offset establish a
+	// stable collection boundary. Missing or contradictory total/offset
+	// metadata remains unknown or malformed; the normalized page retains
+	// coverage for that decision.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -1036,14 +1081,17 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /System/Info/Public (the `GetSystemInfo` operationId).
 	GetSystemInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSystemInfoResponse, error)
 
-	// ListCurrentUserViewsWithResponse Read the current user's Jellyfin library views
+	// ListCurrentUserViewsWithResponse Read Jellyfin library views for the authenticated or selected user
 	//
-	// The fallback used when the configured server exposes views instead of media folders.
+	// Jellyfin's canonical UserViews route uses the authenticated token's
+	// user context when userId is omitted. A caller with an explicit user
+	// identity supplies it as this query parameter. This is the fallback
+	// used when the configured server exposes views instead of media folders.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
-	ListCurrentUserViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error)
+	// Corresponds with GET /UserViews (the `ListCurrentUserViews` operationId).
+	ListCurrentUserViewsWithResponse(ctx context.Context, params *ListCurrentUserViewsParams, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error)
 
 	// ListUserViewsWithResponse Read a user's Jellyfin library views
 	//
@@ -1329,9 +1377,10 @@ func (r ListUserViewsResponse) ContentType() string {
 // ListItemsWithResponse Read a bounded Jellyfin item page
 //
 // Items is an offset-based endpoint. A page is never promoted to a
-// complete inventory unless the caller has independently established a
-// stable collection boundary; the normalized page retains coverage and
-// total metadata for that decision.
+// complete inventory unless its native total and offset establish a
+// stable collection boundary. Missing or contradictory total/offset
+// metadata remains unknown or malformed; the normalized page retains
+// coverage for that decision.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -1406,15 +1455,18 @@ func (c *ClientWithResponses) GetSystemInfoWithResponse(ctx context.Context, req
 	return ParseGetSystemInfoResponse(rsp)
 }
 
-// ListCurrentUserViewsWithResponse Read the current user's Jellyfin library views
+// ListCurrentUserViewsWithResponse Read Jellyfin library views for the authenticated or selected user
 //
-// The fallback used when the configured server exposes views instead of media folders.
+// Jellyfin's canonical UserViews route uses the authenticated token's
+// user context when userId is omitted. A caller with an explicit user
+// identity supplies it as this query parameter. This is the fallback
+// used when the configured server exposes views instead of media folders.
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
-func (c *ClientWithResponses) ListCurrentUserViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error) {
-	rsp, err := c.ListCurrentUserViews(ctx, reqEditors...)
+// Corresponds with GET /UserViews (the `ListCurrentUserViews` operationId).
+func (c *ClientWithResponses) ListCurrentUserViewsWithResponse(ctx context.Context, params *ListCurrentUserViewsParams, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error) {
+	rsp, err := c.ListCurrentUserViews(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

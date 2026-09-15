@@ -9,8 +9,9 @@ observations into Mastarr records.
 The module covers the read surfaces needed for reconciliation:
 
 - `GET /System/Info/Public` for product and version observation;
-- `GET /Library/MediaFolders`, with a read-only user-view fallback, for library
-  identities;
+- `GET /Library/MediaFolders`, with Jellyfin's canonical read-only
+  `GET /UserViews` fallback, for library identities. A configured user is sent
+  as `userId`; without one, Jellyfin's token user context is used;
 - `GET /Items` for bounded item pages and provider-ID relationships; and
 - explicit `POST /Library/Refresh` and `POST /Items/{itemId}/Refresh` calls
   whose result records native request acceptance only.
@@ -20,6 +21,12 @@ item or inventory read and retain that observation separately. Item refresh is
 represented in the compatibility contract but remains a capability decision
 for the caller until a versioned upstream fixture proves it; an unsupported
 route is returned as a typed `unsupported` error.
+
+Offset item pages expose `complete` only when native start and total metadata
+prove the boundary. Missing totals remain `unknown`, contradictory counts are
+malformed, and multi-page traversals remain partial because Jellyfin does not
+provide an immutable snapshot. A single exact item lookup can report an
+authoritative empty result as `not_found`; foreign IDs never become absence.
 
 The client sends a Jellyfin token in `X-Emby-Token`, refuses redirects, applies
 per-request deadlines, bounds response and collection sizes, rejects malformed

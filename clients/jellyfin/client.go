@@ -49,8 +49,7 @@ const (
 const (
 	apiSystemInfo     = "/System/Info/Public"
 	apiMediaFolders   = "/Library/MediaFolders"
-	apiCurrentViews   = "/Users/Me/Views"
-	apiUserViewsBase  = "/Users/"
+	apiUserViews      = "/UserViews"
 	apiItems          = "/Items"
 	apiLibraryRefresh = "/Library/Refresh"
 )
@@ -314,16 +313,17 @@ func (client *Client) Libraries(ctx context.Context) (Page[Library], error) {
 	return client.ListLibraries(ctx)
 }
 
-// ListLibraries reads media folders and falls back to user views only when the
-// primary route is explicitly unavailable. The fallback is still read-only.
+// ListLibraries reads media folders and falls back to Jellyfin's canonical
+// UserViews route only when the primary route is explicitly unavailable. The
+// fallback is still read-only and uses the configured user query when present.
 func (client *Client) ListLibraries(ctx context.Context) (Page[Library], error) {
 	body, err := client.get(ctx, "jellyfin.libraries", apiMediaFolders, nil)
 	if err != nil && (IsCode(err, ErrorNotFound) || IsCode(err, ErrorUnsupported)) {
-		fallback := apiCurrentViews
+		var query url.Values
 		if client.userID != "" {
-			fallback = apiUserViewsBase + client.userID + "/Views"
+			query = url.Values{"userId": []string{client.userID}}
 		}
-		body, err = client.get(ctx, "jellyfin.views", fallback, nil)
+		body, err = client.get(ctx, "jellyfin.views", apiUserViews, query)
 	}
 	if err != nil {
 		return Page[Library]{}, err
@@ -412,16 +412,48 @@ func (client *Client) ListItems(ctx context.Context, query ItemQuery) (Page[Item
 	if query.Limit > 0 && len(items) > query.Limit {
 		return Page[Item]{}, malformed("jellyfin.items.limit")
 	}
+	if err := validateRequestedItems(items, query.ItemIDs); err != nil {
+		return Page[Item]{}, malformed("jellyfin.items.scope")
+	}
 	coverage := Coverage{ObservedCount: len(items), ObservedAt: time.Now().UTC()}
+	if arrayShape {
+		// An exact single-ID request is a bounded native lookup. Its array
+		// response is authoritative even when Limit=1, so an empty response can
+		// establish absence. A general offset/limited array has no total or
+		// start metadata and must retain unknown coverage.
+		if len(query.ItemIDs) == 1 && query.StartIndex == 0 {
+			coverage.Completeness = CompletenessComplete
+		} else if query.Limit > 0 || query.StartIndex > 0 {
+			coverage.Completeness = CompletenessUnknown
+			coverage.ReasonCodes = []string{"pagination_total_missing"}
+		} else {
+			coverage.Completeness = CompletenessComplete
+		}
+		return Page[Item]{Items: items, Coverage: coverage}, nil
+	}
+	if total < 0 {
+		// A single exact ID is still a bounded lookup, even if a compatible
+		// envelope omits its unrelated collection total. General inventory
+		// responses cannot claim complete coverage without that boundary.
+		if len(query.ItemIDs) == 1 && query.StartIndex == 0 && len(items) == 0 {
+			coverage.Completeness = CompletenessComplete
+		} else {
+			coverage.Completeness = CompletenessUnknown
+			coverage.ReasonCodes = []string{"pagination_total_missing"}
+		}
+		return Page[Item]{Items: items, Coverage: coverage}, nil
+	}
+	end := int64(start) + int64(len(items))
+	if int64(start) > total || end > total {
+		return Page[Item]{}, malformed("jellyfin.items.pagination")
+	}
 	switch {
-	case arrayShape:
-		coverage.Completeness = CompletenessComplete
-	case total < 0:
-		coverage.Completeness = CompletenessUnknown
-		coverage.ReasonCodes = []string{"pagination_total_missing"}
-	case int64(query.StartIndex)+int64(len(items)) < total:
+	case end < total:
 		coverage.Completeness = CompletenessPartial
 		coverage.ReasonCodes = []string{"pagination_continues"}
+	case len(items) == 0 && int64(start) < total:
+		coverage.Completeness = CompletenessUnknown
+		coverage.ReasonCodes = []string{"pagination_gap"}
 	default:
 		coverage.Completeness = CompletenessComplete
 	}
@@ -450,7 +482,6 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 	var result []Item
 	pageCount := 0
 	partialReasons := make([]string, 0, 2)
-	unknownCoverage := false
 	for {
 		if pageCount >= client.maxPages || len(result) >= client.maxItems {
 			return Page[Item]{Items: result, Coverage: Coverage{
@@ -469,19 +500,10 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 			}}, err
 		}
 		pageCount++
-		if page.Coverage.Completeness != CompletenessComplete {
-			for _, reason := range page.Coverage.ReasonCodes {
-				if !containsString(partialReasons, reason) {
-					partialReasons = append(partialReasons, reason)
-				}
+		for _, reason := range page.Coverage.ReasonCodes {
+			if !containsString(partialReasons, reason) {
+				partialReasons = append(partialReasons, reason)
 			}
-			unknownCoverage = unknownCoverage || page.Coverage.Completeness == CompletenessUnknown
-		}
-		if page.Coverage.Completeness != CompletenessComplete && len(page.Items) == 0 {
-			return Page[Item]{Items: result, Coverage: Coverage{
-				Completeness: CompletenessUnknown, ObservedCount: len(result),
-				ObservedAt: time.Now().UTC(), ReasonCodes: []string{"pagination_total_unknown"},
-			}}, nil
 		}
 		for _, item := range page.Items {
 			if containsItemID(result, item.ID) {
@@ -492,23 +514,20 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 				return Page[Item]{}, tooLarge("jellyfin.items")
 			}
 		}
-		if page.Coverage.Completeness == CompletenessComplete && len(page.Items) < limit {
+		if page.Coverage.Completeness == CompletenessUnknown {
+			return Page[Item]{Items: result, Coverage: Coverage{
+				Completeness: CompletenessUnknown, ObservedCount: len(result),
+				ObservedAt: time.Now().UTC(), ReasonCodes: partialReasons,
+			}}, nil
+		}
+		if page.Coverage.Completeness == CompletenessComplete {
 			break
 		}
 		if len(page.Items) == 0 {
-			break
-		}
-		if len(page.Items) < limit {
-			break
-		}
-		if pageCount == 1 && page.Coverage.Completeness == CompletenessComplete {
-			break
-		}
-		// ListItems intentionally does not expose total metadata publicly. The
-		// full traversal remains bounded and stops on a short page; with exact
-		// full pages it continues until the configured page limit.
-		if pageCount >= client.maxPages {
-			break
+			return Page[Item]{Items: result, Coverage: Coverage{
+				Completeness: CompletenessUnknown, ObservedCount: len(result),
+				ObservedAt: time.Now().UTC(), ReasonCodes: append(partialReasons, "pagination_gap"),
+			}}, nil
 		}
 	}
 	coverage := Coverage{Completeness: CompletenessComplete, ObservedCount: len(result), ObservedAt: time.Now().UTC(), ReasonCodes: partialReasons}
@@ -517,9 +536,6 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 		if !containsString(coverage.ReasonCodes, "pagination_snapshot_unverified") {
 			coverage.ReasonCodes = append(coverage.ReasonCodes, "pagination_snapshot_unverified")
 		}
-	}
-	if unknownCoverage {
-		coverage.Completeness = CompletenessUnknown
 	}
 	return Page[Item]{Items: result, Coverage: coverage}, nil
 }
@@ -534,8 +550,11 @@ func (client *Client) ObserveItem(ctx context.Context, itemID string) (Item, err
 	if err != nil {
 		return Item{}, err
 	}
-	if len(page.Items) != 1 || page.Items[0].ID != itemID {
+	if len(page.Items) == 0 && page.Coverage.Completeness == CompletenessComplete {
 		return Item{}, UpstreamError{Code: ErrorNotFound, Operation: "jellyfin.item", Status: http.StatusNotFound}
+	}
+	if len(page.Items) != 1 || page.Items[0].ID != itemID {
+		return Item{}, UpstreamError{Code: ErrorUnknown, Operation: "jellyfin.item"}
 	}
 	return page.Items[0], nil
 }
@@ -1058,6 +1077,9 @@ func decodeJSON(data []byte, target any) error {
 }
 
 func validateJSON(data []byte) error {
+	if !utf8.Valid(data) {
+		return errors.New("response is not valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := walkJSON(decoder, 0); err != nil {
@@ -1278,4 +1300,20 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func validateRequestedItems(items []Item, requested []string) error {
+	if len(requested) == 0 {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(requested))
+	for _, id := range requested {
+		wanted[id] = struct{}{}
+	}
+	for _, item := range items {
+		if _, ok := wanted[item.ID]; !ok {
+			return errors.New("response contains item outside requested scope")
+		}
+	}
+	return nil
 }
