@@ -98,12 +98,55 @@ run_cross_builds() {
 }
 
 check_client_api_contracts() {
+  staged_contract_paths="
+api/vacuum.yaml
+api/openapi.yaml
+clients/qbittorrent/openapi.yaml
+clients/sonarr/openapi.yaml
+clients/radarr/openapi.yaml
+clients/jellyfin/openapi.yaml
+clients/seerr/openapi.yaml
+"
+
+  # Contract validation is part of the candidate gate.  Read the documents
+  # and their validation policy from the exact index tree so a staged-only
+  # schema error cannot be hidden by a valid working-tree copy.
+  staged_contract_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mastarr-staged-contracts.XXXXXX")
+  staged_contract_archive=$staged_contract_tmp_dir/staged-contracts.tar
+  trap 'rm -rf -- "$staged_contract_tmp_dir"' EXIT INT TERM
+
+  staged_tree=$(git -C "$repo_dir" write-tree)
+  for contract in $staged_contract_paths; do
+    staged_entry=$(git -C "$repo_dir" ls-tree "$staged_tree" -- "$contract")
+    staged_path=$(git -C "$repo_dir" ls-tree -r --name-only "$staged_tree" -- "$contract")
+    staged_mode=$(printf '%s\n' "$staged_entry" | awk 'NF { print $1; exit }')
+    if [ "$staged_path" != "$contract" ] || [ "$staged_mode" != 100644 ]; then
+      echo "staged OpenAPI validation input is missing or not a regular file: $repo_dir/$contract" >&2
+      exit 1
+    fi
+  done
+
+  git -C "$repo_dir" archive --format=tar "$staged_tree" -- $staged_contract_paths >"$staged_contract_archive"
+  tar -xf "$staged_contract_archive" -C "$staged_contract_tmp_dir"
+
+  staged_ruleset=$staged_contract_tmp_dir/api/vacuum.yaml
+  if [ ! -f "$staged_ruleset" ]; then
+    echo "staged Vacuum ruleset is missing from the extracted tree: $repo_dir/api/vacuum.yaml" >&2
+    exit 1
+  fi
+
   for contract in \
+    api/openapi.yaml \
     clients/qbittorrent/openapi.yaml \
     clients/sonarr/openapi.yaml \
     clients/radarr/openapi.yaml \
     clients/jellyfin/openapi.yaml \
     clients/seerr/openapi.yaml; do
+    staged_contract=$staged_contract_tmp_dir/$contract
+    if [ ! -f "$staged_contract" ]; then
+      echo "staged OpenAPI contract is missing from the extracted tree: $repo_dir/$contract" >&2
+      exit 1
+    fi
     (
       cd "$repo_dir/tools"
       GOWORK=off GOPROXY=off GOSUMDB=off \
@@ -111,13 +154,16 @@ check_client_api_contracts() {
         lint \
         --no-update-check \
         --remote=false \
-        --ruleset "$repo_dir/api/vacuum.yaml" \
+        --ruleset "$staged_ruleset" \
         --fail-severity=warn \
         --no-banner \
         --no-style \
-        "$repo_dir/$contract"
+        "$staged_contract"
     )
   done
+
+  rm -rf -- "$staged_contract_tmp_dir"
+  trap - EXIT INT TERM
 }
 
 run_staged_generation() {
