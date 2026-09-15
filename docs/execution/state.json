@@ -15,9 +15,7 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [
-    "W-01"
-  ],
+  "activeImplementationTasks": [],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -2305,10 +2303,10 @@
       "review": null
     },
     "W-01": {
-      "status": "in_progress",
+      "status": "done",
       "owner": "/root/x05_implementer",
       "baseSha": "bc69ea2ee21823c5a484f545356306bf5f1f5dc1",
-      "integratedSha": null,
+      "integratedSha": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
       "evidence": [
         "dispatched from 8c7e62d5e9ead37c93053dd83bbae01ea7af04bf after approved dependencies F-03, X-12, X-13, X-03, and X-04.",
         "W-01 owns internal/reconciliation/ and internal/planning/ and implements per-instance evidence aggregation, bounded exact manifests, semantic desired predicates, conflicts, and immutable revisions bound to meaningful config/source identity.",
@@ -2321,13 +2319,15 @@
         "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6 W-01 correction handoff records regression coverage and full checks; G-01 remains open.",
         "df31bc8e2faf9c505bb45c92204585817f147c1d independent review round two: R1, R4, and R5 closed; R2a and R3a remain P1 and R6 remains P2; receipt integrated as bac142e88b846e84deec01454ec7b994d363fe98.",
         "6af605497e62ac182d0d4d4e222cac81aa4232e1 W-01 correction round two closes R2a, R3a, and R6 with exact subtitle file membership, scoped mapping fences, and authority-complete conflict canonicalization.",
-        "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8 W-01 correction round-two handoff records regression and full guardrail evidence; G-01 remains open."
+        "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8 W-01 correction round-two handoff records regression and full guardrail evidence; G-01 remains open.",
+        "0c468a502ba7571c335b80c1e7787100fc54d6be independent review round three approved W-01 correction round two; all prior findings closed and full guardrails passed.",
+        "f738f62176117f9c23e81cb005c767197e6ecc04 integrated W-01 round-three approval receipt; W-01 is complete. G-01 remains open and no Arr writes are enabled."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
+        "commit": "0c468a502ba7571c335b80c1e7787100fc54d6be",
         "findings": [],
         "round": 3
       },
@@ -2358,7 +2358,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/W-01-review-round3.md",
         "handoffPath": "docs/execution/handoffs/W-01.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "F-03": "b65f5d65d67e6fc823fbf54fa8ab4f2a4d17d191",
           "X-12": "37f62b515681f7ad37fc9b1d4597581f069320e5",
@@ -2393,16 +2393,18 @@
         "reviewSourceCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
         "handoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8",
         "reviewRound": 3,
-        "reviewCommit": "df31bc8e2faf9c505bb45c92204585817f147c1d",
-        "reviewIntegrationCommit": "bac142e88b846e84deec01454ec7b994d363fe98",
+        "reviewCommit": "0c468a502ba7571c335b80c1e7787100fc54d6be",
+        "reviewIntegrationCommit": "f738f62176117f9c23e81cb005c767197e6ecc04",
         "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "bac142e88b846e84deec01454ec7b994d363fe98",
         "correctionReviewPath": "docs/execution/handoffs/W-01-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
+        "correctionStatus": "approved",
         "correctionImplementationCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
-        "correctionHandoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8"
+        "correctionHandoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8",
+        "correctionReviewCommit": "0c468a502ba7571c335b80c1e7787100fc54d6be",
+        "correctionReviewIntegrationCommit": "f738f62176117f9c23e81cb005c767197e6ecc04"
       },
       "implementationCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
       "handoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8",
@@ -2425,6 +2427,15 @@
           "sourceCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
           "receipt": "docs/execution/handoffs/W-01-review-round2.md",
           "integratedCommit": "bac142e88b846e84deec01454ec7b994d363fe98"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "0c468a502ba7571c335b80c1e7787100fc54d6be",
+          "status": "approved",
+          "sourceCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
+          "receipt": "docs/execution/handoffs/W-01-review-round3.md",
+          "integratedCommit": "f738f62176117f9c23e81cb005c767197e6ecc04"
         }
       ],
       "nextAction": "Implement W-01 correction round 1 from dca41abdd99361cee7de0c7dcc10892323c773f2, addressing R1-R5, then review the correction independently."
@@ -3590,7 +3601,7 @@
       ]
     }
   },
-  "nextAction": "Independently review W-01 correction source 6af605497e62ac182d0d4d4e222cac81aa4232e1 using handoff d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8; integrate only an approved round-three receipt.",
+  "nextAction": "Add and dispatch the remaining independent client-module lanes for Sonarr, Radarr, Jellyfin, and Seerr after updating the plan and task registry; keep root adapters translating DTOs and preserve G-01 write blockers.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
