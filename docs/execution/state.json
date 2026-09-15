@@ -4090,18 +4090,19 @@
         "3ef41d3a567692f67fb70d18d290003e44e34777 independent review round two confirmed explicit 18-pair matrix and working-tree contract checks, but found P2 staged-only OpenAPI validation bypass; bounded full aggregate again timed out at 180s in root storage race, so successful full gate remains unclaimed.",
         "7ee64242f7e1221632f713e9bb0001055fea2922 integrated C-06 round-two review receipt; correction round two is required for staged-candidate validation.",
         "5e53134e40322b512efef1865d78da2da6368e5b C-06 correction round two binds pinned Vacuum to staged api/vacuum.yaml, root and all standalone OpenAPI candidate bytes, preserving explicit 18-entry cross-build coverage.",
-        "90f44a58057cad652e4eb499d5ddac94b2c05c98 C-06 correction handoff records staged-only invalid-contract regression, 18 cross-build pairs, all nine-module checks and a successful bounded full aggregate in 41.5 seconds."
+        "90f44a58057cad652e4eb499d5ddac94b2c05c98 C-06 correction handoff records staged-only invalid-contract regression, 18 cross-build pairs, all nine-module checks and a successful bounded full aggregate in 41.5 seconds.",
+        "a6c5eabb396794d8c8a69555686fbbdeb106f5f7 independent review round three verified staged candidate validation, the 18-pair matrix and all scoped checks, but requested changes solely because the fresh full aggregate timed out at 180s in root storage race; no C-06 code defect was found.",
+        "0ebf28ea059e0629b24755d240d090f03426d882 integrated C-06 round-three review receipt; root storage race completion remains a verification blocker."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "3ef41d3a567692f67fb70d18d290003e44e34777",
+        "commit": "a6c5eabb396794d8c8a69555686fbbdeb106f5f7",
         "findings": [
-          "R2a P2 hook validates working-tree OpenAPI instead of staged candidate bytes",
-          "R3 verification full aggregate race gate timed out in root storage race and remains unproven"
+          "R3 verification full aggregate race gate timed out at 180s in root storage race; scoped checks pass and no C-06 code finding"
         ],
-        "round": 2
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-15",
@@ -4142,17 +4143,17 @@
         "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
         "reviewSourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
-        "status": "product_ready",
-        "reviewCommit": "3ef41d3a567692f67fb70d18d290003e44e34777",
-        "reviewIntegrationCommit": "7ee64242f7e1221632f713e9bb0001055fea2922",
-        "reviewRound": 2,
-        "correctionRound": 2,
+        "status": "changes_requested",
+        "reviewCommit": "a6c5eabb396794d8c8a69555686fbbdeb106f5f7",
+        "reviewIntegrationCommit": "0ebf28ea059e0629b24755d240d090f03426d882",
+        "reviewRound": 3,
+        "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "7ee64242f7e1221632f713e9bb0001055fea2922",
-        "correctionReviewPath": "docs/execution/handoffs/C-06-review-round3.md",
-        "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round2.md",
+        "correctionBaseSha": "0ebf28ea059e0629b24755d240d090f03426d882",
+        "correctionReviewPath": "docs/execution/handoffs/C-06-review-round4.md",
+        "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
+        "correctionStatus": "assigned",
         "correctionImplementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
         "correctionHandoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98"
       },
@@ -4177,11 +4178,20 @@
           "sourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
           "receipt": "docs/execution/handoffs/C-06-review-round2.md",
           "integratedCommit": "7ee64242f7e1221632f713e9bb0001055fea2922"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "a6c5eabb396794d8c8a69555686fbbdeb106f5f7",
+          "status": "changes_requested",
+          "sourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
+          "receipt": "docs/execution/handoffs/C-06-review-round3.md",
+          "integratedCommit": "0ebf28ea059e0629b24755d240d090f03426d882"
         }
       ]
     }
   },
-  "nextAction": "Independently review C-06 correction round two product 5e53134e40322b512efef1865d78da2da6368e5b using handoff 90f44a58057cad652e4eb499d5ddac94b2c05c98; integrate only an approved round-three receipt.",
+  "nextAction": "Diagnose and resolve the root storage race timeout without weakening aggregate coverage; rerun the bounded full C-06 gate from 0ebf28ea059e0629b24755d240d090f03426d882, then record a correction handoff and independent round-four review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
