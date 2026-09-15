@@ -4084,7 +4084,9 @@
         "4ca9df839a7187e63f8058807aa11ef847c50f55 C-06 product adds all six standalone clients to generation, lint, architecture, tests/race/vet/mod verification, Linux amd64/arm64 cross-build and GitHub CI matrices while rejecting go.work and replace directives.",
         "152cff6e6ab2f9cf4991d337b622e54e147ce381 C-06 handoff records aggregate generation, Vacuum, guardrail, planning, workflow syntax and matrix checks; qBittorrent cold-cache resolution remains documented.",
         "f7ef97b0685522d802b8ffba7a3114f1909109b1 independent review round one requested changes: P2 cross-build include expansion leaves only Seerr amd64/arm64 jobs instead of all 18 module/architecture combinations; P2 aggregate scripts/CI Vacuum only api/openapi.yaml and accept invalid standalone contract fields. Reviewer also bounded a stalled root storage race, so full aggregate success is not claimed.",
-        "937f74fee8c6154a712d57c99cf6e1707a648a42 integrated C-06 round-one review receipt; correction is required and full root race gate must be rerun."
+        "937f74fee8c6154a712d57c99cf6e1707a648a42 integrated C-06 round-one review receipt; correction is required and full root race gate must be rerun.",
+        "650cdfa51ec161b260097652246a59753429b2ab C-06 correction round one fixes explicit 18-entry Linux cross-build coverage, pinned Vacuum validation for every standalone OpenAPI contract, and bounded full aggregate race/guardrail execution.",
+        "08f5db0593d34f41e5a0f2730b1b11281de0820f C-06 correction handoff records matrix counts, per-module checks, actionlint/YAML, planning, hook and successful bounded full guardrail results; qBittorrent cold-cache limitation remains explicit."
       ],
       "review": {
         "status": "changes_requested",
@@ -4136,8 +4138,8 @@
         },
         "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
-        "reviewSourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
-        "status": "changes_requested",
+        "reviewSourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
+        "status": "product_ready",
         "reviewCommit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
         "reviewIntegrationCommit": "937f74fee8c6154a712d57c99cf6e1707a648a42",
         "reviewRound": 1,
@@ -4147,11 +4149,13 @@
         "correctionReviewPath": "docs/execution/handoffs/C-06-review-round2.md",
         "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "assigned"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "650cdfa51ec161b260097652246a59753429b2ab",
+        "correctionHandoffCommit": "08f5db0593d34f41e5a0f2730b1b11281de0820f"
       },
-      "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
-      "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
-      "reviewSourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
+      "implementationCommit": "650cdfa51ec161b260097652246a59753429b2ab",
+      "handoffCommit": "08f5db0593d34f41e5a0f2730b1b11281de0820f",
+      "reviewSourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
       "reviewHistory": [
         {
           "round": 1,
@@ -4165,7 +4169,7 @@
       ]
     }
   },
-  "nextAction": "Implement C-06 correction round 1 from 937f74fee8c6154a712d57c99cf6e1707a648a42, fixing the cross-build matrix, validating every standalone OpenAPI contract with Vacuum, and rerunning the full root race/aggregate gate; then produce correction handoff and independent review.",
+  "nextAction": "Independently review C-06 correction round one product 650cdfa51ec161b260097652246a59753429b2ab using handoff 08f5db0593d34f41e5a0f2730b1b11281de0820f; integrate only an approved round-two receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
