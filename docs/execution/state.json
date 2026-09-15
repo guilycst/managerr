@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "X-18"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -3930,12 +3932,53 @@
       ]
     },
     "X-18": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "2a1c366ff6e76617caf883ddb16a4d6a80253ff2",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched after C-05 generation/CI and X-04 Seerr observations passed; owns only clients/seerr and its handoff."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-15",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "2a1c366ff6e76617caf883ddb16a4d6a80253ff2",
+        "ownedPaths": [
+          "clients/seerr/"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-08",
+          "A-09",
+          "A-45",
+          "A-54",
+          "OpenAPI 3.1.1 compatibility contract",
+          "pinned oapi-codegen generation and reproducibility",
+          "configured API-key or bearer authentication, deadlines, bounded strict decoding and typed upstream errors",
+          "synthetic httptest fixtures for paginated media/request reads and failures",
+          "pagination termination and explicit no-write capability in v0.0.1",
+          "GOWORK=off module tests/race/vet/mod verify",
+          "root generation/API/Vacuum/lint/architecture/planning/guardrails",
+          "Linux amd64/arm64 CGO-free compile"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-18-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-18.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
+          "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b"
+        }
+      }
     },
     "X-19": {
       "status": "planned",
@@ -3978,7 +4021,7 @@
       "review": null
     }
   },
-  "nextAction": "Dispatch X-18 Seerr client module from the clean X-17 checkpoint; keep C-06 aggregate client matrices, native runtime/bootstrap gates and G-01 Arr write gate open.",
+  "nextAction": "Implement X-18 Seerr client module from base 2a1c366ff6e76617caf883ddb16a4d6a80253ff2; product and handoff stay under clients/seerr, then send to /root/x05_reviewer for independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
