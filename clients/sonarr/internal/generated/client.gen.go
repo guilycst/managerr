@@ -37,6 +37,7 @@ type EpisodeFile struct {
 	Id                   int64                  `json:"id"`
 	Path                 string                 `json:"path"`
 	RelativePath         *string                `json:"relativePath,omitempty"`
+	SeriesId             int64                  `json:"seriesId"`
 	Size                 int64                  `json:"size"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
@@ -53,10 +54,11 @@ type EpisodeReference struct {
 	AdditionalProperties       map[string]interface{} `json:"-"`
 }
 
-// ImportRejection defines model for ImportRejection.
+// ImportRejection Sonarr 3.x uses reason; message is retained as a compatibility alias for older response shapes.
 type ImportRejection struct {
 	Message              *string                `json:"message,omitempty"`
-	Type                 *string                `json:"type,omitempty"`
+	Reason               *string                `json:"reason,omitempty"`
+	Type                 string                 `json:"type"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -80,6 +82,7 @@ type ManualImportResource struct {
 	IndexerFlags         *int32                 `json:"indexerFlags,omitempty"`
 	IsForced             *bool                  `json:"isForced,omitempty"`
 	IsHearingImpaired    *bool                  `json:"isHearingImpaired,omitempty"`
+	Language             *Language              `json:"language,omitempty"`
 	Languages            *[]Language            `json:"languages,omitempty"`
 	Name                 string                 `json:"name"`
 	Path                 string                 `json:"path"`
@@ -199,9 +202,10 @@ type ListEpisodeFilesParams struct {
 
 // PreviewManualImportParams defines parameters for PreviewManualImport.
 type PreviewManualImportParams struct {
-	Folder              string  `form:"folder" json:"folder"`
+	Folder              *string `form:"folder,omitempty" json:"folder,omitempty"`
 	FilterExistingFiles *bool   `form:"filterExistingFiles,omitempty" json:"filterExistingFiles,omitempty"`
 	SeriesId            *int64  `form:"seriesId,omitempty" json:"seriesId,omitempty"`
+	SeasonNumber        *int32  `form:"seasonNumber,omitempty" json:"seasonNumber,omitempty"`
 	DownloadId          *string `form:"downloadId,omitempty" json:"downloadId,omitempty"`
 }
 
@@ -463,6 +467,14 @@ func (a *EpisodeFile) UnmarshalJSON(b []byte) error {
 		delete(object, "relativePath")
 	}
 
+	if raw, found := object["seriesId"]; found {
+		err = json.Unmarshal(raw, &a.SeriesId)
+		if err != nil {
+			return fmt.Errorf("error reading 'seriesId': %w", err)
+		}
+		delete(object, "seriesId")
+	}
+
 	if raw, found := object["size"]; found {
 		err = json.Unmarshal(raw, &a.Size)
 		if err != nil {
@@ -519,6 +531,11 @@ func (a EpisodeFile) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'relativePath': %w", err)
 		}
+	}
+
+	object["seriesId"], err = json.Marshal(a.SeriesId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'seriesId': %w", err)
 	}
 
 	object["size"], err = json.Marshal(a.Size)
@@ -718,6 +735,14 @@ func (a *ImportRejection) UnmarshalJSON(b []byte) error {
 		delete(object, "message")
 	}
 
+	if raw, found := object["reason"]; found {
+		err = json.Unmarshal(raw, &a.Reason)
+		if err != nil {
+			return fmt.Errorf("error reading 'reason': %w", err)
+		}
+		delete(object, "reason")
+	}
+
 	if raw, found := object["type"]; found {
 		err = json.Unmarshal(raw, &a.Type)
 		if err != nil {
@@ -752,11 +777,16 @@ func (a ImportRejection) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if a.Type != nil {
-		object["type"], err = json.Marshal(a.Type)
+	if a.Reason != nil {
+		object["reason"], err = json.Marshal(a.Reason)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'type': %w", err)
+			return nil, fmt.Errorf("error marshaling 'reason': %w", err)
 		}
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -960,6 +990,14 @@ func (a *ManualImportResource) UnmarshalJSON(b []byte) error {
 		delete(object, "isHearingImpaired")
 	}
 
+	if raw, found := object["language"]; found {
+		err = json.Unmarshal(raw, &a.Language)
+		if err != nil {
+			return fmt.Errorf("error reading 'language': %w", err)
+		}
+		delete(object, "language")
+	}
+
 	if raw, found := object["languages"]; found {
 		err = json.Unmarshal(raw, &a.Languages)
 		if err != nil {
@@ -1139,6 +1177,13 @@ func (a ManualImportResource) MarshalJSON() ([]byte, error) {
 		object["isHearingImpaired"], err = json.Marshal(a.IsHearingImpaired)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'isHearingImpaired': %w", err)
+		}
+	}
+
+	if a.Language != nil {
+		object["language"], err = json.Marshal(a.Language)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'language': %w", err)
 		}
 	}
 
@@ -2446,8 +2491,12 @@ type ClientInterface interface {
 	// PreviewManualImport Read Sonarr's native manual-import preview
 	//
 	// This endpoint only previews candidate files. It never executes an
-	// import. The caller supplies the exact native folder and may optionally
-	// scope the preview to a series and download identity.
+	// import. Sonarr has two native query modes which must not be combined:
+	// downloaded-folder mode supplies folder and may supply downloadId;
+	// registered-library mode supplies seriesId and may supply
+	// seasonNumber. The handwritten client exposes those modes as distinct
+	// request types so a seriesId cannot silently change a folder preview
+	// into a library scan.
 	//
 	// Corresponds with GET /manualimport (the `PreviewManualImport` operationId).
 	PreviewManualImport(ctx context.Context, params *PreviewManualImportParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2515,8 +2564,12 @@ func (c *Client) ListEpisodeFiles(ctx context.Context, params *ListEpisodeFilesP
 // PreviewManualImport Read Sonarr's native manual-import preview
 //
 // This endpoint only previews candidate files. It never executes an
-// import. The caller supplies the exact native folder and may optionally
-// scope the preview to a series and download identity.
+// import. Sonarr has two native query modes which must not be combined:
+// downloaded-folder mode supplies folder and may supply downloadId;
+// registered-library mode supplies seriesId and may supply
+// seasonNumber. The handwritten client exposes those modes as distinct
+// request types so a seriesId cannot silently change a folder preview
+// into a library scan.
 //
 // Corresponds with GET /manualimport (the `PreviewManualImport` operationId).
 func (c *Client) PreviewManualImport(ctx context.Context, params *PreviewManualImportParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2746,12 +2799,16 @@ func NewPreviewManualImportRequest(server string, params *PreviewManualImportPar
 		// per the OpenAPI spec (e.g. "color=blue,black,brown").
 		var rawQueryFragments []string
 
-		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "folder", params.Folder, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-			return nil, err
-		} else {
-			for _, qp := range strings.Split(queryFrag, "&") {
-				rawQueryFragments = append(rawQueryFragments, qp)
+		if params.Folder != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "folder", *params.Folder, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
 			}
+
 		}
 
 		if params.FilterExistingFiles != nil {
@@ -2769,6 +2826,18 @@ func NewPreviewManualImportRequest(server string, params *PreviewManualImportPar
 		if params.SeriesId != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "seriesId", *params.SeriesId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SeasonNumber != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "seasonNumber", *params.SeasonNumber, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -3011,8 +3080,12 @@ type ClientWithResponsesInterface interface {
 	// PreviewManualImportWithResponse Read Sonarr's native manual-import preview
 	//
 	// This endpoint only previews candidate files. It never executes an
-	// import. The caller supplies the exact native folder and may optionally
-	// scope the preview to a series and download identity.
+	// import. Sonarr has two native query modes which must not be combined:
+	// downloaded-folder mode supplies folder and may supply downloadId;
+	// registered-library mode supplies seriesId and may supply
+	// seasonNumber. The handwritten client exposes those modes as distinct
+	// request types so a seriesId cannot silently change a folder preview
+	// into a library scan.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -3416,8 +3489,12 @@ func (c *ClientWithResponses) ListEpisodeFilesWithResponse(ctx context.Context, 
 // PreviewManualImportWithResponse Read Sonarr's native manual-import preview
 //
 // This endpoint only previews candidate files. It never executes an
-// import. The caller supplies the exact native folder and may optionally
-// scope the preview to a series and download identity.
+// import. Sonarr has two native query modes which must not be combined:
+// downloaded-folder mode supplies folder and may supply downloadId;
+// registered-library mode supplies seriesId and may supply
+// seasonNumber. The handwritten client exposes those modes as distinct
+// request types so a seriesId cannot silently change a folder preview
+// into a library scan.
 //
 // Returns a wrapper object for the known response body format(s).
 //

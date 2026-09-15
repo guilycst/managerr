@@ -200,12 +200,16 @@ paths:
       summary: Read Sonarr's native manual-import preview
       description: |
         This endpoint only previews candidate files. It never executes an
-        import. The caller supplies the exact native folder and may optionally
-        scope the preview to a series and download identity.
+        import. Sonarr has two native query modes which must not be combined:
+        downloaded-folder mode supplies folder and may supply downloadId;
+        registered-library mode supplies seriesId and may supply
+        seasonNumber. The handwritten client exposes those modes as distinct
+        request types so a seriesId cannot silently change a folder preview
+        into a library scan.
       parameters:
         - name: folder
           in: query
-          required: true
+          required: false
           schema:
             type: string
             minLength: 1
@@ -223,6 +227,13 @@ paths:
             type: integer
             format: int64
             minimum: 1
+        - name: seasonNumber
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
         - name: downloadId
           in: query
           required: false
@@ -450,9 +461,13 @@ components:
     EpisodeFile:
       type: object
       additionalProperties: true
-      required: [id, path, size]
+      required: [id, seriesId, path, size]
       properties:
         id:
+          type: integer
+          format: int64
+          minimum: 1
+        seriesId:
           type: integer
           format: int64
           minimum: 1
@@ -583,10 +598,15 @@ components:
     ImportRejection:
       type: object
       additionalProperties: true
+      description: Sonarr 3.x uses reason; message is retained as a compatibility alias for older response shapes.
+      required: [type]
       properties:
         type:
           type: string
           maxLength: 256
+        reason:
+          type: string
+          maxLength: 2048
         message:
           type: string
           maxLength: 2048
@@ -638,6 +658,8 @@ components:
           maxLength: 512
         quality:
           $ref: '#/components/schemas/Quality'
+        language:
+          $ref: '#/components/schemas/Language'
         languages:
           type: array
           maxItems: 128

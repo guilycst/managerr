@@ -479,6 +479,7 @@ func (client *Client) ListQualityProfiles(ctx context.Context) (Page[QualityProf
 // EpisodeFile is the normalized file association returned by Sonarr.
 type EpisodeFile struct {
 	ID           int64
+	SeriesID     int64
 	Path         string
 	RelativePath string
 	Size         int64
@@ -520,6 +521,9 @@ func (client *Client) ListEpisodes(ctx context.Context, seriesID int64, includeE
 	if err := requireArrayObjectFields(body, "id", "seriesId", "seasonNumber", "episodeNumber", "hasFile"); err != nil {
 		return Page[Episode]{}, malformed("sonarr.episode.list")
 	}
+	if err := validateEpisodeShape(body); err != nil {
+		return Page[Episode]{}, malformed("sonarr.episode.list")
+	}
 	var values []generated.Episode
 	if err := decodeJSON(body, &values); err != nil {
 		return Page[Episode]{}, malformed("sonarr.episode.list")
@@ -558,7 +562,7 @@ func (client *Client) ListEpisodeFiles(ctx context.Context, seriesID int64) (Pag
 	if err != nil {
 		return Page[EpisodeFile]{}, err
 	}
-	if err := requireArrayObjectFields(body, "id", "path", "size"); err != nil {
+	if err := requireArrayObjectFields(body, "id", "seriesId", "path", "size"); err != nil {
 		return Page[EpisodeFile]{}, malformed("sonarr.episodefile.list")
 	}
 	var values []generated.EpisodeFile
@@ -571,7 +575,7 @@ func (client *Client) ListEpisodeFiles(ctx context.Context, seriesID int64) (Pag
 	items := make([]EpisodeFile, len(values))
 	seen := make(map[int64]struct{}, len(values))
 	for index, value := range values {
-		item, err := normalizeEpisodeFile(value)
+		item, err := normalizeEpisodeFile(value, seriesID)
 		if err != nil {
 			return Page[EpisodeFile]{}, malformed("sonarr.episodefile.list")
 		}
@@ -590,25 +594,40 @@ func (client *Client) ListEpisodeFiles(ctx context.Context, seriesID int64) (Pag
 type ManualImportQuery struct {
 	Folder              string
 	FilterExistingFiles bool
-	SeriesID            *int64
-	DownloadID          string
+	// SeriesID is retained only to make the mode switch explicit to callers
+	// upgrading from the first draft. It is rejected by PreviewManualImport;
+	// use PreviewLibraryImport for Sonarr's native series mode.
+	SeriesID   *int64
+	DownloadID string
+}
+
+// LibraryImportQuery selects Sonarr's registered-library manual-import mode.
+// It is intentionally separate from ManualImportQuery: Sonarr ignores the
+// folder argument when seriesId is supplied and scans the registered series
+// path instead.
+type LibraryImportQuery struct {
+	SeriesID            int64
+	SeasonNumber        *int32
+	FilterExistingFiles bool
 }
 
 // ManualImportCandidate is a typed native preview candidate. Rejections and
 // optional associations remain visible so callers can require explicit review.
 type ManualImportCandidate struct {
-	ID                int64
-	Path              string
-	RelativePath      string
-	FolderName        string
-	Name              string
-	Size              int64
-	Series            *SeriesReference
-	SeasonNumber      *int32
-	Episodes          []EpisodeReference
-	EpisodeFileID     *int64
-	ReleaseGroup      string
-	Quality           *Quality
+	ID            int64
+	Path          string
+	RelativePath  string
+	FolderName    string
+	Name          string
+	Size          int64
+	Series        *SeriesReference
+	SeasonNumber  *int32
+	Episodes      []EpisodeReference
+	EpisodeFileID *int64
+	ReleaseGroup  string
+	Quality       *Quality
+	// Language preserves Sonarr 3.x's native singular language member.
+	Language          *Language
 	Languages         []Language
 	DownloadID        string
 	ReleaseType       string
@@ -665,26 +684,29 @@ type QualityRevision struct {
 	IsRepack *bool
 }
 
-// ImportRejection preserves native type/message evidence.
+// ImportRejection preserves native type/reason evidence. Message is retained
+// as an explicit compatibility alias for older Sonarr response shapes.
 type ImportRejection struct {
-	Type    string
+	Type   string
+	Reason string
+	// Message is retained as a compatibility alias. For Sonarr 3.x it mirrors
+	// Reason, while older plural/message fixtures are normalized into both.
 	Message string
 }
 
-// PreviewManualImport performs only GET /manualimport.
+// PreviewManualImport performs only Sonarr's downloaded-folder GET
+// /manualimport mode. A series ID is rejected because Sonarr interprets it as
+// the registered-library overload and ignores the requested folder.
 func (client *Client) PreviewManualImport(ctx context.Context, query ManualImportQuery) (Page[ManualImportCandidate], error) {
 	if validateNativePath(query.Folder) != nil {
 		return Page[ManualImportCandidate]{}, invalidInput("sonarr.manualimport.preview")
 	}
+	if query.SeriesID != nil {
+		return Page[ManualImportCandidate]{}, invalidInput("sonarr.manualimport.preview.mode")
+	}
 	values := url.Values{
 		"folder":              []string{query.Folder},
 		"filterExistingFiles": []string{fmt.Sprintf("%t", query.FilterExistingFiles)},
-	}
-	if query.SeriesID != nil {
-		if *query.SeriesID <= 0 {
-			return Page[ManualImportCandidate]{}, invalidInput("sonarr.manualimport.preview")
-		}
-		values.Set("seriesId", fmt.Sprintf("%d", *query.SeriesID))
 	}
 	if query.DownloadID != "" {
 		if validateBoundedID(query.DownloadID, maxDownloadIDChars) != nil {
@@ -692,35 +714,60 @@ func (client *Client) PreviewManualImport(ctx context.Context, query ManualImpor
 		}
 		values.Set("downloadId", query.DownloadID)
 	}
-	body, err := client.get(ctx, "sonarr.manualimport.preview", apiManualImport, values)
+	return client.previewManualImport(ctx, "sonarr.manualimport.preview.folder", values, 0)
+}
+
+// PreviewLibraryImport performs Sonarr's registered-library manual-import
+// mode. The native request contains seriesId and optional seasonNumber, with
+// no folder or downloadId; the returned series and every episode association
+// are checked against the requested series.
+func (client *Client) PreviewLibraryImport(ctx context.Context, query LibraryImportQuery) (Page[ManualImportCandidate], error) {
+	if query.SeriesID <= 0 {
+		return Page[ManualImportCandidate]{}, invalidInput("sonarr.manualimport.preview.library")
+	}
+	values := url.Values{
+		"seriesId":            []string{fmt.Sprintf("%d", query.SeriesID)},
+		"filterExistingFiles": []string{fmt.Sprintf("%t", query.FilterExistingFiles)},
+	}
+	if query.SeasonNumber != nil {
+		if *query.SeasonNumber < 0 {
+			return Page[ManualImportCandidate]{}, invalidInput("sonarr.manualimport.preview.library")
+		}
+		values.Set("seasonNumber", fmt.Sprintf("%d", *query.SeasonNumber))
+	}
+	return client.previewManualImport(ctx, "sonarr.manualimport.preview.library", values, query.SeriesID)
+}
+
+func (client *Client) previewManualImport(ctx context.Context, operation string, values url.Values, expectedSeriesID int64) (Page[ManualImportCandidate], error) {
+	body, err := client.get(ctx, operation, apiManualImport, values)
 	if err != nil {
 		return Page[ManualImportCandidate]{}, err
 	}
 	if err := requireArrayObjectFields(body, "id", "path", "relativePath", "name", "size"); err != nil {
-		return Page[ManualImportCandidate]{}, malformed("sonarr.manualimport.preview")
+		return Page[ManualImportCandidate]{}, malformed(operation)
+	}
+	if err := validateManualImportShape(body); err != nil {
+		return Page[ManualImportCandidate]{}, malformed(operation)
 	}
 	var valuesDTO []generated.ManualImportResource
 	if err := decodeJSON(body, &valuesDTO); err != nil {
-		return Page[ManualImportCandidate]{}, malformed("sonarr.manualimport.preview")
+		return Page[ManualImportCandidate]{}, malformed(operation)
 	}
 	if len(valuesDTO) > client.maxFiles {
-		return Page[ManualImportCandidate]{}, tooLarge("sonarr.manualimport.preview", client.maxFiles)
+		return Page[ManualImportCandidate]{}, tooLarge(operation, client.maxFiles)
 	}
 	items := make([]ManualImportCandidate, len(valuesDTO))
 	seen := make(map[string]struct{}, len(valuesDTO))
 	for index, value := range valuesDTO {
-		item, err := normalizeManualImport(value, client.maxRejections)
+		item, err := normalizeManualImport(value, client.maxRejections, expectedSeriesID)
 		if err != nil {
-			return Page[ManualImportCandidate]{}, malformed("sonarr.manualimport.preview")
+			return Page[ManualImportCandidate]{}, malformed(operation)
 		}
 		identity := item.Path + "\x00" + item.RelativePath
 		if _, exists := seen[identity]; exists {
-			return Page[ManualImportCandidate]{}, malformed("sonarr.manualimport.preview")
+			return Page[ManualImportCandidate]{}, malformed(operation)
 		}
 		seen[identity] = struct{}{}
-		if query.SeriesID != nil && item.Series != nil && item.Series.ID != *query.SeriesID {
-			return Page[ManualImportCandidate]{}, malformed("sonarr.manualimport.preview")
-		}
 		items[index] = item
 	}
 	return completePage(items), nil
@@ -985,6 +1032,124 @@ func requireArrayObjectFields(data []byte, fields ...string) error {
 	return nil
 }
 
+// validateEpisodeShape validates required fields in nested episode-file
+// objects before generated scalar fields can default omitted numbers to zero.
+// The top-level endpoint is still an array snapshot, so one malformed nested
+// association invalidates the complete observation.
+func validateEpisodeShape(data []byte) error {
+	var values []json.RawMessage
+	if err := json.Unmarshal(data, &values); err != nil || values == nil {
+		return errors.New("episode array is required")
+	}
+	for _, raw := range values {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+			return errors.New("episode object is required")
+		}
+		episodeFile, present := object["episodeFile"]
+		if !present {
+			continue
+		}
+		if err := requireObjectFields(episodeFile, "id", "seriesId", "path", "size"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateManualImportShape checks every nested object whose scalar fields
+// carry identity or association meaning. Sonarr responses add fields over
+// time, so unknown members remain allowed by the compatibility contract, but
+// missing or null required association fields fail closed.
+func validateManualImportShape(data []byte) error {
+	if err := scanJSON(data); err != nil {
+		return err
+	}
+	var values []json.RawMessage
+	if err := json.Unmarshal(data, &values); err != nil || values == nil {
+		return errors.New("manual import array is required")
+	}
+	for _, raw := range values {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+			return errors.New("manual import object is required")
+		}
+		if nested, present := object["series"]; present && !isJSONNull(nested) {
+			if err := requireObjectFields(nested, "id", "title"); err != nil {
+				return err
+			}
+		}
+		if nested, present := object["episodes"]; present {
+			if isJSONNull(nested) {
+				return errors.New("manual import episodes cannot be null")
+			}
+			var episodes []json.RawMessage
+			if err := json.Unmarshal(nested, &episodes); err != nil || episodes == nil {
+				return errors.New("manual import episodes array is required")
+			}
+			for _, episode := range episodes {
+				if err := requireObjectFields(episode, "id", "seriesId", "seasonNumber", "episodeNumber"); err != nil {
+					return err
+				}
+				var episodeObject map[string]json.RawMessage
+				if err := json.Unmarshal(episode, &episodeObject); err != nil {
+					return err
+				}
+				if value, present := episodeObject["episodeFileId"]; present && isJSONNull(value) {
+					return errors.New("manual import episode file id cannot be null")
+				}
+			}
+		}
+		if nested, present := object["language"]; present && !isJSONNull(nested) {
+			if err := requireObjectFields(nested, "id", "name"); err != nil {
+				return err
+			}
+		}
+		if nested, present := object["languages"]; present {
+			if isJSONNull(nested) {
+				return errors.New("manual import languages cannot be null")
+			}
+			var languages []json.RawMessage
+			if err := json.Unmarshal(nested, &languages); err != nil || languages == nil {
+				return errors.New("manual import languages array is required")
+			}
+			for _, language := range languages {
+				if err := requireObjectFields(language, "id", "name"); err != nil {
+					return err
+				}
+			}
+		}
+		if nested, present := object["rejections"]; present {
+			if isJSONNull(nested) {
+				return errors.New("manual import rejections cannot be null")
+			}
+			var rejections []json.RawMessage
+			if err := json.Unmarshal(nested, &rejections); err != nil || rejections == nil {
+				return errors.New("manual import rejections array is required")
+			}
+			for _, rejection := range rejections {
+				var rejectionObject map[string]json.RawMessage
+				if err := json.Unmarshal(rejection, &rejectionObject); err != nil || rejectionObject == nil {
+					return errors.New("manual import rejection object is required")
+				}
+				if value, present := rejectionObject["type"]; !present || isJSONNull(value) {
+					return errors.New("manual import rejection type is required")
+				}
+				reason, hasReason := rejectionObject["reason"]
+				message, hasMessage := rejectionObject["message"]
+				if (!hasReason || isJSONNull(reason)) && (!hasMessage || isJSONNull(message)) {
+					return errors.New("manual import rejection reason is required")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isJSONNull(value []byte) bool {
+	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
+}
+
 func normalizeSeries(value generated.Series) (Series, error) {
 	if value.Id <= 0 || validateText(value.Title, maxTitleChars, true) != nil || validateNativePath(value.Path) != nil {
 		return Series{}, errors.New("series identity is invalid")
@@ -1069,7 +1234,7 @@ func normalizeEpisode(value generated.Episode, includeEpisodeFile bool) (Episode
 		result.EpisodeFileID = &copyValue
 	}
 	if value.EpisodeFile != nil {
-		file, err := normalizeEpisodeFile(*value.EpisodeFile)
+		file, err := normalizeEpisodeFile(*value.EpisodeFile, value.SeriesId)
 		if err != nil {
 			return Episode{}, err
 		}
@@ -1088,11 +1253,14 @@ func normalizeEpisode(value generated.Episode, includeEpisodeFile bool) (Episode
 	return result, nil
 }
 
-func normalizeEpisodeFile(value generated.EpisodeFile) (EpisodeFile, error) {
-	if value.Id <= 0 || validateNativePath(value.Path) != nil || value.Size < 0 {
+func normalizeEpisodeFile(value generated.EpisodeFile, expectedSeriesID int64) (EpisodeFile, error) {
+	if value.Id <= 0 || value.SeriesId <= 0 || validateNativePath(value.Path) != nil || value.Size < 0 {
 		return EpisodeFile{}, errors.New("episode file is invalid")
 	}
-	result := EpisodeFile{ID: value.Id, Path: value.Path, Size: value.Size}
+	if expectedSeriesID > 0 && value.SeriesId != expectedSeriesID {
+		return EpisodeFile{}, errors.New("episode file series identity disagrees")
+	}
+	result := EpisodeFile{ID: value.Id, SeriesID: value.SeriesId, Path: value.Path, Size: value.Size}
 	if value.RelativePath != nil {
 		if validateText(*value.RelativePath, maxTextChars, false) != nil {
 			return EpisodeFile{}, errors.New("episode relative path is invalid")
@@ -1125,7 +1293,7 @@ func normalizeEpisodeFile(value generated.EpisodeFile) (EpisodeFile, error) {
 	return result, nil
 }
 
-func normalizeManualImport(value generated.ManualImportResource, maxRejections int) (ManualImportCandidate, error) {
+func normalizeManualImport(value generated.ManualImportResource, maxRejections int, expectedSeriesID int64) (ManualImportCandidate, error) {
 	if value.Id < 0 || validateNativePath(value.Path) != nil || validateText(value.RelativePath, maxTextChars, false) != nil || validateText(value.Name, maxTitleChars, true) != nil || value.Size < 0 {
 		return ManualImportCandidate{}, errors.New("manual import candidate is invalid")
 	}
@@ -1141,7 +1309,12 @@ func normalizeManualImport(value generated.ManualImportResource, maxRejections i
 		if err != nil {
 			return ManualImportCandidate{}, err
 		}
+		if expectedSeriesID > 0 && series.ID != expectedSeriesID {
+			return ManualImportCandidate{}, errors.New("manual import series identity disagrees")
+		}
 		result.Series = &series
+	} else if expectedSeriesID > 0 {
+		return ManualImportCandidate{}, errors.New("manual import series evidence is missing")
 	}
 	if value.SeasonNumber != nil {
 		if *value.SeasonNumber < 0 {
@@ -1163,6 +1336,13 @@ func normalizeManualImport(value generated.ManualImportResource, maxRejections i
 			}
 			if _, exists := seen[normalized.ID]; exists {
 				return ManualImportCandidate{}, errors.New("duplicate manual import episode")
+			}
+			associationSeriesID := expectedSeriesID
+			if associationSeriesID == 0 && result.Series != nil {
+				associationSeriesID = result.Series.ID
+			}
+			if associationSeriesID == 0 || normalized.SeriesID != associationSeriesID {
+				return ManualImportCandidate{}, errors.New("manual import episode series identity disagrees")
 			}
 			seen[normalized.ID] = struct{}{}
 			result.Episodes[index] = normalized
@@ -1188,23 +1368,12 @@ func normalizeManualImport(value generated.ManualImportResource, maxRejections i
 		}
 		result.Quality = &quality
 	}
-	if value.Languages != nil {
-		if len(*value.Languages) > 128 {
-			return ManualImportCandidate{}, errors.New("manual import language bound exceeded")
-		}
-		result.Languages = make([]Language, len(*value.Languages))
-		seen := make(map[int32]struct{}, len(*value.Languages))
-		for index, language := range *value.Languages {
-			if language.Id < 0 || validateText(language.Name, maxLanguageNameChars, true) != nil {
-				return ManualImportCandidate{}, errors.New("manual import language is invalid")
-			}
-			if _, exists := seen[language.Id]; exists {
-				return ManualImportCandidate{}, errors.New("duplicate manual import language")
-			}
-			seen[language.Id] = struct{}{}
-			result.Languages[index] = Language{ID: language.Id, Name: language.Name}
-		}
+	language, languages, err := normalizeLanguages(value.Language, value.Languages)
+	if err != nil {
+		return ManualImportCandidate{}, err
 	}
+	result.Language = language
+	result.Languages = languages
 	if value.DownloadId != nil {
 		if validateBoundedID(*value.DownloadId, maxDownloadIDChars) != nil {
 			return ManualImportCandidate{}, errors.New("manual import download id is invalid")
@@ -1233,23 +1402,98 @@ func normalizeManualImport(value generated.ManualImportResource, maxRejections i
 		}
 		result.Rejections = make([]ImportRejection, len(*value.Rejections))
 		for index, rejection := range *value.Rejections {
-			if rejection.Type != nil && validateText(*rejection.Type, maxRejectionCode, false) != nil {
+			if validateText(rejection.Type, maxRejectionCode, true) != nil {
 				return ManualImportCandidate{}, errors.New("manual import rejection type is invalid")
+			}
+			if rejection.Reason != nil && validateText(*rejection.Reason, maxRejectionMessage, true) != nil {
+				return ManualImportCandidate{}, errors.New("manual import rejection reason is invalid")
 			}
 			if rejection.Message != nil && validateText(*rejection.Message, maxRejectionMessage, false) != nil {
 				return ManualImportCandidate{}, errors.New("manual import rejection message is invalid")
 			}
 			item := ImportRejection{}
-			if rejection.Type != nil {
-				item.Type = *rejection.Type
+			item.Type = rejection.Type
+			if rejection.Reason != nil {
+				item.Reason = *rejection.Reason
 			}
 			if rejection.Message != nil {
 				item.Message = *rejection.Message
+			}
+			if item.Reason != "" && item.Message != "" && item.Reason != item.Message {
+				return ManualImportCandidate{}, errors.New("manual import rejection aliases disagree")
+			}
+			if item.Reason == "" && item.Message == "" {
+				return ManualImportCandidate{}, errors.New("manual import rejection reason is missing")
+			}
+			if item.Reason == "" {
+				item.Reason = item.Message
+			}
+			if item.Message == "" {
+				item.Message = item.Reason
 			}
 			result.Rejections[index] = item
 		}
 	}
 	return result, nil
+}
+
+// normalizeLanguages preserves Sonarr's native singular language member and
+// the older plural compatibility alias independently. When both are present,
+// they must identify the same language; otherwise the response is ambiguous
+// and cannot contribute complete evidence.
+func normalizeLanguages(singular *generated.Language, plural *[]generated.Language) (*Language, []Language, error) {
+	var native *Language
+	if singular != nil {
+		value, err := normalizeLanguage(*singular)
+		if err != nil {
+			return nil, nil, err
+		}
+		native = &value
+	}
+
+	var aliases []Language
+	if plural != nil {
+		if len(*plural) > 128 {
+			return nil, nil, errors.New("manual import language bound exceeded")
+		}
+		aliases = make([]Language, len(*plural))
+		seen := make(map[int32]struct{}, len(*plural))
+		for index, value := range *plural {
+			normalized, err := normalizeLanguage(value)
+			if err != nil {
+				return nil, nil, err
+			}
+			if _, exists := seen[normalized.ID]; exists {
+				return nil, nil, errors.New("duplicate manual import language")
+			}
+			seen[normalized.ID] = struct{}{}
+			aliases[index] = normalized
+		}
+	}
+	if native != nil && plural != nil {
+		matched := false
+		for _, alias := range aliases {
+			if alias.ID != native.ID {
+				continue
+			}
+			if alias.Name != native.Name {
+				return nil, nil, errors.New("manual import language aliases disagree")
+			}
+			matched = true
+			break
+		}
+		if !matched {
+			return nil, nil, errors.New("manual import language aliases disagree")
+		}
+	}
+	return native, aliases, nil
+}
+
+func normalizeLanguage(value generated.Language) (Language, error) {
+	if value.Id < 0 || validateText(value.Name, maxLanguageNameChars, true) != nil {
+		return Language{}, errors.New("manual import language is invalid")
+	}
+	return Language{ID: value.Id, Name: value.Name}, nil
 }
 
 func normalizeSeriesReference(value generated.SeriesReference) (SeriesReference, error) {

@@ -13,7 +13,9 @@ The Mastarr-owned [`openapi.yaml`](openapi.yaml) is OpenAPI 3.1.1 and covers:
 - `GET /api/v3/rootfolder` and `GET /api/v3/qualityprofile` for options;
 - `GET /api/v3/episode?seriesId=...&includeEpisodeFile=...` and
   `GET /api/v3/episodefile?seriesId=...` for episode-file observations;
-- `GET /api/v3/manualimport` for native, read-only import previews.
+- `GET /api/v3/manualimport` for native, read-only import previews. The
+  downloaded-folder form uses `folder` and an optional `downloadId`; the
+  registered-library form uses `seriesId` and an optional `seasonNumber`.
 
 The candidate compatibility range is Sonarr 3.x and its `/api/v3` API. This
 module does not infer support from a version string: callers retain the status
@@ -44,18 +46,24 @@ storage only; normalized public observations copy only the typed fields in this
 module.
 
 Native manual-import candidates preserve series and exact episode identity,
-season and absolute numbering, episode-file IDs, typed quality and language
-fields, download ID, release metadata, subtitle flag aliases, and rejection
-messages. No subtitle companion is inferred. Callers still need an explicit
-reviewed association before any later root workflow action.
+season and absolute numbering, episode-file IDs, typed quality and Sonarr 3.x's
+singular language field, download ID, release metadata, subtitle flag aliases,
+and native rejection `reason` text. The older plural `languages` and
+`message` members are retained as compatibility aliases; if both forms are
+present they must agree. Folder previews reject a supplied `seriesId`, and
+library previews require the returned series and every episode association to
+match the requested series. Missing nested identity, association, language,
+or rejection fields invalidate the complete observation. No subtitle companion
+is inferred. Callers still need an explicit reviewed association before any
+later root workflow action.
 
 Generated code is produced by pinned `oapi-codegen` v2.8.0 and lives under
 `internal/generated`; it is committed and never hand-edited. From this
 directory:
 
 ```sh
-GOWORK=off go generate ./...
-./check-generation.sh
+GOWORK=off GOPROXY=off GOSUMDB=off go generate ./...
+GOWORK=off GOPROXY=off GOSUMDB=off ./check-generation.sh
 GOWORK=off go test ./...
 GOWORK=off go test -race ./...
 GOWORK=off go vet ./...

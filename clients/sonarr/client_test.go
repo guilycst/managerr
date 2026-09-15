@@ -166,12 +166,12 @@ func TestOptionsAndEpisodeFileObservations(t *testing.T) {
 			if request.URL.Query().Get("seriesId") != "42" || request.URL.Query().Get("includeEpisodeFile") != "true" {
 				t.Errorf("episode query = %s", request.URL.RawQuery)
 			}
-			writeFixtureJSON(t, writer, `[{"id":1001,"seriesId":42,"episodeFileId":9001,"seasonNumber":1,"episodeNumber":2,"absoluteEpisodeNumber":12,"hasFile":true,"title":"Second","episodeFile":{"id":9001,"path":"/library/tv/Synthetic Show/Season 01/episode.mkv","relativePath":"Season 01/episode.mkv","size":100,"episodeIds":[1001],"dateAdded":"2024-01-02T03:04:05Z"}}]`)
+			writeFixtureJSON(t, writer, `[{"id":1001,"seriesId":42,"episodeFileId":9001,"seasonNumber":1,"episodeNumber":2,"absoluteEpisodeNumber":12,"hasFile":true,"title":"Second","episodeFile":{"id":9001,"seriesId":42,"path":"/library/tv/Synthetic Show/Season 01/episode.mkv","relativePath":"Season 01/episode.mkv","size":100,"episodeIds":[1001],"dateAdded":"2024-01-02T03:04:05Z"}}]`)
 		case "/proxy/api/v3/episodefile":
 			if request.URL.Query().Get("seriesId") != "42" {
 				t.Errorf("episode-file query = %s", request.URL.RawQuery)
 			}
-			writeFixtureJSON(t, writer, `[{"id":9001,"path":"/library/tv/Synthetic Show/Season 01/episode.mkv","relativePath":"Season 01/episode.mkv","size":100,"episodeIds":[1001]}]`)
+			writeFixtureJSON(t, writer, `[{"id":9001,"seriesId":42,"path":"/library/tv/Synthetic Show/Season 01/episode.mkv","relativePath":"Season 01/episode.mkv","size":100,"episodeIds":[1001]}]`)
 		default:
 			http.NotFound(writer, request)
 		}
@@ -190,11 +190,11 @@ func TestOptionsAndEpisodeFileObservations(t *testing.T) {
 		t.Fatalf("episodes = %#v, err=%v", episodes, err)
 	}
 	episode := episodes.Items[0]
-	if episode.ID != 1001 || episode.SeriesID != 42 || episode.EpisodeFile == nil || episode.EpisodeFile.ID != 9001 || episode.EpisodeFileID == nil || *episode.EpisodeFileID != 9001 || episode.AbsoluteEpisodeNumber == nil || *episode.AbsoluteEpisodeNumber != 12 {
+	if episode.ID != 1001 || episode.SeriesID != 42 || episode.EpisodeFile == nil || episode.EpisodeFile.ID != 9001 || episode.EpisodeFile.SeriesID != 42 || episode.EpisodeFileID == nil || *episode.EpisodeFileID != 9001 || episode.AbsoluteEpisodeNumber == nil || *episode.AbsoluteEpisodeNumber != 12 {
 		t.Fatalf("episode = %#v", episode)
 	}
 	files, err := client.ListEpisodeFiles(context.Background(), 42)
-	if err != nil || len(files.Items) != 1 || files.Items[0].EpisodeIDs[0] != 1001 {
+	if err != nil || len(files.Items) != 1 || files.Items[0].SeriesID != 42 || files.Items[0].EpisodeIDs[0] != 1001 {
 		t.Fatalf("files = %#v, err=%v", files, err)
 	}
 }
@@ -217,7 +217,7 @@ func TestListEpisodesCanExplicitlyOmitNestedFiles(t *testing.T) {
 
 func TestListEpisodesRejectsConflictingNestedFileIdentity(t *testing.T) {
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writeFixtureJSON(t, writer, `[{"id":1001,"seriesId":42,"episodeFileId":9002,"seasonNumber":1,"episodeNumber":2,"hasFile":true,"episodeFile":{"id":9001,"path":"/library/episode.mkv","size":10}}]`)
+		writeFixtureJSON(t, writer, `[{"id":1001,"seriesId":42,"episodeFileId":9002,"seasonNumber":1,"episodeNumber":2,"hasFile":true,"episodeFile":{"id":9001,"seriesId":42,"path":"/library/episode.mkv","size":10}}]`)
 	})
 	client, _ := newFixtureClient(t, handler, Config{})
 	if _, err := client.ListEpisodesWithFiles(context.Background(), 42); !IsCode(err, ErrorMalformed) {
@@ -236,20 +236,65 @@ func TestManualImportPreviewIsReadOnlyAndPreservesTypedEvidence(t *testing.T) {
 			"seriesId":            request.URL.Query().Get("seriesId"),
 			"downloadId":          request.URL.Query().Get("downloadId"),
 		}
-		writeFixtureJSON(t, writer, `[{"id":17,"path":"/downloads/Synthetic Show/episode.mkv","relativePath":"episode.mkv","folderName":"/downloads/Synthetic Show","name":"episode.mkv","size":123,"series":{"id":42,"title":"Synthetic Show","tvdbId":12345},"seasonNumber":1,"episodes":[{"id":1001,"seriesId":42,"seasonNumber":1,"episodeNumber":2,"episodeFileId":9001},{"id":1002,"seriesId":42,"seasonNumber":1,"episodeNumber":3}],"episodeFileId":0,"releaseGroup":"synthetic-group","quality":{"quality":{"id":7,"name":"HDTV-1080p","source":"tv","resolution":1080},"revision":{"version":1,"real":0,"isRepack":false}},"languages":[{"id":1,"name":"English"}],"downloadId":"qbt-17","releaseType":"singleEpisode","customFormatScore":10,"indexerFlags":1,"forced":false,"hearingImpaired":true,"rejections":[{"type":"ExistingFile","message":"already present"}]}]`)
+		writeFixtureJSON(t, writer, `[{"id":17,"path":"/downloads/Synthetic Show/episode.mkv","relativePath":"episode.mkv","folderName":"/downloads/Synthetic Show","name":"episode.mkv","size":123,"series":{"id":42,"title":"Synthetic Show","tvdbId":12345},"seasonNumber":1,"episodes":[{"id":1001,"seriesId":42,"seasonNumber":1,"episodeNumber":2,"episodeFileId":9001},{"id":1002,"seriesId":42,"seasonNumber":1,"episodeNumber":3}],"episodeFileId":0,"releaseGroup":"synthetic-group","quality":{"quality":{"id":7,"name":"HDTV-1080p","source":"tv","resolution":1080},"revision":{"version":1,"real":0,"isRepack":false}},"language":{"id":1,"name":"English"},"languages":[{"id":1,"name":"English"}],"downloadId":"qbt-17","releaseType":"singleEpisode","customFormatScore":10,"indexerFlags":1,"forced":false,"hearingImpaired":true,"rejections":[{"type":"ExistingFile","reason":"already present"}]}]`)
 	})
 	client, _ := newFixtureClient(t, handler, Config{})
-	seriesID := int64(42)
-	page, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads/Synthetic Show", FilterExistingFiles: true, SeriesID: &seriesID, DownloadID: "qbt-17"})
+	page, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads/Synthetic Show", FilterExistingFiles: true, DownloadID: "qbt-17"})
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("preview = %#v, err=%v", page, err)
 	}
 	candidate := page.Items[0]
-	if method != http.MethodGet || queryValues["folder"] != "/downloads/Synthetic Show" || queryValues["filterExistingFiles"] != "true" || queryValues["seriesId"] != "42" || queryValues["downloadId"] != "qbt-17" {
+	if method != http.MethodGet || queryValues["folder"] != "/downloads/Synthetic Show" || queryValues["filterExistingFiles"] != "true" || queryValues["seriesId"] != "" || queryValues["downloadId"] != "qbt-17" {
 		t.Fatalf("request method/query = %s %#v", method, queryValues)
 	}
-	if candidate.Series == nil || candidate.Series.ID != 42 || len(candidate.Episodes) != 2 || candidate.Episodes[1].ID != 1002 || candidate.Quality == nil || candidate.Quality.Quality == nil || candidate.Quality.Quality.Resolution == nil || *candidate.Quality.Quality.Resolution != 1080 || len(candidate.Languages) != 1 || candidate.Languages[0].Name != "English" || candidate.Forced == nil || *candidate.Forced || candidate.HearingImpaired == nil || !*candidate.HearingImpaired || len(candidate.Rejections) != 1 || candidate.Rejections[0].Type != "ExistingFile" {
+	if candidate.Series == nil || candidate.Series.ID != 42 || len(candidate.Episodes) != 2 || candidate.Episodes[1].ID != 1002 || candidate.Quality == nil || candidate.Quality.Quality == nil || candidate.Quality.Quality.Resolution == nil || *candidate.Quality.Quality.Resolution != 1080 || candidate.Language == nil || candidate.Language.Name != "English" || len(candidate.Languages) != 1 || candidate.Languages[0].Name != "English" || candidate.Forced == nil || *candidate.Forced || candidate.HearingImpaired == nil || !*candidate.HearingImpaired || len(candidate.Rejections) != 1 || candidate.Rejections[0].Type != "ExistingFile" || candidate.Rejections[0].Reason != "already present" || candidate.Rejections[0].Message != "already present" {
 		t.Fatalf("candidate = %#v", candidate)
+	}
+}
+
+func TestPreviewManualImportRejectsSeriesScopeCombination(t *testing.T) {
+	var calls int
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		http.Error(writer, "unexpected request", http.StatusTeapot)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	seriesID := int64(42)
+	_, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads/Show", SeriesID: &seriesID})
+	if !IsCode(err, ErrorInvalidInput) {
+		t.Fatalf("ambiguous preview error = %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("ambiguous preview reached network: %d", calls)
+	}
+}
+
+func TestPreviewLibraryImportUsesNativeSeriesScope(t *testing.T) {
+	var gotQuery map[string]string
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/proxy/api/v3/manualimport" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		gotQuery = map[string]string{
+			"folder":              request.URL.Query().Get("folder"),
+			"seriesId":            request.URL.Query().Get("seriesId"),
+			"seasonNumber":        request.URL.Query().Get("seasonNumber"),
+			"filterExistingFiles": request.URL.Query().Get("filterExistingFiles"),
+			"downloadId":          request.URL.Query().Get("downloadId"),
+		}
+		writeFixtureJSON(t, writer, `[{"id":17,"path":"/library/Synthetic Show/Episode.mkv","relativePath":"Episode.mkv","name":"Episode.mkv","size":123,"series":{"id":42,"title":"Synthetic Show"},"seasonNumber":1,"episodes":[{"id":1001,"seriesId":42,"seasonNumber":1,"episodeNumber":2}]}]`)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	season := int32(1)
+	page, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{SeriesID: 42, SeasonNumber: &season, FilterExistingFiles: true})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("library preview = %#v, err=%v", page, err)
+	}
+	if gotQuery["seriesId"] != "42" || gotQuery["seasonNumber"] != "1" || gotQuery["filterExistingFiles"] != "true" || gotQuery["folder"] != "" || gotQuery["downloadId"] != "" {
+		t.Fatalf("native library query = %#v", gotQuery)
+	}
+	if page.Items[0].Path != "/library/Synthetic Show/Episode.mkv" || page.Items[0].Series == nil || page.Items[0].Series.ID != 42 {
+		t.Fatalf("library candidate = %#v", page.Items[0])
 	}
 }
 
@@ -258,9 +303,75 @@ func TestManualImportRejectsSeriesAssociationMismatch(t *testing.T) {
 		writeFixtureJSON(t, writer, `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"series":{"id":99,"title":"Other"}}]`)
 	})
 	client, _ := newFixtureClient(t, handler, Config{})
-	seriesID := int64(42)
-	if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads", SeriesID: &seriesID}); !IsCode(err, ErrorMalformed) {
+	if _, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{SeriesID: 42}); !IsCode(err, ErrorMalformed) {
 		t.Fatalf("association mismatch error = %v", err)
+	}
+}
+
+func TestPreviewLibraryImportRejectsForeignNestedEpisode(t *testing.T) {
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeFixtureJSON(t, writer, `[{"id":17,"path":"/library/Synthetic Show/Episode.mkv","relativePath":"Episode.mkv","name":"Episode.mkv","size":123,"series":{"id":42,"title":"Synthetic Show"},"episodes":[{"id":1001,"seriesId":99,"seasonNumber":1,"episodeNumber":2}]}]`)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	if _, err := client.PreviewLibraryImport(context.Background(), LibraryImportQuery{SeriesID: 42}); !IsCode(err, ErrorMalformed) {
+		t.Fatalf("foreign nested episode error = %v", err)
+	}
+}
+
+func TestListEpisodeFilesRejectsForeignSeries(t *testing.T) {
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeFixtureJSON(t, writer, `[{"id":9001,"seriesId":99,"path":"/library/Other/Episode.mkv","size":100}]`)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	if _, err := client.ListEpisodeFiles(context.Background(), 42); !IsCode(err, ErrorMalformed) {
+		t.Fatalf("foreign episode-file error = %v", err)
+	}
+}
+
+func TestListEpisodesRejectsMalformedNestedEvidence(t *testing.T) {
+	tests := map[string]string{
+		"missing-size":   `[{"id":1001,"seriesId":42,"seasonNumber":1,"episodeNumber":2,"hasFile":true,"episodeFile":{"id":9001,"seriesId":42,"path":"/library/episode.mkv"}}]`,
+		"foreign-series": `[{"id":1001,"seriesId":42,"seasonNumber":1,"episodeNumber":2,"hasFile":true,"episodeFile":{"id":9001,"seriesId":99,"path":"/library/episode.mkv","size":10}}]`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			if _, err := client.ListEpisodesWithFiles(context.Background(), 42); !IsCode(err, ErrorMalformed) {
+				t.Fatalf("nested evidence error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPreviewManualImportRejectsMissingNestedEvidence(t *testing.T) {
+	tests := map[string]string{
+		"episode-number":   `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"series":{"id":42,"title":"Synthetic Show"},"episodes":[{"id":1001,"seriesId":42,"seasonNumber":1}]}]`,
+		"language-name":    `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1}}]`,
+		"rejection-reason": `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"rejections":[{"type":"ExistingFile"}]}]`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads"}); !IsCode(err, ErrorMalformed) {
+				t.Fatalf("missing nested evidence error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPreviewManualImportRejectsContradictoryLanguageAliases(t *testing.T) {
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeFixtureJSON(t, writer, `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1,"name":"English"},"languages":[{"id":2,"name":"Portuguese"}]}]`)
+	})
+	client, _ := newFixtureClient(t, handler, Config{})
+	if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads"}); !IsCode(err, ErrorMalformed) {
+		t.Fatalf("language alias error = %v", err)
 	}
 }
 
