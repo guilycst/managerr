@@ -1,0 +1,387 @@
+openapi: 3.1.1
+info:
+  title: Mastarr Jellyfin compatibility API
+  version: 0.0.1
+  description: |
+    Mastarr-owned compatibility contract for the narrow Jellyfin HTTP surface
+    used by reconciliation. Read observations cover public system information,
+    library folders, items and provider IDs. Library refresh is an explicit
+    scoped operation; an accepted refresh never claims that a later item is
+    available. Item refresh is included as a native compatibility shape but
+    remains capability-gated by the caller until a versioned fixture proves it.
+  x-mastarr-compatibility:
+    upstream: Jellyfin HTTP API
+    candidateProductVersions: Jellyfin 10.x
+    contractVersion: 0.0.1
+    readObservations: true
+    refreshAcceptanceSeparateFromAvailability: true
+    evidence: docs/specs/spec-001-media-reconciliation/connectors.md
+servers:
+  - url: https://jellyfin.invalid
+    description: Synthetic compatibility server; deployments provide Config.Endpoint.
+security:
+  - JellyfinToken: []
+paths:
+  /System/Info/Public:
+    get:
+      tags: [system]
+      operationId: GetSystemInfo
+      summary: Read public Jellyfin system information
+      responses:
+        '200':
+          description: Public system information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /Library/MediaFolders:
+    get:
+      tags: [libraries]
+      operationId: ListMediaFolders
+      summary: Read Jellyfin media-library folders
+      description: |
+        Native Jellyfin releases return either a collection array or an
+        Items envelope. The handwritten normalizer accepts both bounded forms.
+      responses:
+        '200':
+          description: Media-library folder collection
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Library'
+                  - $ref: '#/components/schemas/LibraryEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Unsupported'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /Users/{userId}/Views:
+    get:
+      tags: [libraries]
+      operationId: ListUserViews
+      summary: Read a user's Jellyfin library views
+      parameters:
+        - $ref: '#/components/parameters/UserID'
+      responses:
+        '200':
+          description: User view collection
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Library'
+                  - $ref: '#/components/schemas/LibraryEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /Items:
+    get:
+      tags: [items]
+      operationId: ListItems
+      summary: Read a bounded Jellyfin item page
+      description: |
+        Items is an offset-based endpoint. A page is never promoted to a
+        complete inventory unless the caller has independently established a
+        stable collection boundary; the normalized page retains coverage and
+        total metadata for that decision.
+      parameters:
+        - name: ParentId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+        - name: Ids
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+        - name: IncludeItemTypes
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+        - name: Recursive
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: StartIndex
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: Limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: UserId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+        - name: Fields
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 1024
+        - name: collapseBoxSetItems
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Item page or native item array
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Item'
+                  - $ref: '#/components/schemas/ItemPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /Library/Refresh:
+    post:
+      tags: [refresh]
+      operationId: RefreshLibrary
+      summary: Request a Jellyfin library refresh
+      description: |
+        This explicit operation reports only the native HTTP acceptance. It
+        does not wait for scanning and cannot claim later library availability.
+      responses:
+        '200':
+          $ref: '#/components/responses/RefreshAccepted'
+        '202':
+          $ref: '#/components/responses/RefreshAccepted'
+        '204':
+          $ref: '#/components/responses/RefreshAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /Items/{itemId}/Refresh:
+    post:
+      tags: [refresh]
+      operationId: RefreshItem
+      summary: Request a Jellyfin item refresh
+      description: |
+        This route is represented for compatibility validation. Callers must
+        gate it by a tested product/version capability; a path or item ID
+        alone never establishes availability.
+      parameters:
+        - $ref: '#/components/parameters/ItemID'
+      responses:
+        '200':
+          $ref: '#/components/responses/RefreshAccepted'
+        '202':
+          $ref: '#/components/responses/RefreshAccepted'
+        '204':
+          $ref: '#/components/responses/RefreshAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Unsupported'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+components:
+  securitySchemes:
+    JellyfinToken:
+      type: apiKey
+      in: header
+      name: X-Emby-Token
+      description: Jellyfin access token held by the caller.
+  parameters:
+    UserID:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    ItemID:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+  responses:
+    Unauthorized:
+      description: Authentication failed
+    Forbidden:
+      description: Permission denied
+    Unsupported:
+      description: Route or scope is unsupported
+    UpstreamFailure:
+      description: Upstream failure
+    RefreshAccepted:
+      description: Refresh request accepted; availability is observed separately
+  schemas:
+    SystemInfo:
+      type: object
+      required: [Version]
+      properties:
+        ProductName:
+          type: string
+          maxLength: 256
+        ServerName:
+          type: string
+          maxLength: 256
+        Version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        OperatingSystem:
+          type: string
+          maxLength: 256
+        Id:
+          type: string
+          maxLength: 256
+        StartupWizardCompleted:
+          type: boolean
+    Library:
+      type: object
+      required: [Id]
+      properties:
+        Id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        Name:
+          type: string
+          maxLength: 4096
+        title:
+          type: string
+          maxLength: 4096
+        Type:
+          type: string
+          maxLength: 128
+        CollectionType:
+          type: string
+          maxLength: 128
+    LibraryEnvelope:
+      type: object
+      required: [Items]
+      properties:
+        Items:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/Library'
+    Item:
+      type: object
+      required: [Id]
+      properties:
+        Id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        Name:
+          type: string
+          maxLength: 4096
+        title:
+          type: string
+          maxLength: 4096
+        Type:
+          type: string
+          maxLength: 128
+        Path:
+          type: string
+          maxLength: 4096
+        LocationType:
+          type: string
+          maxLength: 128
+        MediaType:
+          type: string
+          maxLength: 128
+        ProviderIds:
+          type: object
+          maxProperties: 64
+          additionalProperties:
+            type: string
+            maxLength: 256
+        MediaSources:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/MediaSource'
+    MediaSource:
+      type: object
+      properties:
+        Id:
+          type: string
+          maxLength: 256
+        Path:
+          type: string
+          maxLength: 4096
+        Protocol:
+          type: string
+          maxLength: 128
+        LocationType:
+          type: string
+          maxLength: 128
+        MediaType:
+          type: string
+          maxLength: 128
+    ItemPage:
+      type: object
+      required: [Items]
+      properties:
+        Items:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/Item'
+        TotalRecordCount:
+          type: integer
+          format: int64
+          minimum: 0
+        StartIndex:
+          type: integer
+          format: int64
+          minimum: 0
