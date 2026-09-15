@@ -3613,14 +3613,21 @@
         "462a662b6a3bd56049bf47425b4a7c5165effaca X-15 handoff records module checks, cross-builds and root guardrails passed; root matrices still need C-06.",
         "907815db38e3b336fbc51e7d96f37a94d6110469 independent review round one: two P1 scope findings and three P2 normalization/generation findings; receipt integrated as 868932b40e45ee10d71eb99c13d127d38960ba7e.",
         "f258104718691807e9679e0c6eb278b144ea7a09 X-15 correction round one closes native preview semantics, nested series scope, singular field preservation, strict required fields, and offline generation lookup.",
-        "c8a35027540234a5a1a3e474f6059dc30715a612 X-15 correction handoff records Sonarr module and root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes."
+        "c8a35027540234a5a1a3e474f6059dc30715a612 X-15 correction handoff records Sonarr module and root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes.",
+        "3b1347fdef9a760ba2a5ac73395c142ecd2d653b independent review round two closed R1/R2/R4/R5 and found one P2 alias-equivalence gap; receipt integrated as 28640a026fc200da632e98350cbd27b1d7a064b4."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
+        "findings": [
+          {
+            "id": "R3a",
+            "severity": "P2",
+            "summary": "singular and plural language aliases need exact set agreement; containment currently accepts mixed values"
+          }
+        ],
         "round": 2
       },
       "dispatch": {
@@ -3646,7 +3653,7 @@
           "root generation/API/Vacuum/lint/architecture/planning/guardrails",
           "Linux amd64/arm64 CGO-free compile"
         ],
-        "reviewPath": "docs/execution/handoffs/X-15-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-15-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-15.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
@@ -3658,16 +3665,16 @@
         "handoffCommit": "c8a35027540234a5a1a3e474f6059dc30715a612",
         "reviewSourceCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
         "status": "product_ready",
-        "reviewCommit": "907815db38e3b336fbc51e7d96f37a94d6110469",
-        "reviewIntegrationCommit": "868932b40e45ee10d71eb99c13d127d38960ba7e",
-        "correctionRound": 1,
+        "reviewCommit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
+        "reviewIntegrationCommit": "28640a026fc200da632e98350cbd27b1d7a064b4",
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "868932b40e45ee10d71eb99c13d127d38960ba7e",
-        "correctionReviewPath": "docs/execution/handoffs/X-15-review-round2.md",
-        "correctionHandoffPath": "docs/execution/handoffs/X-15-correction-round1.md",
+        "correctionBaseSha": "28640a026fc200da632e98350cbd27b1d7a064b4",
+        "correctionReviewPath": "docs/execution/handoffs/X-15-review-round3.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-15-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
-        "reviewRound": 2,
+        "correctionStatus": "queued",
+        "reviewRound": 3,
         "correctionImplementationCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
         "correctionHandoffCommit": "c8a35027540234a5a1a3e474f6059dc30715a612"
       },
@@ -3683,6 +3690,15 @@
           "sourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
           "receipt": "docs/execution/handoffs/X-15-review-round1.md",
           "integratedCommit": "868932b40e45ee10d71eb99c13d127d38960ba7e"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
+          "status": "changes_requested",
+          "sourceCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
+          "receipt": "docs/execution/handoffs/X-15-review-round2.md",
+          "integratedCommit": "28640a026fc200da632e98350cbd27b1d7a064b4"
         }
       ]
     },
@@ -3751,7 +3767,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-15 correction source f258104718691807e9679e0c6eb278b144ea7a09 using handoff c8a35027540234a5a1a3e474f6059dc30715a612; integrate only an approved round-two receipt.",
+  "nextAction": "Implement X-15 correction round 2 from 28640a026fc200da632e98350cbd27b1d7a064b4, fixing exact singular/plural language alias agreement, then review independently.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
