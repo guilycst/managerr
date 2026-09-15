@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "X-16"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -3710,12 +3712,53 @@
       ]
     },
     "X-16": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "883a3b898ca843481db86c12e6d12a02f6de1cb0",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched after C-05 and X-03 passed; owns only clients/radarr and its handoff."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-15",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "883a3b898ca843481db86c12e6d12a02f6de1cb0",
+        "ownedPaths": [
+          "clients/radarr/"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-07",
+          "A-09",
+          "A-10",
+          "A-45",
+          "OpenAPI 3.1.1 compatibility contract",
+          "pinned oapi-codegen generation and reproducibility",
+          "API-key auth, deadlines, bounded strict decoding and typed upstream errors",
+          "synthetic httptest fixtures for catalog/options/files/preview and failures",
+          "GOWORK=off module tests/race/vet/mod verify",
+          "root generation/API/Vacuum/lint/architecture/planning/guardrails",
+          "Linux amd64/arm64 CGO-free compile"
+        ],
+        "reviewPath": "docs/execution/handoffs/X-16-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/X-16.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
+          "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935"
+        },
+        "reviewer": "/root/x05_reviewer"
+      }
     },
     "X-17": {
       "status": "planned",
@@ -3774,7 +3817,7 @@
       "review": null
     }
   },
-  "nextAction": "Dispatch X-16 standalone Radarr client module from the current clean checkpoint; keep the same independent client boundary and reviewer cadence.",
+  "nextAction": "Implement X-16 Radarr standalone client from 883a3b898ca843481db86c12e6d12a02f6de1cb0, then review its exact product and handoff commits independently.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
