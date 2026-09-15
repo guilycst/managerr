@@ -3834,7 +3834,9 @@
         "d6b84779c8b52b07ccd2e11093b089addca72002 X-17 correction round one closes review R1-R4 with pagination uncertainty, scoped-ID validation, invalid UTF-8 refusal and canonical /UserViews fallback regressions.",
         "acf25a416d7f09d8459e945c3d4789029885bd1f X-17 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail and cross-build checks; final review remains pending.",
         "942248df68f0c2027a260513c7b913fe990e7ccf independent review round two closed R2/R3/R4 and found two P1 missing-metadata authority gaps: absent StartIndex and absent TotalRecordCount on exact empty lookup.",
-        "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8 integrated X-17 round-two review receipt; correction round two is required before approval."
+        "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8 integrated X-17 round-two review receipt; correction round two is required before approval.",
+        "4eee8e84eff5a81b24c128444fa6531fec83f5ec X-17 correction round two closes review R1a/R2a with presence-aware start/total metadata, authoritative zero-total exact absence, and regressions for missing/null metadata and traversal.",
+        "9349423c59c1ef801fdfe3a86316bd4be759799c X-17 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail and cross-build checks; final review remains pending."
       ],
       "review": {
         "status": "changes_requested",
@@ -3880,8 +3882,8 @@
         },
         "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
         "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
-        "reviewSourceCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
-        "status": "changes_requested",
+        "reviewSourceCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
+        "status": "product_ready",
         "reviewCommit": "942248df68f0c2027a260513c7b913fe990e7ccf",
         "reviewIntegrationCommit": "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8",
         "reviewRound": 2,
@@ -3891,13 +3893,13 @@
         "correctionReviewPath": "docs/execution/handoffs/X-17-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-17-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "assigned",
-        "correctionImplementationCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
-        "correctionHandoffCommit": "acf25a416d7f09d8459e945c3d4789029885bd1f"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
+        "correctionHandoffCommit": "9349423c59c1ef801fdfe3a86316bd4be759799c"
       },
-      "implementationCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
-      "handoffCommit": "acf25a416d7f09d8459e945c3d4789029885bd1f",
-      "reviewSourceCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
+      "implementationCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
+      "handoffCommit": "9349423c59c1ef801fdfe3a86316bd4be759799c",
+      "reviewSourceCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
       "reviewHistory": [
         {
           "round": 1,
@@ -3968,7 +3970,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-17 correction round 2 from 7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8, closing reviewer findings R1a and R2a; then produce correction handoff and independent round-three review.",
+  "nextAction": "Independently review X-17 correction round two product 4eee8e84eff5a81b24c128444fa6531fec83f5ec using handoff 9349423c59c1ef801fdfe3a86316bd4be759799c; integrate only an approved round-three receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
