@@ -3722,14 +3722,21 @@
         "6ce4943f920971f82df661f3dcc31dbc648e2a66 X-16 handoff records module checks, cross-builds and existing root guardrails; C-06 owns aggregate matrix inclusion.",
         "d4b57f80b141e447ce7a45656ba5ce29814eb8b1 independent review round one found one P2 native compatibility mismatch in movie-ID-only library preview; receipt integrated as 4f6e4de4f64efe80542c8b6fe256d8b6c4b28209.",
         "30aa6734fa7705d61e3d93c9b7f93c8173c4b9b3 X-16 correction round one makes Radarr manual previews path-bound, rejects movie-only requests before network, and aligns contract/generated output/fixtures.",
-        "345fbc83bbf85d7f6c3f04d93d7e9bf4ae8a31e5 X-16 correction handoff records source-faithful native semantics and full checks; C-06 still owns aggregate matrix inclusion and G-01 blocks writes."
+        "345fbc83bbf85d7f6c3f04d93d7e9bf4ae8a31e5 X-16 correction handoff records source-faithful native semantics and full checks; C-06 still owns aggregate matrix inclusion and G-01 blocks writes.",
+        "41ae0c2b01b8712029dbb72024a72c81d1d990e2 independent review round two closed the path-required finding and found one P1 scoped-preview normalization bypass; receipt integrated as de49ae75f08361f437b50d049109ea98e0444a29."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "41ae0c2b01b8712029dbb72024a72c81d1d990e2",
+        "findings": [
+          {
+            "id": "R2",
+            "severity": "P1",
+            "summary": "folder-plus-movie PreviewManualImport drops the requested movie ID during normalization and accepts foreign or missing movie evidence"
+          }
+        ],
         "round": 2
       },
       "dispatch": {
@@ -3755,7 +3762,7 @@
           "root generation/API/Vacuum/lint/architecture/planning/guardrails",
           "Linux amd64/arm64 CGO-free compile"
         ],
-        "reviewPath": "docs/execution/handoffs/X-16-review-round2.md",
+        "reviewPath": "docs/execution/handoffs/X-16-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-16.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
@@ -3767,16 +3774,16 @@
         "handoffCommit": "345fbc83bbf85d7f6c3f04d93d7e9bf4ae8a31e5",
         "reviewSourceCommit": "30aa6734fa7705d61e3d93c9b7f93c8173c4b9b3",
         "status": "product_ready",
-        "reviewCommit": "d4b57f80b141e447ce7a45656ba5ce29814eb8b1",
-        "reviewIntegrationCommit": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209",
-        "correctionRound": 1,
+        "reviewCommit": "41ae0c2b01b8712029dbb72024a72c81d1d990e2",
+        "reviewIntegrationCommit": "de49ae75f08361f437b50d049109ea98e0444a29",
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209",
-        "correctionReviewPath": "docs/execution/handoffs/X-16-review-round2.md",
-        "correctionHandoffPath": "docs/execution/handoffs/X-16-correction-round1.md",
+        "correctionBaseSha": "de49ae75f08361f437b50d049109ea98e0444a29",
+        "correctionReviewPath": "docs/execution/handoffs/X-16-review-round3.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-16-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
-        "reviewRound": 2,
+        "correctionStatus": "queued",
+        "reviewRound": 3,
         "correctionImplementationCommit": "30aa6734fa7705d61e3d93c9b7f93c8173c4b9b3",
         "correctionHandoffCommit": "345fbc83bbf85d7f6c3f04d93d7e9bf4ae8a31e5"
       },
@@ -3792,6 +3799,15 @@
           "sourceCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
           "receipt": "docs/execution/handoffs/X-16-review-round1.md",
           "integratedCommit": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "41ae0c2b01b8712029dbb72024a72c81d1d990e2",
+          "status": "changes_requested",
+          "sourceCommit": "30aa6734fa7705d61e3d93c9b7f93c8173c4b9b3",
+          "receipt": "docs/execution/handoffs/X-16-review-round2.md",
+          "integratedCommit": "de49ae75f08361f437b50d049109ea98e0444a29"
         }
       ]
     },
@@ -3852,7 +3868,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-16 correction source 30aa6734fa7705d61e3d93c9b7f93c8173c4b9b3 using handoff 345fbc83bbf85d7f6c3f04d93d7e9bf4ae8a31e5; integrate only an approved round-two receipt.",
+  "nextAction": "Implement X-16 correction round 2 from de49ae75f08361f437b50d049109ea98e0444a29, preserving the supplied movie ID through folder preview normalization and rejecting foreign/missing evidence, then review independently.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
