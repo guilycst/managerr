@@ -2316,41 +2316,17 @@
         "The queued retry also errored before product work because the selected model remained at capacity; no product or handoff files changed. Rerouting the unchanged W-01 scope to /root/x05_implementer from the current clean checkpoint.",
         "3c4067d4d2562fbe3740a252bfd14f411824ed77 W-01 product commit: per-instance evidence aggregation, bounded manifests, semantic predicates, conflict detection, and immutable plan revisions with focused synthetic tests.",
         "df02e766ebe1d1919b5faa95a08b5f9da23738c3 W-01 handoff records exact acceptance evidence and all requested checks passed; G-01 remains open.",
-        "ff16c554aa93459130ea88dd184fb2b80bdac382 independent review round one: changes requested with three P1 and two P2 findings; receipt integrated as dca41abdd99361cee7de0c7dcc10892323c773f2."
+        "ff16c554aa93459130ea88dd184fb2b80bdac382 independent review round one: changes requested with three P1 and two P2 findings; receipt integrated as dca41abdd99361cee7de0c7dcc10892323c773f2.",
+        "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9 W-01 correction round one closes review findings R1-R5 with canonical conflict validation, exact-manifest relationship checks, target connection fences, freshness-aware absence, and deep-copied scalar predicates.",
+        "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6 W-01 correction handoff records regression coverage and full checks; G-01 remains open."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/x05_reviewer",
-        "commit": "ff16c554aa93459130ea88dd184fb2b80bdac382",
-        "findings": [
-          {
-            "id": "R1",
-            "severity": "P1",
-            "summary": "blocking conflicts can be bypassed by mutating derived Status and BlockingIssues without changing the plan digest"
-          },
-          {
-            "id": "R2",
-            "severity": "P1",
-            "summary": "Arr import selections and subtitle video references are not cross-validated against the exact manifest"
-          },
-          {
-            "id": "R3",
-            "severity": "P1",
-            "summary": "target connection configuration revisions are optional, so a plan can omit the target fence"
-          },
-          {
-            "id": "R4",
-            "severity": "P2",
-            "summary": "stale absence coverage remains ConfirmedAbsent after aggregation time advances past CoverageMaxAge"
-          },
-          {
-            "id": "R5",
-            "severity": "P2",
-            "summary": "scalar pointer fields alias caller-owned values and mutate prior immutable plans"
-          }
-        ],
-        "round": 1
+        "commit": null,
+        "findings": [],
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2377,7 +2353,7 @@
           "generation/API/Vacuum/architecture/planning/lint/guardrails",
           "Linux amd64/arm64 CGO-free compile checks"
         ],
-        "reviewPath": "docs/execution/handoffs/W-01-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/W-01-review-round2.md",
         "handoffPath": "docs/execution/handoffs/W-01.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
@@ -2411,9 +2387,9 @@
           "productCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
           "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3"
         },
-        "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
-        "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
-        "reviewRound": 1,
+        "reviewSourceCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
+        "handoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6",
+        "reviewRound": 2,
         "reviewCommit": "ff16c554aa93459130ea88dd184fb2b80bdac382",
         "reviewIntegrationCommit": "dca41abdd99361cee7de0c7dcc10892323c773f2",
         "correctionRound": 1,
@@ -2421,11 +2397,13 @@
         "correctionBaseSha": "dca41abdd99361cee7de0c7dcc10892323c773f2",
         "correctionReviewPath": "docs/execution/handoffs/W-01-review-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "queued"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
+        "correctionHandoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6"
       },
-      "implementationCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
-      "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
-      "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+      "implementationCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
+      "handoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6",
+      "reviewSourceCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
       "reviewHistory": [
         {
           "round": 1,
@@ -3600,7 +3578,7 @@
       ]
     }
   },
-  "nextAction": "Independently review W-01 source 3c4067d4d2562fbe3740a252bfd14f411824ed77 using handoff df02e766ebe1d1919b5faa95a08b5f9da23738c3; integrate only an approved receipt.",
+  "nextAction": "Independently review W-01 correction source 7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9 using handoff 57bc0c99a650987fe6db738c3ed0ba0036ff5dd6; integrate only an approved round-two receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
