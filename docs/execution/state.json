@@ -15,9 +15,7 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [
-    "X-17"
-  ],
+  "activeImplementationTasks": [],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -3821,10 +3819,10 @@
       ]
     },
     "X-17": {
-      "status": "in_progress",
+      "status": "done",
       "owner": "/root/x05_implementer",
       "baseSha": "bd75b061730bca31f0fb2164a168539ffaa7cb9c",
-      "integratedSha": null,
+      "integratedSha": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
       "evidence": [
         "dispatched after C-05 generation/CI and X-04 Jellyfin observations passed; owns only clients/jellyfin and its handoff.",
         "f9e0754853e1855af37e61ac96c8bc70a7e017d4 X-17 product commit adds independent Jellyfin OpenAPI 3.1.1 client with read-only system/library/item/provider observations, explicit refresh acceptance, token transport, bounded decoding, typed errors and synthetic fixtures.",
@@ -3836,18 +3834,17 @@
         "942248df68f0c2027a260513c7b913fe990e7ccf independent review round two closed R2/R3/R4 and found two P1 missing-metadata authority gaps: absent StartIndex and absent TotalRecordCount on exact empty lookup.",
         "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8 integrated X-17 round-two review receipt; correction round two is required before approval.",
         "4eee8e84eff5a81b24c128444fa6531fec83f5ec X-17 correction round two closes review R1a/R2a with presence-aware start/total metadata, authoritative zero-total exact absence, and regressions for missing/null metadata and traversal.",
-        "9349423c59c1ef801fdfe3a86316bd4be759799c X-17 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail and cross-build checks; final review remains pending."
+        "9349423c59c1ef801fdfe3a86316bd4be759799c X-17 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail and cross-build checks; final review remains pending.",
+        "984026c04f4d54dc2134db40df4dc24155dd93b2 independent review round three approved X-17 correction round two; missing/null pagination metadata, exact-empty authority and all prior scope regressions pass under race and full guardrails.",
+        "80b48ddf407c5a457168d71055ee5648e0b73557 integrated X-17 round-three approval receipt; C-06 aggregate module matrix, native runtime/bootstrap and X-21 adapter gates remain open."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": "942248df68f0c2027a260513c7b913fe990e7ccf",
-        "findings": [
-          "R1a P1 missing StartIndex permits complete coverage",
-          "R2a P1 missing TotalRecordCount on exact empty lookup permits false absence"
-        ],
-        "round": 2
+        "commit": "984026c04f4d54dc2134db40df4dc24155dd93b2",
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-15",
@@ -3875,7 +3872,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-17-review-round1.md",
         "handoffPath": "docs/execution/handoffs/X-17.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b"
@@ -3883,19 +3880,21 @@
         "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
         "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
         "reviewSourceCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
-        "status": "product_ready",
-        "reviewCommit": "942248df68f0c2027a260513c7b913fe990e7ccf",
-        "reviewIntegrationCommit": "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8",
-        "reviewRound": 2,
+        "status": "done",
+        "reviewCommit": "984026c04f4d54dc2134db40df4dc24155dd93b2",
+        "reviewIntegrationCommit": "80b48ddf407c5a457168d71055ee5648e0b73557",
+        "reviewRound": 3,
         "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8",
         "correctionReviewPath": "docs/execution/handoffs/X-17-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-17-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
+        "correctionStatus": "approved",
         "correctionImplementationCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
-        "correctionHandoffCommit": "9349423c59c1ef801fdfe3a86316bd4be759799c"
+        "correctionHandoffCommit": "9349423c59c1ef801fdfe3a86316bd4be759799c",
+        "correctionReviewCommit": "984026c04f4d54dc2134db40df4dc24155dd93b2",
+        "correctionReviewIntegrationCommit": "80b48ddf407c5a457168d71055ee5648e0b73557"
       },
       "implementationCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
       "handoffCommit": "9349423c59c1ef801fdfe3a86316bd4be759799c",
@@ -3918,6 +3917,15 @@
           "sourceCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
           "receipt": "docs/execution/handoffs/X-17-review-round2.md",
           "integratedCommit": "7f3e8ed12da956a1154bb4ffd202aae5b7e3c8f8"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "984026c04f4d54dc2134db40df4dc24155dd93b2",
+          "status": "approved",
+          "sourceCommit": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
+          "receipt": "docs/execution/handoffs/X-17-review-round3.md",
+          "integratedCommit": "80b48ddf407c5a457168d71055ee5648e0b73557"
         }
       ]
     },
@@ -3970,7 +3978,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-17 correction round two product 4eee8e84eff5a81b24c128444fa6531fec83f5ec using handoff 9349423c59c1ef801fdfe3a86316bd4be759799c; integrate only an approved round-three receipt.",
+  "nextAction": "Dispatch X-18 Seerr client module from the clean X-17 checkpoint; keep C-06 aggregate client matrices, native runtime/bootstrap gates and G-01 Arr write gate open.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
