@@ -3828,14 +3828,21 @@
       "evidence": [
         "dispatched after C-05 generation/CI and X-04 Jellyfin observations passed; owns only clients/jellyfin and its handoff.",
         "f9e0754853e1855af37e61ac96c8bc70a7e017d4 X-17 product commit adds independent Jellyfin OpenAPI 3.1.1 client with read-only system/library/item/provider observations, explicit refresh acceptance, token transport, bounded decoding, typed errors and synthetic fixtures.",
-        "9eb1edadf323fccd3278a30a0f19a765cbf63de9 X-17 handoff records module generation, race/vet/mod-verify, Vacuum, lint, cross-build and root guardrail evidence; aggregate C-06 matrix inclusion remains open."
+        "9eb1edadf323fccd3278a30a0f19a765cbf63de9 X-17 handoff records module generation, race/vet/mod-verify, Vacuum, lint, cross-build and root guardrail evidence; aggregate C-06 matrix inclusion remains open.",
+        "390ada5463f939d7a1b6dacced762c1f05ad873e independent review round one requested changes: P1 incomplete pagination promoted complete and P1 foreign requested IDs accepted as false absence; P2 invalid UTF-8 rewritten into identity and P2 unsupported /Users/Me/Views fallback route.",
+        "7994b04f21d7bcefed70f1601b1406825e908d04 integrated X-17 round-one review receipt; correction is required before approval."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "390ada5463f939d7a1b6dacced762c1f05ad873e",
+        "findings": [
+          "R1 P1 incomplete inventory promoted complete",
+          "R2 P1 foreign requested IDs accepted as false absence",
+          "R3 P2 invalid UTF-8 rewritten into identity",
+          "R4 P2 unsupported current-user fallback route"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -3872,7 +3879,17 @@
         "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
         "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
         "reviewSourceCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
-        "status": "product_ready"
+        "status": "changes_requested",
+        "reviewCommit": "390ada5463f939d7a1b6dacced762c1f05ad873e",
+        "reviewIntegrationCommit": "7994b04f21d7bcefed70f1601b1406825e908d04",
+        "reviewRound": 1,
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "7994b04f21d7bcefed70f1601b1406825e908d04",
+        "correctionReviewPath": "docs/execution/handoffs/X-17-review-round2.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-17-correction-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "assigned"
       },
       "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
       "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
@@ -3927,7 +3944,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-17 Jellyfin product f9e0754853e1855af37e61ac96c8bc70a7e017d4 using handoff 9eb1edadf323fccd3278a30a0f19a765cbf63de9; integrate only an approved review receipt.",
+  "nextAction": "Implement X-17 correction round 1 from 7994b04f21d7bcefed70f1601b1406825e908d04, closing reviewer findings R1-R4; then produce correction handoff and independent round-two review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
