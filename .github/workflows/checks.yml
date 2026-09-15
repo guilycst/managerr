@@ -172,7 +172,7 @@ jobs:
       - name: Validate bundled contract and generated clients
         env:
           GOWORK: off
-        run: ./scripts/check-api.sh
+        run: ./scripts/check-guardrails.sh --fast
 
   lint:
     name: Go lint and architecture
@@ -252,26 +252,61 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
         include:
           - module: root
             directory: .
+            arch: amd64
+          - module: root
+            directory: .
+            arch: arm64
           - module: ui
             directory: ui
+            arch: amd64
+          - module: ui
+            directory: ui
+            arch: arm64
           - module: tools
             directory: tools
+            arch: amd64
+          - module: tools
+            directory: tools
+            arch: arm64
           - module: qBittorrent client
             directory: clients/qbittorrent
+            arch: amd64
+          - module: qBittorrent client
+            directory: clients/qbittorrent
+            arch: arm64
           - module: NZBGet client
             directory: clients/nzbget
+            arch: amd64
+          - module: NZBGet client
+            directory: clients/nzbget
+            arch: arm64
           - module: Sonarr client
             directory: clients/sonarr
+            arch: amd64
+          - module: Sonarr client
+            directory: clients/sonarr
+            arch: arm64
           - module: Radarr client
             directory: clients/radarr
+            arch: amd64
+          - module: Radarr client
+            directory: clients/radarr
+            arch: arm64
           - module: Jellyfin client
             directory: clients/jellyfin
+            arch: amd64
+          - module: Jellyfin client
+            directory: clients/jellyfin
+            arch: arm64
           - module: Seerr client
             directory: clients/seerr
+            arch: amd64
+          - module: Seerr client
+            directory: clients/seerr
+            arch: arm64
     defaults:
       run:
         working-directory: ${{ matrix.directory }}

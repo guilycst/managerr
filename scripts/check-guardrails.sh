@@ -97,6 +97,29 @@ run_cross_builds() {
   done
 }
 
+check_client_api_contracts() {
+  for contract in \
+    clients/qbittorrent/openapi.yaml \
+    clients/sonarr/openapi.yaml \
+    clients/radarr/openapi.yaml \
+    clients/jellyfin/openapi.yaml \
+    clients/seerr/openapi.yaml; do
+    (
+      cd "$repo_dir/tools"
+      GOWORK=off GOPROXY=off GOSUMDB=off \
+        go tool -modfile="$repo_dir/tools/go.mod" github.com/daveshanley/vacuum \
+        lint \
+        --no-update-check \
+        --remote=false \
+        --ruleset "$repo_dir/api/vacuum.yaml" \
+        --fail-severity=warn \
+        --no-banner \
+        --no-style \
+        "$repo_dir/$contract"
+    )
+  done
+}
+
 run_staged_generation() {
   if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "staged generation requires a Git worktree: $repo_dir" >&2
@@ -182,6 +205,7 @@ run_fast() {
   check_module_isolation
   check_staged_generation_identity
   "$repo_dir/scripts/check-api.sh"
+  check_client_api_contracts
   "$repo_dir/scripts/check-lint.sh" --architecture-only
   check_format
 
