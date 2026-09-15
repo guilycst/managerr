@@ -1,0 +1,529 @@
+openapi: 3.1.1
+info:
+  title: Mastarr Radarr v3 compatibility API
+  version: 0.0.1
+  description: |
+    Mastarr-owned, read-only compatibility contract for the Radarr v3 API.
+    It is intentionally narrow and covers the observations needed to
+    reconcile manually downloaded movies: system status, movie catalog,
+    root folders, quality profiles, movie files and the native manual-import
+    preview. Registration and import execution are outside this contract.
+  x-mastarr-compatibility:
+    upstream: Radarr API v3
+    candidateProductVersions: Radarr 3.x
+    contractVersion: 0.0.1
+    readOnly: true
+    evidence: docs/specs/spec-001-media-reconciliation/connectors.md
+servers:
+  - url: https://radarr.invalid/api/v3
+    description: Synthetic compatibility server; deployments provide Config.Endpoint.
+security:
+  - RadarrAPIKey: []
+paths:
+  /system/status:
+    get:
+      tags: [system]
+      operationId: GetSystemStatus
+      summary: Read Radarr status and version
+      responses:
+        '200':
+          description: Radarr system status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /movie:
+    get:
+      tags: [catalog]
+      operationId: ListMovies
+      summary: Read the Radarr movie catalog
+      responses:
+        '200':
+          description: Complete catalog snapshot, bounded by the client
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Movie'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /movie/{movieId}:
+    get:
+      tags: [catalog]
+      operationId: GetMovie
+      summary: Read one movie by native ID
+      parameters:
+        - $ref: '#/components/parameters/MovieID'
+      responses:
+        '200':
+          description: Movie record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movie'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /rootfolder:
+    get:
+      tags: [options]
+      operationId: ListRootFolders
+      summary: Read configured Radarr root folders
+      responses:
+        '200':
+          description: Root folder options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RootFolder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /qualityprofile:
+    get:
+      tags: [options]
+      operationId: ListQualityProfiles
+      summary: Read configured Radarr quality profiles
+      responses:
+        '200':
+          description: Quality profile options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QualityProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /moviefile:
+    get:
+      tags: [movies]
+      operationId: ListMovieFiles
+      summary: Read movie files for one movie
+      parameters:
+        - name: movieId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: Movie-file snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MovieFile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /manualimport:
+    get:
+      tags: [manual-import]
+      operationId: PreviewManualImport
+      summary: Read Radarr's native manual-import preview
+      description: |
+        This endpoint only previews candidate files. It never executes an
+        import. Radarr has two native query modes which must not be combined:
+        downloaded-folder mode supplies folder and may supply downloadId;
+        registered-library mode supplies movieId without folder or
+        downloadId. The handwritten client exposes those modes as distinct
+        request types so a movieId cannot silently change a folder preview
+        into a library scan.
+      parameters:
+        - name: folder
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+        - name: filterExistingFiles
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - name: movieId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: downloadId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        '200':
+          description: Native manual-import candidates and rejection evidence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ManualImportResource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+components:
+  securitySchemes:
+    RadarrAPIKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Radarr API key supplied by the deployment, never logged by Mastarr.
+  parameters:
+    MovieID:
+      name: movieId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  responses:
+    Unauthorized:
+      description: API key missing or rejected
+    Forbidden:
+      description: Upstream permission failure
+    NotFound:
+      description: Native record was not found
+    UpstreamFailure:
+      description: Sanitized upstream failure
+  schemas:
+    SystemStatus:
+      type: object
+      additionalProperties: true
+      required: [version]
+      properties:
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        branch:
+          type: string
+          maxLength: 128
+        appName:
+          type: string
+          maxLength: 128
+        instanceName:
+          type: string
+          maxLength: 256
+        startTime:
+          type: string
+          maxLength: 128
+
+    Movie:
+      type: object
+      additionalProperties: true
+      required: [id, title, path, monitored]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        year:
+          type: integer
+          format: int32
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        monitored:
+          type: boolean
+        hasFile:
+          type: boolean
+        tmdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        imdbId:
+          type: string
+          maxLength: 128
+        movieFileId:
+          type: integer
+          format: int64
+          minimum: 0
+        providerIds:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 256
+        movieFile:
+          $ref: '#/components/schemas/MovieFile'
+
+    MovieFile:
+      type: object
+      additionalProperties: true
+      required: [id, movieId, path, size]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        movieId:
+          type: integer
+          format: int64
+          minimum: 1
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        relativePath:
+          type: string
+          maxLength: 4096
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        dateAdded:
+          type: string
+          maxLength: 128
+        sceneName:
+          type: string
+          maxLength: 1024
+        releaseGroup:
+          type: string
+          maxLength: 512
+        quality:
+          $ref: '#/components/schemas/Quality'
+        languages:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/Language'
+
+    RootFolder:
+      type: object
+      additionalProperties: true
+      required: [id, path]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        name:
+          type: string
+          maxLength: 512
+        accessible:
+          type: boolean
+        freeSpace:
+          type: integer
+          format: int64
+          minimum: 0
+
+    QualityProfile:
+      type: object
+      additionalProperties: true
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 512
+
+    MovieReference:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          maxLength: 1024
+        year:
+          type: integer
+          format: int32
+        tmdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        imdbId:
+          type: string
+          maxLength: 128
+
+    Language:
+      type: object
+      additionalProperties: true
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int32
+          minimum: 0
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        isoCode:
+          type: string
+          maxLength: 32
+
+    Quality:
+      type: object
+      additionalProperties: true
+      properties:
+        quality:
+          type: object
+          additionalProperties: true
+          properties:
+            id:
+              type: integer
+              format: int32
+            name:
+              type: string
+              maxLength: 256
+            source:
+              type: string
+              maxLength: 64
+            resolution:
+              type: integer
+              format: int32
+        revision:
+          type: object
+          additionalProperties: true
+          properties:
+            version:
+              type: integer
+              format: int32
+            real:
+              type: integer
+              format: int32
+            isRepack:
+              type: boolean
+
+    ImportRejection:
+      type: object
+      additionalProperties: true
+      description: Radarr native rejection type with reason; message is retained as an older compatibility alias.
+      required: [type]
+      properties:
+        type:
+          type: string
+          minLength: 1
+          maxLength: 256
+        reason:
+          type: string
+          maxLength: 2048
+        message:
+          type: string
+          maxLength: 2048
+
+    ManualImportResource:
+      type: object
+      additionalProperties: true
+      required: [id, path, relativePath, name, size]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        relativePath:
+          type: string
+          maxLength: 4096
+        folderName:
+          type: string
+          maxLength: 4096
+        name:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        movie:
+          $ref: '#/components/schemas/MovieReference'
+        movieFileId:
+          type: integer
+          format: int64
+          minimum: 0
+        releaseGroup:
+          type: string
+          maxLength: 512
+        quality:
+          $ref: '#/components/schemas/Quality'
+        languages:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/Language'
+        downloadId:
+          type: string
+          maxLength: 512
+        customFormatScore:
+          type: integer
+          format: int32
+        indexerFlags:
+          type: integer
+          format: int32
+        rejections:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/ImportRejection'
