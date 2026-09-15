@@ -21,6 +21,10 @@ ui
 tools
 clients/qbittorrent
 clients/nzbget
+clients/sonarr
+clients/radarr
+clients/jellyfin
+clients/seerr
 "
 
 check_format() {
@@ -40,6 +44,27 @@ check_format() {
   git -C "$repo_dir" diff --cached --check
 }
 
+check_module_isolation() {
+  work_files=$(find "$repo_dir" -path "$repo_dir/.git" -prune -o \( -name go.work -o -name go.work.sum \) -print)
+  if [ -n "$work_files" ]; then
+    echo "local Go workspace files are not allowed:" >&2
+    echo "$work_files" >&2
+    exit 1
+  fi
+
+  for module_dir in $module_dirs; do
+    module_file="$repo_dir/$module_dir/go.mod"
+    if [ ! -f "$module_file" ]; then
+      echo "module manifest is missing: $module_file" >&2
+      exit 1
+    fi
+    if grep -Eq '^[[:space:]]*replace([[:space:]]|\()' "$module_file"; then
+      echo "local replace directives are not allowed: $module_file" >&2
+      exit 1
+    fi
+  done
+}
+
 run_module_checks() {
   module_dir=$1
   if [ ! -f "$repo_dir/$module_dir/go.mod" ]; then
@@ -54,9 +79,22 @@ run_module_checks() {
       exit 1
     fi
     GOWORK=off go test -mod=readonly $packages
+    GOWORK=off go test -race -mod=readonly $packages
     GOWORK=off go vet -mod=readonly $packages
     GOWORK=off go mod verify
   )
+}
+
+run_cross_builds() {
+  for module_dir in $module_dirs; do
+    (
+      cd "$repo_dir/$module_dir"
+      for architecture in amd64 arm64; do
+        GOOS=linux GOARCH="$architecture" CGO_ENABLED=0 GOWORK=off \
+          go build -mod=readonly ./...
+      done
+    )
+  done
 }
 
 run_staged_generation() {
@@ -141,6 +179,7 @@ check_staged_generation_identity() {
 }
 
 run_fast() {
+  check_module_isolation
   check_staged_generation_identity
   "$repo_dir/scripts/check-api.sh"
   "$repo_dir/scripts/check-lint.sh" --architecture-only
@@ -173,6 +212,7 @@ if [ "$mode" = ci ]; then
   for module_dir in $module_dirs; do
     run_module_checks "$module_dir"
   done
+  run_cross_builds
 fi
 
 echo "guardrail checks passed ($mode)"

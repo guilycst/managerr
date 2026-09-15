@@ -123,7 +123,7 @@ bundle_openapi() {
 
   (
     cd "$tools_dir"
-    GOWORK=off go run ./internal/openapi-bundle \
+    GOWORK=off GOPROXY=off GOSUMDB=off go run ./internal/openapi-bundle \
       --input "$repo_dir/api/fragments" \
       --output "$bundle_candidate_output"
   )
@@ -156,7 +156,7 @@ generate_oapi() {
   make_config "$oapi_source_config" "$oapi_config" "$oapi_candidate_output"
   (
     cd "$tools_dir"
-    GOWORK=off go tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
+    GOWORK=off GOPROXY=off GOSUMDB=off go tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
       -config "$oapi_config" "$oapi_contract"
   )
 
@@ -186,6 +186,17 @@ generate_oapi \
   "$repo_dir/ui/internal/api/generated/client.gen.go" \
   "$repo_dir/api/openapi.yaml"
 
+# Every standalone upstream client has its own compatibility contract and
+# generated package. Keep the root generation entrypoint authoritative so CI,
+# the hook and offline local checks validate the same six-client matrix.
+for client_name in sonarr radarr jellyfin seerr; do
+  generate_oapi \
+    "$tmp_dir/$client_name-oapi-codegen.yaml" \
+    "$repo_dir/clients/$client_name/oapi-codegen.yaml" \
+    "$repo_dir/clients/$client_name/internal/generated/client.gen.go" \
+    "$repo_dir/clients/$client_name/openapi.yaml"
+done
+
 # The standalone qBittorrent module keeps raw generated transport under its
 # module-internal package. Keep the path fixed so a missing artifact cannot
 # recreate the unsafe public generated package.
@@ -207,7 +218,7 @@ generate_nzbget() {
 
   (
     cd "$tools_dir"
-    GOWORK=off go run -mod=readonly ./internal/nzbgetgen \
+    GOWORK=off GOPROXY=off GOSUMDB=off go run -mod=readonly ./internal/nzbgetgen \
       -input "$repo_dir/clients/nzbget/openrpc.json" \
       -output "$nzbget_candidate_output"
   )
@@ -239,7 +250,7 @@ generate_envdoc() {
   (
     cd "$repo_dir/internal/bootstrap"
     GOFILE=environment.go GOLINE="$envdoc_line" GOWORK=off \
-      go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc \
+      GOPROXY=off GOSUMDB=off go tool -modfile=../../tools/go.mod github.com/g4s8/envdoc \
       -output "$envdoc_candidate_output" -types=Environment
   )
   awk '{ lines[NR] = $0 } END { n = NR; for (; n > 0 && lines[n] == ""; n--) {} for (i = 1; i <= n; i++) print lines[i] }' \
@@ -265,7 +276,7 @@ generate_sqlc() {
   if [ "$mode" = write ]; then
     (
       cd "$tools_dir"
-      GOWORK=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate \
+      GOWORK=off GOPROXY=off GOSUMDB=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate \
         -f "$repo_dir/sqlc.yaml"
     )
     return
@@ -281,7 +292,7 @@ generate_sqlc() {
   cp "$repo_dir/internal/storage/query.sql" "$sqlc_candidate_root/internal/storage/query.sql"
   (
     cd "$tools_dir"
-    GOWORK=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate \
+    GOWORK=off GOPROXY=off GOSUMDB=off go tool github.com/sqlc-dev/sqlc/cmd/sqlc generate \
       -f "$sqlc_candidate_root/sqlc.yaml"
   )
 

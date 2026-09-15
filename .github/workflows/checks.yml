@@ -26,6 +26,14 @@ jobs:
             directory: clients/qbittorrent
           - module: NZBGet client
             directory: clients/nzbget
+          - module: Sonarr client
+            directory: clients/sonarr
+          - module: Radarr client
+            directory: clients/radarr
+          - module: Jellyfin client
+            directory: clients/jellyfin
+          - module: Seerr client
+            directory: clients/seerr
     defaults:
       run:
         working-directory: ${{ matrix.directory }}
@@ -44,6 +52,10 @@ jobs:
             tools/go.sum
             clients/qbittorrent/go.sum
             clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
 
       - name: Download modules
         env:
@@ -65,6 +77,17 @@ jobs:
             exit 1
           fi
           go test $packages
+
+      - name: Race test
+        env:
+          GOWORK: off
+        run: |
+          packages=$(go list ./...)
+          if [ -z "$packages" ]; then
+            echo "module has no discoverable packages" >&2
+            exit 1
+          fi
+          go test -race $packages
 
       - name: Vet
         env:
@@ -96,6 +119,10 @@ jobs:
             tools/go.sum
             clients/qbittorrent/go.sum
             clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
 
       - name: Check generated artifacts
         env:
@@ -103,6 +130,10 @@ jobs:
         run: |
           (cd tools && go mod download)
           ./scripts/check-guardrails.sh --generation
+          (cd clients/qbittorrent && ./check-generation.sh)
+          for directory in clients/nzbget clients/sonarr clients/radarr clients/jellyfin clients/seerr; do
+            (cd "$directory" && GOPROXY=off GOSUMDB=off ./check-generation.sh)
+          done
 
       - name: Check for changes
         run: git diff --exit-code
@@ -125,12 +156,16 @@ jobs:
             tools/go.sum
             clients/qbittorrent/go.sum
             clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+          for directory in . ui tools clients/qbittorrent clients/nzbget clients/sonarr clients/radarr clients/jellyfin clients/seerr; do
             (cd "$directory" && go mod download)
           done
 
@@ -157,12 +192,16 @@ jobs:
             tools/go.sum
             clients/qbittorrent/go.sum
             clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+          for directory in . ui tools clients/qbittorrent clients/nzbget clients/sonarr clients/radarr clients/jellyfin clients/seerr; do
             (cd "$directory" && go mod download)
           done
 
@@ -189,12 +228,16 @@ jobs:
             tools/go.sum
             clients/qbittorrent/go.sum
             clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
 
       - name: Download modules
         env:
           GOWORK: off
         run: |
-          for directory in . ui tools clients/qbittorrent clients/nzbget; do
+          for directory in . ui tools clients/qbittorrent clients/nzbget clients/sonarr clients/radarr clients/jellyfin clients/seerr; do
             (cd "$directory" && go mod download)
           done
 
@@ -202,3 +245,65 @@ jobs:
         env:
           GOWORK: off
         run: ./scripts/check-guardrails.sh --ci
+
+  cross-build:
+    name: Linux CGO-free (${{ matrix.module }}, ${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - module: root
+            directory: .
+          - module: ui
+            directory: ui
+          - module: tools
+            directory: tools
+          - module: qBittorrent client
+            directory: clients/qbittorrent
+          - module: NZBGet client
+            directory: clients/nzbget
+          - module: Sonarr client
+            directory: clients/sonarr
+          - module: Radarr client
+            directory: clients/radarr
+          - module: Jellyfin client
+            directory: clients/jellyfin
+          - module: Seerr client
+            directory: clients/seerr
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            ui/go.sum
+            tools/go.sum
+            clients/qbittorrent/go.sum
+            clients/nzbget/go.sum
+            clients/sonarr/go.sum
+            clients/radarr/go.sum
+            clients/jellyfin/go.sum
+            clients/seerr/go.sum
+
+      - name: Download modules
+        env:
+          GOWORK: off
+        run: go mod download
+
+      - name: Build Linux CGO-free
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          GOWORK: off
+        run: go build -mod=readonly ./...

@@ -21,6 +21,10 @@ ui
 tools
 clients/qbittorrent
 clients/nzbget
+clients/sonarr
+clients/radarr
+clients/jellyfin
+clients/seerr
 "
 
 run_lint() {
