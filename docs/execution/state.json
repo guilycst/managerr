@@ -15,7 +15,9 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [],
+  "activeImplementationTasks": [
+    "C-06"
+  ],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -4073,15 +4075,61 @@
       "review": null
     },
     "C-06": {
-      "status": "planned",
-      "owner": null,
-      "baseSha": null,
+      "status": "in_progress",
+      "owner": "/root/x05_implementer",
+      "baseSha": "fd116ef64458910c2fb0d0f2dc53914496cc13eb",
       "integratedSha": null,
-      "evidence": [],
-      "review": null
+      "evidence": [
+        "dispatched after C-05 and X-15 through X-18 all passed; owns only aggregate generation/guardrail/lint/CI paths and its handoff."
+      ],
+      "review": {
+        "status": "pending",
+        "decision": null,
+        "reviewer": "/root/x05_reviewer",
+        "commit": null,
+        "findings": [],
+        "round": 1
+      },
+      "dispatch": {
+        "assignedAt": "2026-09-15",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "role": "implementer",
+        "baseSha": "fd116ef64458910c2fb0d0f2dc53914496cc13eb",
+        "ownedPaths": [
+          "scripts/generate.sh",
+          "scripts/check-guardrails.sh",
+          "scripts/check-lint.sh",
+          ".github/workflows/checks.yml",
+          "docs/execution/handoffs/C-06.md"
+        ],
+        "checkout": "shared main",
+        "expectedChecks": [
+          "A-43",
+          "A-45",
+          "deterministic generation for all six client modules",
+          "GOWORK=off tests/race/vet/mod verify and pinned lint per client module",
+          "Vacuum and generation reproducibility for all client contracts",
+          "architecture import-direction check includes all clients",
+          "Linux amd64/arm64 CGO-free compile for all clients",
+          "CI matrix has root, UI, tools and six standalone client modules without go.work/local replace",
+          "root guardrails fast and CI checks",
+          "planning validation and git diff checks"
+        ],
+        "reviewPath": "docs/execution/handoffs/C-06-review-round1.md",
+        "handoffPath": "docs/execution/handoffs/C-06.md",
+        "nextReviewer": "/root/x05_reviewer",
+        "dependencyCommits": {
+          "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
+          "X-15": "828e0084f2d88f86050db5912412352c1a363bc1",
+          "X-16": "1ef0c07af604e7e63d88bc68955c8097479f7e82",
+          "X-17": "4eee8e84eff5a81b24c128444fa6531fec83f5ec",
+          "X-18": "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1"
+        }
+      }
     }
   },
-  "nextAction": "Dispatch C-06 to extend generation, guardrails, architecture, lint, tests, vet, module verification, cross-build and CI matrices across all six independent client modules; keep X-19 through X-22 blocked until the aggregate matrix and bootstrap gate pass.",
+  "nextAction": "Implement C-06 from base fd116ef64458910c2fb0d0f2dc53914496cc13eb; extend aggregate generation/guardrail/lint/architecture/module and CI matrices across all six clients, then produce handoff for independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
