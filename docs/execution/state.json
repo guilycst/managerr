@@ -2306,14 +2306,16 @@
     },
     "W-01": {
       "status": "in_progress",
-      "owner": "/root/d02_implementer",
-      "baseSha": "8c7e62d5e9ead37c93053dd83bbae01ea7af04bf",
+      "owner": "/root/x05_implementer",
+      "baseSha": "bc69ea2ee21823c5a484f545356306bf5f1f5dc1",
       "integratedSha": null,
       "evidence": [
         "dispatched from 8c7e62d5e9ead37c93053dd83bbae01ea7af04bf after approved dependencies F-03, X-12, X-13, X-03, and X-04.",
         "W-01 owns internal/reconciliation/ and internal/planning/ and implements per-instance evidence aggregation, bounded exact manifests, semantic desired predicates, conflicts, and immutable revisions bound to meaningful config/source identity.",
         "Initial W-01 dispatch errored before product work because the selected model was at capacity; no product or handoff files changed. Retry is queued with the same owner, base, and paths.",
-        "The queued retry also errored before product work because the selected model remained at capacity; no product or handoff files changed. Rerouting the unchanged W-01 scope to /root/x05_implementer from the current clean checkpoint."
+        "The queued retry also errored before product work because the selected model remained at capacity; no product or handoff files changed. Rerouting the unchanged W-01 scope to /root/x05_implementer from the current clean checkpoint.",
+        "3c4067d4d2562fbe3740a252bfd14f411824ed77 W-01 product commit: per-instance evidence aggregation, bounded manifests, semantic predicates, conflict detection, and immutable plan revisions with focused synthetic tests.",
+        "df02e766ebe1d1919b5faa95a08b5f9da23738c3 W-01 handoff records exact acceptance evidence and all requested checks passed; G-01 remains open."
       ],
       "review": {
         "status": "pending",
@@ -2321,7 +2323,7 @@
         "reviewer": "/root/x05_reviewer",
         "commit": null,
         "findings": [],
-        "round": 0
+        "round": 1
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2375,12 +2377,20 @@
         },
         "rerouteAttempt": {
           "owner": "/root/x05_implementer",
-          "status": "queued",
+          "status": "product_ready",
           "baseSha": "9f5094584b53b02862c775163d2a9a0a6fc1b6ce",
           "dispatchCheckpoint": "9f5094584b53b02862c775163d2a9a0a6fc1b6ce",
-          "reviewer": "/root/x05_reviewer"
-        }
-      }
+          "reviewer": "/root/x05_reviewer",
+          "productCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+          "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3"
+        },
+        "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+        "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
+        "reviewRound": 1
+      },
+      "implementationCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
+      "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3",
+      "reviewSourceCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77"
     },
     "W-02": {
       "status": "done",
@@ -3543,7 +3553,7 @@
       ]
     }
   },
-  "nextAction": "Complete the recorded W-01 reroute from 9f5094584b53b02862c775163d2a9a0a6fc1b6ce, review it independently, then continue only with dependency-eligible lanes.",
+  "nextAction": "Independently review W-01 source 3c4067d4d2562fbe3740a252bfd14f411824ed77 using handoff df02e766ebe1d1919b5faa95a08b5f9da23738c3; integrate only an approved receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
