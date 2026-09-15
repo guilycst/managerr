@@ -32,10 +32,16 @@ an incomplete or multi-page traversal as a complete immutable snapshot. Use
 `ListMedia`/`ListRequests` for one page, their authenticated `NextCursor` for
 continuation, or `ListAllMedia`/`ListAllRequests` for bounded traversal.
 
-Native status numbers and their normalized names are both retained. A status
-of `partially_available` remains distinct from `available`, request status,
-and Jellyfin library availability. Missing status, nested identity or page
-metadata remains evidence of uncertainty.
+Native status numbers and their normalized names are both retained. The
+`NativeStatusKnown` fields mean that Seerr supplied a numeric value; they do
+not mean that the value is a status this client recognizes. The separate
+`Availability.Known` field is true only for a recognized native status. Seerr
+`UNKNOWN` (currently `1`), a future status value and a missing status therefore
+remain unknown availability, never known-unavailable media. A recognized
+`partially_available` status remains distinct from `available`, request
+status and Jellyfin library availability. Missing or unbound Arr service
+relationships remain evidence with no normal tracked relationship, and
+malformed service relationship or `serviceErrors` evidence fails closed.
 
 This v0.0.1 client is read-only. It has no request creation, approval,
 cancellation, deletion, search, command, or discovery method. Seerr writes

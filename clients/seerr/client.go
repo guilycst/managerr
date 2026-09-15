@@ -374,6 +374,11 @@ type ServiceRelationship struct {
 
 // AvailabilityObservation is Seerr's media availability evidence. It is
 // deliberately separate from request status and Jellyfin playability.
+// Known means that the native status was present and recognized by this
+// compatibility contract. Native UNKNOWN, a future status value, and a
+// missing status are therefore unknown availability, rather than known
+// unavailable media. Available and PartiallyAvailable are meaningful only
+// when Known is true.
 type AvailabilityObservation struct {
 	Known              bool
 	Available          bool
@@ -385,7 +390,9 @@ type AvailabilityObservation struct {
 }
 
 // MediaStatus is Seerr's native media status enum. Unknown future values stay
-// visible through NativeStatus and map to "unknown".
+// visible through NativeStatus and map to "unknown". NativeStatusKnown on an
+// observation reports field presence; Availability.Known additionally
+// requires a recognized enum value.
 type MediaStatus int
 
 const (
@@ -539,9 +546,10 @@ type RequestObservation struct {
 // ServiceError preserves typed serviceErrors evidence without exposing
 // arbitrary upstream JSON.
 type ServiceError struct {
-	Kind string
-	ID   int64
-	Name string
+	Kind    string
+	ID      int64
+	IDKnown bool
+	Name    string
 }
 
 // ListMedia reads one bounded page from Seerr's /media catalog.
@@ -1035,7 +1043,9 @@ func (client *Client) normalizeMedia(value generated.Media) (MediaObservation, [
 			result.Seasons = append(result.Seasons, mapped)
 		}
 	}
-	result.ServiceRelationships = serviceRelationships(value, false)
+	serviceValues, serviceReasons := serviceRelationships(value, false)
+	result.ServiceRelationships = serviceValues
+	reasons = append(reasons, serviceReasons...)
 	result.JellyfinMediaID = optionalString(value.JellyfinMediaId, maxTextChars, &reasons, "jellyfin_media_id")
 	result.JellyfinMediaID4K = optionalString(value.JellyfinMediaId4k, maxTextChars, &reasons, "jellyfin_media_id_4k")
 	result.RatingKey = optionalString(value.RatingKey, maxTextChars, &reasons, "rating_key")
@@ -1150,27 +1160,34 @@ func (client *Client) normalizeRequest(value generated.Request) (RequestObservat
 }
 
 func normalizeAvailability(raw *int32, now time.Time) (int, bool, string, AvailabilityObservation) {
-	status, known, name := normalizeStatus(raw)
-	availability := AvailabilityObservation{Known: known, NativeStatus: status, NativeStatusName: name, ObservedAt: now}
-	if !known {
+	status, present, name := normalizeStatus(raw)
+	availability := AvailabilityObservation{NativeStatus: status, NativeStatusName: name, ObservedAt: now}
+	if !present {
 		availability.Reason = "native_media_status_missing"
-		return status, known, name, availability
+		return status, present, name, availability
 	}
 	switch MediaStatus(status) {
-	case MediaStatusAvailable:
-		availability.Available = true
+	case MediaStatusUnknown:
+		availability.Reason = "native_media_status_unknown"
+		return status, present, name, availability
+	case MediaStatusPending, MediaStatusProcessing, MediaStatusBlocklisted, MediaStatusDeleted:
+		availability.Known = true
 	case MediaStatusPartiallyAvailable:
+		availability.Known = true
 		availability.PartiallyAvailable = true
-	case MediaStatusDeleted:
-		availability.Reason = "native_media_status_deleted"
+	case MediaStatusAvailable:
+		availability.Known = true
+		availability.Available = true
 	default:
-		if name == "unknown" {
-			availability.Reason = "native_media_status_unknown"
-		} else {
-			availability.Reason = "native_media_status_not_available"
-		}
+		availability.Reason = "native_media_status_unknown"
+		return status, present, name, availability
 	}
-	return status, known, name, availability
+	if MediaStatus(status) == MediaStatusDeleted {
+		availability.Reason = "native_media_status_deleted"
+	} else if !availability.Available && !availability.PartiallyAvailable {
+		availability.Reason = "native_media_status_not_available"
+	}
+	return status, present, name, availability
 }
 
 func normalizeStatus(raw *int32) (int, bool, string) {
@@ -1235,15 +1252,56 @@ func normalizeSeason(value generated.Season, now time.Time) (SeasonObservation, 
 	return result, ""
 }
 
-func serviceRelationships(value generated.Media, is4K bool) []ServiceRelationship {
+func serviceRelationships(value generated.Media, is4K bool) ([]ServiceRelationship, []string) {
 	result := make([]ServiceRelationship, 0, 2)
-	if value.ServiceId != nil || value.ExternalServiceId != nil {
-		result = append(result, ServiceRelationship{Kind: serviceKind(value.MediaType), ServiceID: optionalInt64(value.ServiceId), ExternalID: optionalInt64(value.ExternalServiceId), Slug: optionalStringValue(value.ExternalServiceSlug), Is4K: is4K})
+	var reasons []string
+	appendRelationship := func(serviceID, externalID *int64, slug *string, fourK bool) {
+		if serviceID == nil && externalID == nil && slug == nil {
+			return
+		}
+		kind := serviceKind(value.MediaType)
+		if kind == "unknown" {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "kind_unknown"))
+			return
+		}
+		if serviceID != nil && *serviceID < 0 {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "service_id_invalid"))
+			return
+		}
+		if externalID != nil && *externalID < 0 {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "external_id_invalid"))
+			return
+		}
+		if slug != nil && !validBoundedText(*slug, maxProviderChars, false) {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "slug_invalid"))
+			return
+		}
+		// Seerr uses zero as an unbound service sentinel. Do not turn that
+		// sentinel into a normal Arr relationship or combine it with a
+		// positive identity that would look tracked to a caller.
+		if serviceID != nil && *serviceID == 0 || externalID != nil && *externalID == 0 {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "unbound"))
+			return
+		}
+		if serviceID == nil || externalID == nil || *serviceID == 0 || *externalID == 0 {
+			reasons = append(reasons, serviceRelationshipReason(fourK, "identity_missing"))
+			return
+		}
+		result = append(result, ServiceRelationship{
+			Kind: kind, ServiceID: optionalInt64(serviceID), ExternalID: optionalInt64(externalID),
+			Slug: optionalStringValue(slug), Is4K: fourK,
+		})
 	}
-	if value.ServiceId4k != nil || value.ExternalServiceId4k != nil {
-		result = append(result, ServiceRelationship{Kind: serviceKind(value.MediaType), ServiceID: optionalInt64(value.ServiceId4k), ExternalID: optionalInt64(value.ExternalServiceId4k), Slug: optionalStringValue(value.ExternalServiceSlug4k), Is4K: true})
+	appendRelationship(value.ServiceId, value.ExternalServiceId, value.ExternalServiceSlug, is4K)
+	appendRelationship(value.ServiceId4k, value.ExternalServiceId4k, value.ExternalServiceSlug4k, true)
+	return result, reasons
+}
+
+func serviceRelationshipReason(is4K bool, reason string) string {
+	if is4K {
+		return "service_relationship_4k_" + reason
 	}
-	return result
+	return "service_relationship_" + reason
 }
 
 func serviceKind(value *string) string {
@@ -1436,6 +1494,9 @@ func normalizeServiceErrors(raw json.RawMessage) ([]ServiceError, error) {
 	if values == nil {
 		return nil, errors.New("Seerr serviceErrors object is invalid")
 	}
+	if len(values) > maxNestedItems {
+		return nil, errors.New("Seerr serviceErrors kind bound exceeded")
+	}
 	kinds := make([]string, 0, len(values))
 	for kind := range values {
 		kinds = append(kinds, kind)
@@ -1443,24 +1504,44 @@ func normalizeServiceErrors(raw json.RawMessage) ([]ServiceError, error) {
 	sort.Strings(kinds)
 	result := make([]ServiceError, 0)
 	for _, kind := range kinds {
-		if !validBoundedText(kind, 128, true) {
-			continue
+		if !validBoundedText(kind, 128, false) || strings.TrimSpace(kind) != kind || !supportedServiceKind(kind) {
+			return nil, errors.New("Seerr serviceErrors kind is invalid")
+		}
+		if len(values[kind]) > maxNestedItems-len(result) {
+			return nil, errors.New("Seerr serviceErrors record bound exceeded")
 		}
 		for _, value := range values[kind] {
-			if len(result) >= maxNestedItems {
-				return result, nil
+			item := ServiceError{Kind: strings.ToLower(strings.TrimSpace(kind))}
+			if value.Id != nil {
+				if *value.Id < 0 {
+					return nil, errors.New("Seerr serviceErrors id is invalid")
+				}
+				if *value.Id > 0 {
+					item.ID, item.IDKnown = *value.Id, true
+				}
 			}
-			item := ServiceError{Kind: kind}
-			if value.Id != nil && *value.Id >= 0 {
-				item.ID = *value.Id
-			}
-			if value.Name != nil && validBoundedText(*value.Name, maxTextChars, false) {
+			if value.Name != nil {
+				if !validBoundedText(*value.Name, maxTextChars, false) {
+					return nil, errors.New("Seerr serviceErrors name is invalid")
+				}
 				item.Name = *value.Name
+			}
+			if !item.IDKnown && item.Name == "" {
+				return nil, errors.New("Seerr serviceErrors record has no identity")
 			}
 			result = append(result, item)
 		}
 	}
 	return result, nil
+}
+
+func supportedServiceKind(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "radarr", "sonarr":
+		return true
+	default:
+		return false
+	}
 }
 
 func (client *Client) get(ctx context.Context, operation, resource string, query url.Values) ([]byte, error) {
@@ -1501,6 +1582,9 @@ func (client *Client) request(ctx context.Context, operation, resource string, q
 		if ctxErr := requestContext.Err(); ctxErr != nil {
 			return nil, 0, ctxErr
 		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, 0, err
+		}
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
 		}
@@ -1509,6 +1593,12 @@ func (client *Client) request(ctx context.Context, operation, resource string, q
 	defer response.Body.Close()
 	body, err := readBounded(response.Body, client.maxResponseBytes)
 	if err != nil {
+		if ctxErr := requestContext.Err(); ctxErr != nil {
+			return nil, response.StatusCode, ctxErr
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, response.StatusCode, err
+		}
 		if errors.Is(err, errResponseTooLarge) {
 			return nil, response.StatusCode, UpstreamError{Code: ErrorResponseTooLarge, Operation: operation, Status: response.StatusCode}
 		}
@@ -1522,9 +1612,6 @@ func (client *Client) requestContext(ctx context.Context) (context.Context, cont
 		ctx = context.Background()
 	}
 	if client.requestTimeout <= 0 {
-		return ctx, func() {}
-	}
-	if _, hasDeadline := ctx.Deadline(); hasDeadline {
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, client.requestTimeout)
@@ -1614,7 +1701,7 @@ func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 	}
 	body, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
-		return nil, errors.New("response body could not be read")
+		return nil, err
 	}
 	if int64(len(body)) > maxBytes {
 		return nil, errResponseTooLarge
