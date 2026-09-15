@@ -1,0 +1,410 @@
+openapi: 3.1.1
+info:
+  title: Mastarr Seerr compatibility API
+  version: 0.0.1
+  description: |
+    Mastarr-owned, read-only compatibility contract for the Seerr media and
+    request catalog. The contract intentionally excludes request creation,
+    approval, cancellation, search and discovery routes. Offset pagination is
+    retained as native evidence; a page is not an immutable snapshot.
+  x-mastarr-compatibility:
+    upstream: Seerr HTTP API
+    candidateProductVersions: Seerr 2.x and compatible Overseerr releases
+    contractVersion: 0.0.1
+    readOnly: true
+    pagination: offset-with-pageInfo
+    evidence: docs/specs/spec-001-media-reconciliation/connectors.md
+servers:
+  - url: https://seerr.invalid
+    description: Synthetic compatibility server; deployments provide Config.Endpoint.
+security:
+  - SeerrAPIKey: []
+  - SeerrBearer: []
+paths:
+  /api/v1/status:
+    get:
+      tags: [system]
+      operationId: GetStatus
+      summary: Read Seerr status and version
+      responses:
+        '200':
+          description: Seerr status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v1/media:
+    get:
+      tags: [media]
+      operationId: ListMedia
+      summary: Read one bounded page of Seerr media records
+      description: |
+        Seerr uses take and skip with a pageInfo envelope. Results preserve
+        native media status, provider IDs, Arr service relationships, nested
+        requests and independent availability evidence.
+      parameters:
+        - $ref: '#/components/parameters/Take'
+        - $ref: '#/components/parameters/Skip'
+      responses:
+        '200':
+          description: Native media page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+  /api/v1/request:
+    get:
+      tags: [requests]
+      operationId: ListRequests
+      summary: Read one bounded page of Seerr requests
+      description: |
+        Request status and nested media availability are independent native
+        observations. serviceErrors remain typed evidence and do not become
+        successful or empty service results.
+      parameters:
+        - $ref: '#/components/parameters/Take'
+        - $ref: '#/components/parameters/Skip'
+      responses:
+        '200':
+          description: Native request page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
+components:
+  securitySchemes:
+    SeerrAPIKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Seerr API key supplied by the deployment and never logged by Mastarr.
+    SeerrBearer:
+      type: http
+      scheme: bearer
+      description: Bearer token supplied by the deployment and never logged by Mastarr.
+  parameters:
+    Take:
+      name: take
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+    Skip:
+      name: skip
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+  responses:
+    Unauthorized:
+      description: Authentication was missing or rejected.
+    Forbidden:
+      description: The configured identity lacks permission for this route.
+    UpstreamFailure:
+      description: Sanitized upstream failure; response details are not exposed.
+  schemas:
+    Status:
+      type: object
+      additionalProperties: true
+      required: [version]
+      properties:
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        commitTag:
+          type: string
+          maxLength: 128
+        commit:
+          type: string
+          maxLength: 128
+
+    PageInfo:
+      type: object
+      additionalProperties: true
+      description: |
+        Native page metadata. Fields are optional in this compatibility model
+        so the client can preserve incomplete evidence without defaulting it
+        to a complete zero-valued page.
+      properties:
+        pages:
+          type: integer
+          format: int32
+          minimum: 0
+        pageSize:
+          type: integer
+          format: int32
+          minimum: 0
+        results:
+          type: integer
+          format: int64
+          minimum: 0
+        page:
+          type: integer
+          format: int32
+          minimum: 0
+
+    MediaPage:
+      type: object
+      additionalProperties: true
+      required: [pageInfo, results]
+      properties:
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+        results:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Media'
+
+    RequestPage:
+      type: object
+      additionalProperties: true
+      required: [pageInfo, results]
+      properties:
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+        results:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Request'
+        serviceErrors:
+          type: object
+          additionalProperties:
+            type: array
+            maxItems: 512
+            items:
+              $ref: '#/components/schemas/ServiceError'
+
+    Media:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        mediaType:
+          type: string
+          maxLength: 64
+        tmdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        tvdbId:
+          type: integer
+          format: int64
+          minimum: 0
+        imdbId:
+          type: string
+          maxLength: 256
+        status:
+          type: integer
+          format: int32
+          minimum: 0
+        status4k:
+          type: integer
+          format: int32
+          minimum: 0
+        requests:
+          type: array
+          maxItems: 512
+          items:
+            $ref: '#/components/schemas/RequestSummary'
+        seasons:
+          type: array
+          maxItems: 512
+          items:
+            $ref: '#/components/schemas/Season'
+        serviceId:
+          type: integer
+          format: int64
+          minimum: 0
+        serviceId4k:
+          type: integer
+          format: int64
+          minimum: 0
+        externalServiceId:
+          type: integer
+          format: int64
+          minimum: 0
+        externalServiceId4k:
+          type: integer
+          format: int64
+          minimum: 0
+        externalServiceSlug:
+          type: string
+          maxLength: 256
+        externalServiceSlug4k:
+          type: string
+          maxLength: 256
+        jellyfinMediaId:
+          type: string
+          maxLength: 256
+        jellyfinMediaId4k:
+          type: string
+          maxLength: 256
+        ratingKey:
+          type: string
+          maxLength: 256
+        ratingKey4k:
+          type: string
+          maxLength: 256
+        mediaAddedAt:
+          type: string
+          maxLength: 128
+        createdAt:
+          type: string
+          maxLength: 128
+        updatedAt:
+          type: string
+          maxLength: 128
+
+    Request:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: integer
+          format: int32
+          minimum: 0
+        media:
+          $ref: '#/components/schemas/Media'
+        type:
+          type: string
+          maxLength: 64
+        seasonCount:
+          type: integer
+          format: int32
+          minimum: 0
+        seasons:
+          type: array
+          maxItems: 512
+          items:
+            $ref: '#/components/schemas/Season'
+        is4k:
+          type: boolean
+        serverId:
+          type: integer
+          format: int64
+          minimum: 0
+        profileId:
+          type: integer
+          format: int64
+          minimum: 0
+        rootFolder:
+          type: string
+          maxLength: 4096
+        languageProfileId:
+          type: integer
+          format: int64
+          minimum: 0
+        tags:
+          type: array
+          maxItems: 256
+          items:
+            type: integer
+            format: int64
+            minimum: 0
+        isAutoRequest:
+          type: boolean
+        ignoreQuota:
+          type: boolean
+        createdAt:
+          type: string
+          maxLength: 128
+        updatedAt:
+          type: string
+          maxLength: 128
+
+    RequestSummary:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        status:
+          type: integer
+          format: int32
+          minimum: 0
+        type:
+          type: string
+          maxLength: 64
+        is4k:
+          type: boolean
+        createdAt:
+          type: string
+          maxLength: 128
+        updatedAt:
+          type: string
+          maxLength: 128
+
+    Season:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        seasonNumber:
+          type: integer
+          format: int32
+          minimum: 0
+        status:
+          type: integer
+          format: int32
+          minimum: 0
+        status4k:
+          type: integer
+          format: int32
+          minimum: 0
+
+    ServiceError:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+          maxLength: 256
