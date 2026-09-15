@@ -3719,14 +3719,21 @@
       "evidence": [
         "dispatched after C-05 and X-03 passed; owns only clients/radarr and its handoff.",
         "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67 X-16 product adds independent Radarr module with OpenAPI 3.1.1 contract, generated client, typed transport/errors, fixtures and read-only catalog/options/file/preview methods.",
-        "6ce4943f920971f82df661f3dcc31dbc648e2a66 X-16 handoff records module checks, cross-builds and existing root guardrails; C-06 owns aggregate matrix inclusion."
+        "6ce4943f920971f82df661f3dcc31dbc648e2a66 X-16 handoff records module checks, cross-builds and existing root guardrails; C-06 owns aggregate matrix inclusion.",
+        "d4b57f80b141e447ce7a45656ba5ce29814eb8b1 independent review round one found one P2 native compatibility mismatch in movie-ID-only library preview; receipt integrated as 4f6e4de4f64efe80542c8b6fe256d8b6c4b28209."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "d4b57f80b141e447ce7a45656ba5ce29814eb8b1",
+        "findings": [
+          {
+            "id": "R1",
+            "severity": "P2",
+            "summary": "movieId-only library preview is unsupported by the declared Radarr 3.x native manual-import API, which requires a path"
+          }
+        ],
         "round": 1
       },
       "dispatch": {
@@ -3752,7 +3759,7 @@
           "root generation/API/Vacuum/lint/architecture/planning/guardrails",
           "Linux amd64/arm64 CGO-free compile"
         ],
-        "reviewPath": "docs/execution/handoffs/X-16-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/X-16-review-round2.md",
         "handoffPath": "docs/execution/handoffs/X-16.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
@@ -3763,11 +3770,32 @@
         "implementationCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
         "handoffCommit": "6ce4943f920971f82df661f3dcc31dbc648e2a66",
         "reviewSourceCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
-        "status": "product_ready"
+        "status": "product_ready",
+        "reviewCommit": "d4b57f80b141e447ce7a45656ba5ce29814eb8b1",
+        "reviewIntegrationCommit": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209",
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209",
+        "correctionReviewPath": "docs/execution/handoffs/X-16-review-round2.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-16-correction-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "queued",
+        "reviewRound": 2
       },
       "implementationCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
       "handoffCommit": "6ce4943f920971f82df661f3dcc31dbc648e2a66",
-      "reviewSourceCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67"
+      "reviewSourceCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "d4b57f80b141e447ce7a45656ba5ce29814eb8b1",
+          "status": "changes_requested",
+          "sourceCommit": "3823f66eaca1796457d7dc9efa93d2ccf5b6bc67",
+          "receipt": "docs/execution/handoffs/X-16-review-round1.md",
+          "integratedCommit": "4f6e4de4f64efe80542c8b6fe256d8b6c4b28209"
+        }
+      ]
     },
     "X-17": {
       "status": "planned",
@@ -3826,7 +3854,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-16 source 3823f66eaca1796457d7dc9efa93d2ccf5b6bc67 using handoff 6ce4943f920971f82df661f3dcc31dbc648e2a66; integrate only an approved receipt.",
+  "nextAction": "Implement X-16 correction round 1 from 4f6e4de4f64efe80542c8b6fe256d8b6c4b28209, making movie preview path-bound or explicitly unsupported, then review independently.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
