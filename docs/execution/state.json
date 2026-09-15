@@ -3830,7 +3830,9 @@
         "f9e0754853e1855af37e61ac96c8bc70a7e017d4 X-17 product commit adds independent Jellyfin OpenAPI 3.1.1 client with read-only system/library/item/provider observations, explicit refresh acceptance, token transport, bounded decoding, typed errors and synthetic fixtures.",
         "9eb1edadf323fccd3278a30a0f19a765cbf63de9 X-17 handoff records module generation, race/vet/mod-verify, Vacuum, lint, cross-build and root guardrail evidence; aggregate C-06 matrix inclusion remains open.",
         "390ada5463f939d7a1b6dacced762c1f05ad873e independent review round one requested changes: P1 incomplete pagination promoted complete and P1 foreign requested IDs accepted as false absence; P2 invalid UTF-8 rewritten into identity and P2 unsupported /Users/Me/Views fallback route.",
-        "7994b04f21d7bcefed70f1601b1406825e908d04 integrated X-17 round-one review receipt; correction is required before approval."
+        "7994b04f21d7bcefed70f1601b1406825e908d04 integrated X-17 round-one review receipt; correction is required before approval.",
+        "d6b84779c8b52b07ccd2e11093b089addca72002 X-17 correction round one closes review R1-R4 with pagination uncertainty, scoped-ID validation, invalid UTF-8 refusal and canonical /UserViews fallback regressions.",
+        "acf25a416d7f09d8459e945c3d4789029885bd1f X-17 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail and cross-build checks; final review remains pending."
       ],
       "review": {
         "status": "changes_requested",
@@ -3878,8 +3880,8 @@
         },
         "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
         "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
-        "reviewSourceCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
-        "status": "changes_requested",
+        "reviewSourceCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
+        "status": "product_ready",
         "reviewCommit": "390ada5463f939d7a1b6dacced762c1f05ad873e",
         "reviewIntegrationCommit": "7994b04f21d7bcefed70f1601b1406825e908d04",
         "reviewRound": 1,
@@ -3889,11 +3891,13 @@
         "correctionReviewPath": "docs/execution/handoffs/X-17-review-round2.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-17-correction-round1.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "assigned"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
+        "correctionHandoffCommit": "acf25a416d7f09d8459e945c3d4789029885bd1f"
       },
-      "implementationCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4",
-      "handoffCommit": "9eb1edadf323fccd3278a30a0f19a765cbf63de9",
-      "reviewSourceCommit": "f9e0754853e1855af37e61ac96c8bc70a7e017d4"
+      "implementationCommit": "d6b84779c8b52b07ccd2e11093b089addca72002",
+      "handoffCommit": "acf25a416d7f09d8459e945c3d4789029885bd1f",
+      "reviewSourceCommit": "d6b84779c8b52b07ccd2e11093b089addca72002"
     },
     "X-18": {
       "status": "planned",
@@ -3944,7 +3948,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-17 correction round 1 from 7994b04f21d7bcefed70f1601b1406825e908d04, closing reviewer findings R1-R4; then produce correction handoff and independent round-two review.",
+  "nextAction": "Independently review X-17 correction round one product d6b84779c8b52b07ccd2e11093b089addca72002 using handoff acf25a416d7f09d8459e945c3d4789029885bd1f; integrate only an approved round-two receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
