@@ -4082,14 +4082,20 @@
       "evidence": [
         "dispatched after C-05 and X-15 through X-18 all passed; owns only aggregate generation/guardrail/lint/CI paths and its handoff.",
         "4ca9df839a7187e63f8058807aa11ef847c50f55 C-06 product adds all six standalone clients to generation, lint, architecture, tests/race/vet/mod verification, Linux amd64/arm64 cross-build and GitHub CI matrices while rejecting go.work and replace directives.",
-        "152cff6e6ab2f9cf4991d337b622e54e147ce381 C-06 handoff records aggregate generation, Vacuum, guardrail, planning, workflow syntax and matrix checks; qBittorrent cold-cache resolution remains documented."
+        "152cff6e6ab2f9cf4991d337b622e54e147ce381 C-06 handoff records aggregate generation, Vacuum, guardrail, planning, workflow syntax and matrix checks; qBittorrent cold-cache resolution remains documented.",
+        "f7ef97b0685522d802b8ffba7a3114f1909109b1 independent review round one requested changes: P2 cross-build include expansion leaves only Seerr amd64/arm64 jobs instead of all 18 module/architecture combinations; P2 aggregate scripts/CI Vacuum only api/openapi.yaml and accept invalid standalone contract fields. Reviewer also bounded a stalled root storage race, so full aggregate success is not claimed.",
+        "937f74fee8c6154a712d57c99cf6e1707a648a42 integrated C-06 round-one review receipt; correction is required and full root race gate must be rerun."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
+        "findings": [
+          "R1 P2 CI cross-build include matrix collapses to Seerr only",
+          "R2 P2 standalone OpenAPI contracts bypass Vacuum",
+          "R3 verification full root race gate stalled and must be rerun"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -4131,14 +4137,35 @@
         "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
         "reviewSourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
-        "status": "product_ready"
+        "status": "changes_requested",
+        "reviewCommit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
+        "reviewIntegrationCommit": "937f74fee8c6154a712d57c99cf6e1707a648a42",
+        "reviewRound": 1,
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "937f74fee8c6154a712d57c99cf6e1707a648a42",
+        "correctionReviewPath": "docs/execution/handoffs/C-06-review-round2.md",
+        "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "assigned"
       },
       "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
       "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
-      "reviewSourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55"
+      "reviewSourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
+          "status": "changes_requested",
+          "sourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
+          "receipt": "docs/execution/handoffs/C-06-review-round1.md",
+          "integratedCommit": "937f74fee8c6154a712d57c99cf6e1707a648a42"
+        }
+      ]
     }
   },
-  "nextAction": "Independently review C-06 product 4ca9df839a7187e63f8058807aa11ef847c50f55 using handoff 152cff6e6ab2f9cf4991d337b622e54e147ce381; integrate only an approved review receipt.",
+  "nextAction": "Implement C-06 correction round 1 from 937f74fee8c6154a712d57c99cf6e1707a648a42, fixing the cross-build matrix, validating every standalone OpenAPI contract with Vacuum, and rerunning the full root race/aggregate gate; then produce correction handoff and independent review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
