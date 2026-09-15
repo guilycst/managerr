@@ -23,10 +23,12 @@ for the caller until a versioned upstream fixture proves it; an unsupported
 route is returned as a typed `unsupported` error.
 
 Offset item pages expose `complete` only when native start and total metadata
-prove the boundary. Missing totals remain `unknown`, contradictory counts are
-malformed, and multi-page traversals remain partial because Jellyfin does not
-provide an immutable snapshot. A single exact item lookup can report an
-authoritative empty result as `not_found`; foreign IDs never become absence.
+prove the boundary. Missing start or total values remain `unknown`,
+contradictory counts are malformed, and multi-page traversals remain partial
+because Jellyfin does not provide an immutable snapshot. A single exact item
+lookup can report an authoritative empty result as `not_found` only when both
+native boundary values prove the empty result; foreign IDs never become
+absence.
 
 The client sends a Jellyfin token in `X-Emby-Token`, refuses redirects, applies
 per-request deadlines, bounds response and collection sizes, rejects malformed

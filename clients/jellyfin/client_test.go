@@ -299,6 +299,82 @@ func TestPaginationCoverageRetainsUncertainty(t *testing.T) {
 	})
 }
 
+func TestMissingPaginationMetadataCannotProveCompletenessOrAbsence(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing start", body: `{"Items":[{"Id":"one"}],"TotalRecordCount":1}`},
+		{name: "null start", body: `{"Items":[{"Id":"one"}],"TotalRecordCount":1,"StartIndex":null}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, testCase.body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			page, err := client.ListItems(context.Background(), ItemQuery{Limit: 1})
+			if err != nil || page.Coverage.Completeness != CompletenessUnknown || len(page.Items) != 1 || !containsString(page.Coverage.ReasonCodes, "pagination_start_missing") {
+				t.Fatalf("missing start page = %#v, err %v", page, err)
+			}
+		})
+	}
+	offsetHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("StartIndex") != "1" {
+			t.Fatalf("offset StartIndex = %q", request.URL.Query().Get("StartIndex"))
+		}
+		writeFixtureJSON(t, writer, `{"Items":[{"Id":"one"}],"TotalRecordCount":2}`)
+	})
+	offsetClient, _ := newFixtureClient(t, offsetHandler, Config{})
+	offsetPage, err := offsetClient.ListItems(context.Background(), ItemQuery{StartIndex: 1, Limit: 1})
+	if err != nil || offsetPage.Coverage.Completeness != CompletenessUnknown || len(offsetPage.Items) != 1 || !containsString(offsetPage.Coverage.ReasonCodes, "pagination_start_missing") {
+		t.Fatalf("missing offset page = %#v, err %v", offsetPage, err)
+	}
+
+	for _, testCase := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing total", body: `{"Items":[],"StartIndex":0}`},
+		{name: "null total", body: `{"Items":[],"TotalRecordCount":null,"StartIndex":0}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, testCase.body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			page, err := client.Items(context.Background(), ItemQuery{ItemIDs: []string{"wanted"}, Limit: 1})
+			if err != nil || page.Coverage.Completeness != CompletenessUnknown || len(page.Items) != 0 || !containsString(page.Coverage.ReasonCodes, "pagination_total_missing") {
+				t.Fatalf("incomplete exact empty = %#v, err %v", page, err)
+			}
+			if _, err := client.ObserveItem(context.Background(), "wanted"); !IsCode(err, ErrorUnknown) {
+				t.Fatalf("ObserveItem incomplete empty error = %v", err)
+			}
+			if _, err := client.GetItem(context.Background(), "wanted"); !IsCode(err, ErrorUnknown) {
+				t.Fatalf("GetItem incomplete empty error = %v", err)
+			}
+			traversed, err := client.ListAllItems(context.Background(), ItemQuery{ItemIDs: []string{"wanted"}, Limit: 1})
+			if err != nil || traversed.Coverage.Completeness != CompletenessUnknown {
+				t.Fatalf("traversed incomplete empty = %#v, err %v", traversed, err)
+			}
+		})
+	}
+
+	completeHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeFixtureJSON(t, writer, `{"Items":[],"TotalRecordCount":0,"StartIndex":0}`)
+	})
+	completeClient, _ := newFixtureClient(t, completeHandler, Config{})
+	page, err := completeClient.Items(context.Background(), ItemQuery{ItemIDs: []string{"wanted"}, Limit: 1})
+	if err != nil || page.Coverage.Completeness != CompletenessComplete || len(page.Items) != 0 {
+		t.Fatalf("complete exact empty = %#v, err %v", page, err)
+	}
+	if _, err := completeClient.ObserveItem(context.Background(), "wanted"); !IsCode(err, ErrorNotFound) {
+		t.Fatalf("complete exact empty error = %v", err)
+	}
+	if _, err := completeClient.GetItem(context.Background(), "wanted"); !IsCode(err, ErrorNotFound) {
+		t.Fatalf("complete exact empty alias error = %v", err)
+	}
+}
+
 func TestRequestedScopeRejectsForeignAndMixedEvidence(t *testing.T) {
 	foreign := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Query().Get("Ids") != "wanted" {

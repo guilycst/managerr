@@ -386,10 +386,10 @@ type MediaSource struct {
 	MediaType    string
 }
 
-// ListItems reads one bounded native Items page. A page whose envelope total
-// proves all requested records were returned is complete; an offset page with
-// more records remains partial. Missing total metadata is unknown for a
-// potentially paginated scope.
+// ListItems reads one bounded native Items page. A page whose envelope start
+// and total prove all requested records were returned is complete; an offset
+// page with more records remains partial. Missing pagination metadata is
+// unknown for a potentially paginated scope.
 func (client *Client) ListItems(ctx context.Context, query ItemQuery) (Page[Item], error) {
 	params, err := client.itemQuery(query)
 	if err != nil {
@@ -399,14 +399,15 @@ func (client *Client) ListItems(ctx context.Context, query ItemQuery) (Page[Item
 	if err != nil {
 		return Page[Item]{}, err
 	}
-	items, total, start, arrayShape, err := decodeItems(body, client.maxItems)
+	decoded, err := decodeItems(body, client.maxItems)
 	if err != nil {
 		return Page[Item]{}, malformed("jellyfin.items")
 	}
+	items, total, start, arrayShape := decoded.items, decoded.total, decoded.start, decoded.arrayShape
 	if query.StartIndex < 0 {
 		return Page[Item]{}, invalidInput("jellyfin.items.start_index")
 	}
-	if start != query.StartIndex {
+	if decoded.startPresent && start != query.StartIndex {
 		return Page[Item]{}, malformed("jellyfin.items")
 	}
 	if query.Limit > 0 && len(items) > query.Limit {
@@ -431,16 +432,17 @@ func (client *Client) ListItems(ctx context.Context, query ItemQuery) (Page[Item
 		}
 		return Page[Item]{Items: items, Coverage: coverage}, nil
 	}
-	if total < 0 {
-		// A single exact ID is still a bounded lookup, even if a compatible
-		// envelope omits its unrelated collection total. General inventory
-		// responses cannot claim complete coverage without that boundary.
-		if len(query.ItemIDs) == 1 && query.StartIndex == 0 && len(items) == 0 {
-			coverage.Completeness = CompletenessComplete
-		} else {
-			coverage.Completeness = CompletenessUnknown
-			coverage.ReasonCodes = []string{"pagination_total_missing"}
+	if !decoded.totalPresent {
+		coverage.Completeness = CompletenessUnknown
+		coverage.ReasonCodes = append(coverage.ReasonCodes, "pagination_total_missing")
+		if !arrayShape && !decoded.startPresent {
+			coverage.ReasonCodes = append(coverage.ReasonCodes, "pagination_start_missing")
 		}
+		return Page[Item]{Items: items, Coverage: coverage}, nil
+	}
+	if !arrayShape && !decoded.startPresent {
+		coverage.Completeness = CompletenessUnknown
+		coverage.ReasonCodes = []string{"pagination_start_missing"}
 		return Page[Item]{Items: items, Coverage: coverage}, nil
 	}
 	end := int64(start) + int64(len(items))
@@ -841,59 +843,75 @@ func decodeLibraries(body []byte, maxItems int) ([]Library, error) {
 	return result, nil
 }
 
-func decodeItems(body []byte, maxItems int) ([]Item, int64, int, bool, error) {
+type decodedItems struct {
+	items        []Item
+	total        int64
+	start        int
+	arrayShape   bool
+	startPresent bool
+	totalPresent bool
+}
+
+func decodeItems(body []byte, maxItems int) (decodedItems, error) {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return nil, 0, 0, false, errors.New("empty item response")
+		return decodedItems{}, errors.New("empty item response")
 	}
 	var values []generated.Item
 	total := int64(-1)
 	start := 0
 	arrayShape := trimmed[0] == '['
+	startPresent := arrayShape
+	totalPresent := arrayShape
 	if arrayShape {
 		if err := requireArrayObjectFields(body, "Id"); err != nil || decodeJSON(body, &values) != nil {
-			return nil, 0, 0, true, errors.New("invalid item array")
+			return decodedItems{}, errors.New("invalid item array")
 		}
 		total = int64(len(values))
 	} else {
 		if err := requireObjectFields(body, "Items"); err != nil {
-			return nil, 0, 0, false, err
+			return decodedItems{}, err
 		}
 		var envelope generated.ItemPage
 		if err := decodeJSON(body, &envelope); err != nil {
-			return nil, 0, 0, false, err
+			return decodedItems{}, err
 		}
 		values = envelope.Items
 		if envelope.TotalRecordCount != nil {
 			if *envelope.TotalRecordCount < 0 {
-				return nil, 0, 0, false, errors.New("negative total")
+				return decodedItems{}, errors.New("negative total")
 			}
 			total = *envelope.TotalRecordCount
+			totalPresent = true
 		}
 		if envelope.StartIndex != nil {
 			if *envelope.StartIndex < 0 || *envelope.StartIndex > math.MaxInt32 {
-				return nil, 0, 0, false, errors.New("invalid start")
+				return decodedItems{}, errors.New("invalid start")
 			}
 			start = int(*envelope.StartIndex)
+			startPresent = true
 		}
 	}
 	if len(values) > maxItems {
-		return nil, 0, 0, arrayShape, errTooLarge
+		return decodedItems{}, errTooLarge
 	}
 	result := make([]Item, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for index, value := range values {
 		item, err := normalizeItem(value)
 		if err != nil {
-			return nil, 0, 0, arrayShape, fmt.Errorf("item %d: %w", index, err)
+			return decodedItems{}, fmt.Errorf("item %d: %w", index, err)
 		}
 		if _, exists := seen[item.ID]; exists {
-			return nil, 0, 0, arrayShape, errors.New("duplicate item id")
+			return decodedItems{}, errors.New("duplicate item id")
 		}
 		seen[item.ID] = struct{}{}
 		result[index] = item
 	}
-	return result, total, start, arrayShape, nil
+	return decodedItems{
+		items: result, total: total, start: start, arrayShape: arrayShape,
+		startPresent: startPresent, totalPresent: totalPresent,
+	}, nil
 }
 
 func normalizeItem(value generated.Item) (Item, error) {
