@@ -3610,14 +3610,41 @@
       "evidence": [
         "dispatched after C-05 and X-03 passed; owns only clients/sonarr and its handoff.",
         "8a11bea1003b50d00d57318244a4bca8b138397b X-15 product commit adds independent Sonarr module with OpenAPI 3.1.1 contract, generated client, typed transport/errors, fixtures and read-only catalog/options/file/preview methods.",
-        "462a662b6a3bd56049bf47425b4a7c5165effaca X-15 handoff records module checks, cross-builds and root guardrails passed; root matrices still need C-06."
+        "462a662b6a3bd56049bf47425b4a7c5165effaca X-15 handoff records module checks, cross-builds and root guardrails passed; root matrices still need C-06.",
+        "907815db38e3b336fbc51e7d96f37a94d6110469 independent review round one: two P1 scope findings and three P2 normalization/generation findings; receipt integrated as 868932b40e45ee10d71eb99c13d127d38960ba7e."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "907815db38e3b336fbc51e7d96f37a94d6110469",
+        "findings": [
+          {
+            "id": "R1",
+            "severity": "P1",
+            "summary": "manualimport seriesId query changes Sonarr semantics to library-series mode and ignores the downloaded folder"
+          },
+          {
+            "id": "R2",
+            "severity": "P1",
+            "summary": "foreign-series nested preview episodes and mismatched episodefile series IDs are accepted as complete"
+          },
+          {
+            "id": "R3",
+            "severity": "P2",
+            "summary": "native singular language and rejection.reason fields are dropped by the compatibility model"
+          },
+          {
+            "id": "R4",
+            "severity": "P2",
+            "summary": "missing required nested size and episode numbers default to zero and still claim complete coverage"
+          },
+          {
+            "id": "R5",
+            "severity": "P2",
+            "summary": "module-local generation performs version lookup and fails with GOPROXY=off despite warmed cache"
+          }
+        ],
         "round": 1
       },
       "dispatch": {
@@ -3643,7 +3670,7 @@
           "root generation/API/Vacuum/lint/architecture/planning/guardrails",
           "Linux amd64/arm64 CGO-free compile"
         ],
-        "reviewPath": "docs/execution/handoffs/X-15-review-round1.md",
+        "reviewPath": "docs/execution/handoffs/X-15-review-round2.md",
         "handoffPath": "docs/execution/handoffs/X-15.md",
         "nextReviewer": "/root/x05_reviewer",
         "dependencyCommits": {
@@ -3654,11 +3681,32 @@
         "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
         "handoffCommit": "462a662b6a3bd56049bf47425b4a7c5165effaca",
         "reviewSourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
-        "status": "product_ready"
+        "status": "product_ready",
+        "reviewCommit": "907815db38e3b336fbc51e7d96f37a94d6110469",
+        "reviewIntegrationCommit": "868932b40e45ee10d71eb99c13d127d38960ba7e",
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "868932b40e45ee10d71eb99c13d127d38960ba7e",
+        "correctionReviewPath": "docs/execution/handoffs/X-15-review-round2.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-15-correction-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "queued",
+        "reviewRound": 2
       },
       "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
       "handoffCommit": "462a662b6a3bd56049bf47425b4a7c5165effaca",
-      "reviewSourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b"
+      "reviewSourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "907815db38e3b336fbc51e7d96f37a94d6110469",
+          "status": "changes_requested",
+          "sourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
+          "receipt": "docs/execution/handoffs/X-15-review-round1.md",
+          "integratedCommit": "868932b40e45ee10d71eb99c13d127d38960ba7e"
+        }
+      ]
     },
     "X-16": {
       "status": "planned",
@@ -3725,7 +3773,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-15 source 8a11bea1003b50d00d57318244a4bca8b138397b using handoff 462a662b6a3bd56049bf47425b4a7c5165effaca; integrate only an approved receipt.",
+  "nextAction": "Implement X-15 correction round 1 from 868932b40e45ee10d71eb99c13d127d38960ba7e, addressing R1-R5, then review the exact correction independently.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
