@@ -4093,7 +4093,8 @@
         "90f44a58057cad652e4eb499d5ddac94b2c05c98 C-06 correction handoff records staged-only invalid-contract regression, 18 cross-build pairs, all nine-module checks and a successful bounded full aggregate in 41.5 seconds.",
         "a6c5eabb396794d8c8a69555686fbbdeb106f5f7 independent review round three verified staged candidate validation, the 18-pair matrix and all scoped checks, but requested changes solely because the fresh full aggregate timed out at 180s in root storage race; no C-06 code defect was found.",
         "0ebf28ea059e0629b24755d240d090f03426d882 integrated C-06 round-three review receipt; root storage race completion remains a verification blocker.",
-        "Coordinator diagnostic at ea1b9a6: GOWORK=off go test -race -count=1 -mod=readonly ./internal/storage completed uncached in 214.466s; a subsequent full aggregate passed from warmed cache. This explains the 180-second clean-checkout bound without weakening the race gate; fresh-cache aggregate verification is still required."
+        "Coordinator diagnostic at ea1b9a6: GOWORK=off go test -race -count=1 -mod=readonly ./internal/storage completed uncached in 214.466s; a subsequent full aggregate passed from warmed cache. This explains the 180-second clean-checkout bound without weakening the race gate; fresh-cache aggregate verification is still required.",
+        "ba5f136fd1622a3ba461222df67630777333f0b3 C-06 correction round three handoff: fresh-cache ./scripts/check-guardrails.sh --ci timed out at 360s after internal/storage race passed in 201.281s; direct fresh-cache storage race passed in 209.2s (package 196.341s), with timeout later in tools-module continuation before final verification/cross-build output. No product or script changes were made."
       ],
       "review": {
         "status": "changes_requested",
@@ -4150,14 +4151,14 @@
         "reviewRound": 3,
         "correctionRound": 3,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "0ebf28ea059e0629b24755d240d090f03426d882",
+        "correctionBaseSha": "8ef25aec0b601256242b10e67cfd4bca36816b63",
         "correctionReviewPath": "docs/execution/handoffs/C-06-review-round4.md",
         "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
         "correctionStatus": "verification_pending",
         "correctionImplementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
-        "correctionHandoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98",
-        "verificationNote": "Run full aggregate with an isolated fresh GOCACHE and 360-second bound; no script changes are needed unless the uncached gate fails."
+        "correctionHandoffCommit": "ba5f136fd1622a3ba461222df67630777333f0b3",
+        "verificationNote": "Fresh-cache aggregate timed out at 360s after storage passed and during tools-module continuation; direct uncached storage race passed. Independent round-four review is required, and no feature lane may start until the full aggregate completes."
       },
       "implementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
       "handoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98",
@@ -4193,7 +4194,7 @@
       ]
     }
   },
-  "nextAction": "Run verification-only C-06 correction from ea1b9a6 with isolated fresh GOCACHE and a 360-second bound; record exact full aggregate result in C-06-correction-round3.md, then request independent round-four review.",
+  "nextAction": "Request independent round-four review of C-06 correction handoff ba5f136fd1622a3ba461222df67630777333f0b3; preserve the full guardrail blocker because the fresh-cache aggregate timed out after storage passed. Do not dispatch feature lanes until the full aggregate completes.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
