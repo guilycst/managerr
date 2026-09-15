@@ -330,6 +330,7 @@ func TestArrImportReferencesOnlyFlattenedExactManifestMembers(t *testing.T) {
 			SourceID: "discovery-1", SourceRevision: "manifest-1",
 			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
 			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
 		},
 		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
 	})
@@ -361,6 +362,7 @@ func TestArrImportReferencesOnlyFlattenedExactManifestMembers(t *testing.T) {
 			SourceID: "discovery-1", SourceRevision: "manifest-1",
 			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
 			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
 		},
 		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
 	})
@@ -384,6 +386,7 @@ func TestArrImportReferencesOnlyFlattenedExactManifestMembers(t *testing.T) {
 			SourceID: "discovery-1", SourceRevision: "manifest-1",
 			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
 			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
 		},
 		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
 	})
@@ -436,8 +439,169 @@ func TestArrImportRequiresPathMappingRevisionFence(t *testing.T) {
 		t.Fatalf("missing path mapping fence error = %v, want ErrInvalidPlan", err)
 	}
 	request.Binding.MappingRevisions = map[domain.ConfigID]string{"mapping-main": "map-1"}
+	if _, err := Build(request); !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("unscoped path mapping fence error = %v, want ErrInvalidPlan", err)
+	}
+	request.Binding.MappingScopes = []MappingScope{planningMappingScope(planningDownloadRoot)}
 	if _, err := Build(request); err != nil {
 		t.Fatalf("fenced Arr import rejected: %v", err)
+	}
+}
+
+func TestSubtitleImportRejectsDirectoryRootButAcceptsEnumeratedChild(t *testing.T) {
+	video := planningTarget(planningDownloadRoot, "incoming/pack/Film.mkv")
+	subtitle := planningTarget(planningDownloadRoot, "incoming/pack/Film.en.srt")
+	directory := domain.FileManifestEntry{
+		RootID: planningDownloadRoot, RelativePath: "incoming/pack", Type: domain.ManifestDirectory,
+		FileIdentity: "pack-inode", Role: domain.RoleSubtitle, ObservedAt: planningNow,
+		Children: []domain.FileManifestEntry{
+			planningFile(video, 10, "video-inode", planningNow),
+			planningSubtitleFile(subtitle, 5, "subtitle-inode", planningNow),
+		},
+	}
+	desired, err := NewDesiredState(NewImportPredicate(planningConnection, "series-1", []ImportSelection{
+		{Source: directoryTarget(directory), Subtitle: true, PairID: "pair-1", Language: "en", VideoPaths: []domain.FileTarget{video}, Confidence: MappingExact},
+	}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(Request{
+		ID: "plan-import-directory-subtitle", Action: domain.ActionArrImport, Desired: desired,
+		Manifest: []domain.FileManifestEntry{directory},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("subtitle directory root error = %v, want ErrInvalidPlan", err)
+	}
+	standalone := NewSubtitlePredicate(planningConnection, directoryTarget(directory), []domain.FileTarget{video}, "pair-1", "en", false, false)
+	standaloneDesired := DesiredState{Predicates: []Predicate{standalone}}
+	if err := validateDesiredAgainstManifest(domain.ActionArrImport, standaloneDesired, []domain.FileManifestEntry{directory}); !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("standalone subtitle directory root error = %v, want ErrInvalidPlan", err)
+	}
+
+	childDesired, err := NewDesiredState(NewImportPredicate(planningConnection, "series-1", []ImportSelection{
+		{Source: subtitle, Subtitle: true, PairID: "pair-1", Language: "en", VideoPaths: []domain.FileTarget{video}, Confidence: MappingExact},
+	}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Request{
+		ID: "plan-import-child-subtitle", Action: domain.ActionArrImport, Desired: childDesired,
+		Manifest: []domain.FileManifestEntry{directory},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("enumerated subtitle child was rejected: %v", err)
+	}
+}
+
+func TestArrImportBindsTargetMappingScopeAndCurrentRevision(t *testing.T) {
+	source := planningTarget(planningDownloadRoot, "incoming/Film.mkv")
+	desired, err := NewDesiredState(NewImportPredicate(planningConnection, "movie-1", []ImportSelection{{Source: source, MovieOrEpisodeID: "movie-1", Confidence: MappingExact}}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Build(Request{
+		ID: "plan-import-current-mapping", Action: domain.ActionArrImport, Desired: desired,
+		Manifest: []domain.FileManifestEntry{planningFile(source, 10, "source-inode", planningNow)},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions: map[domain.ConfigID]string{
+				"mapping-main": "map-1", "unrelated-library": "map-unrelated",
+			},
+			MappingScopes: []MappingScope{
+				planningMappingScope(planningDownloadRoot),
+				{MappingID: "unrelated-library", ConnectionID: "jellyfin-main", RootID: planningLibraryRoot},
+			},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCurrent := CurrentState{
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+			MappingScopes:       []MappingScope{planningMappingScope(planningDownloadRoot)},
+		},
+		Manifest: plan.Manifest, Desired: plan.Desired, ObservedAt: planningNow.Add(time.Minute),
+	}
+	if err := plan.ValidateCurrent(baseCurrent); err != nil {
+		t.Fatalf("target mapping with unrelated current omission was rejected: %v", err)
+	}
+	changed := baseCurrent
+	changed.Binding = cloneBinding(baseCurrent.Binding)
+	changed.Binding.MappingRevisions["mapping-main"] = "map-2"
+	if err := plan.ValidateCurrent(changed); !errors.Is(err, ErrPlanBindingChanged) {
+		t.Fatalf("changed target mapping was accepted: %v", err)
+	}
+	omitted := baseCurrent
+	omitted.Binding = cloneBinding(baseCurrent.Binding)
+	omitted.Binding.MappingRevisions = nil
+	omitted.Binding.MappingScopes = nil
+	if err := plan.ValidateCurrent(omitted); !errors.Is(err, ErrPlanBindingChanged) {
+		t.Fatalf("omitted target mapping was accepted: %v", err)
+	}
+	unrelated := baseCurrent
+	unrelated.Binding = cloneBinding(baseCurrent.Binding)
+	unrelated.Binding.MappingRevisions = map[domain.ConfigID]string{"unrelated-library": "map-unrelated"}
+	unrelated.Binding.MappingScopes = []MappingScope{{MappingID: "unrelated-library", ConnectionID: "jellyfin-main", RootID: planningLibraryRoot}}
+	if err := plan.ValidateCurrent(unrelated); !errors.Is(err, ErrPlanBindingChanged) {
+		t.Fatalf("unrelated-only target mapping was accepted: %v", err)
+	}
+	ambiguous := baseCurrent
+	ambiguous.Binding = cloneBinding(baseCurrent.Binding)
+	ambiguous.Binding.MappingRevisions["mapping-extra"] = "map-extra"
+	ambiguous.Binding.MappingScopes = append(ambiguous.Binding.MappingScopes, MappingScope{MappingID: "mapping-extra", ConnectionID: planningConnection, RootID: planningDownloadRoot})
+	if err := plan.ValidateCurrent(ambiguous); !errors.Is(err, ErrPlanBindingChanged) {
+		t.Fatalf("new same-scope mapping was accepted: %v", err)
+	}
+}
+
+func TestConflictDigestCanonicalizesAuthorityFieldsAndIgnoresMessages(t *testing.T) {
+	target := planningTarget(planningLibraryRoot, "Movies/Film.mkv")
+	desired, err := NewDesiredState(NewFileContentPredicate(target, 10, planningDigest("a")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := []domain.FileManifestEntry{planningFile(planningTarget(planningDownloadRoot, "incoming/Film.mkv"), 10, "source-inode", planningNow)}
+	binding := Binding{SourceID: "discovery-1", SourceRevision: "manifest-1"}
+	conflicts := []Conflict{
+		{Code: "same-code", Field: "same-field", Target: "same-target", Message: "same-display", Evidence: []string{"authority-a"}, Blocking: true},
+		{Code: "same-code", Field: "same-field", Target: "same-target", Message: "same-display", Evidence: []string{"authority-b"}, Blocking: false},
+	}
+	build := func(values []Conflict) Plan {
+		plan, err := Build(Request{ID: "plan-conflict-stable", Action: domain.ActionFSCopy, Desired: desired, Manifest: manifest, Binding: binding, Conflicts: values, CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour)})
+		if !errors.Is(err, ErrPlanConflict) {
+			t.Fatalf("conflict build error = %v, want ErrPlanConflict", err)
+		}
+		return plan
+	}
+	forward := build(conflicts)
+	reverse := build([]Conflict{conflicts[1], conflicts[0]})
+	if forward.Digest != reverse.Digest {
+		t.Fatalf("reversed authority conflict order changed digest: %s != %s", forward.Digest, reverse.Digest)
+	}
+	messageEdited := []Conflict{conflicts[1], conflicts[0]}
+	messageEdited[0].Message = "different display copy"
+	messageEdited[1].Message = "another display copy"
+	edited := build(messageEdited)
+	if edited.Digest != forward.Digest {
+		t.Fatalf("display-only conflict edit changed digest: %s != %s", edited.Digest, forward.Digest)
 	}
 }
 
@@ -506,6 +670,14 @@ func TestDesiredConstructorsDeepCopyScalarPointersAcrossRevisions(t *testing.T) 
 
 func planningTarget(root domain.ConfigID, relative string) domain.FileTarget {
 	return domain.FileTarget{RootID: root, RelativePath: relative}
+}
+
+func directoryTarget(entry domain.FileManifestEntry) domain.FileTarget {
+	return planningTarget(entry.RootID, entry.RelativePath)
+}
+
+func planningMappingScope(root domain.ConfigID) MappingScope {
+	return MappingScope{MappingID: "mapping-main", ConnectionID: planningConnection, RootID: root}
 }
 
 func planningFile(target domain.FileTarget, size int64, identity string, observedAt time.Time) domain.FileManifestEntry {

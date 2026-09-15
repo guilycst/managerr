@@ -82,6 +82,17 @@ type Binding struct {
 	SourceDigest        string
 	ConnectionRevisions map[domain.ConfigID]string
 	MappingRevisions    map[domain.ConfigID]string
+	MappingScopes       []MappingScope
+}
+
+// MappingScope identifies which connection and storage root a path mapping
+// fence protects. MappingRevisions carries the authority-bearing revision for
+// MappingID; keeping the scope beside it prevents an unrelated mapping from
+// satisfying an Arr import's path fence.
+type MappingScope struct {
+	MappingID    domain.ConfigID
+	ConnectionID domain.ConfigID
+	RootID       domain.ConfigID
 }
 
 // Validate enforces that a plan cannot float free of the input that produced
@@ -102,6 +113,19 @@ func (binding Binding) Validate() error {
 	for id, revision := range binding.MappingRevisions {
 		if !id.Valid() || strings.TrimSpace(revision) == "" {
 			return fmt.Errorf("%w: invalid mapping revision for %q", ErrInvalidPlan, id)
+		}
+	}
+	seenMappings := make(map[domain.ConfigID]struct{}, len(binding.MappingScopes))
+	for _, scope := range binding.MappingScopes {
+		if !scope.MappingID.Valid() || !scope.ConnectionID.Valid() || !scope.RootID.Valid() {
+			return fmt.Errorf("%w: mapping scope references are invalid", ErrInvalidPlan)
+		}
+		if _, exists := seenMappings[scope.MappingID]; exists {
+			return fmt.Errorf("%w: mapping %q has duplicate scopes", ErrInvalidPlan, scope.MappingID)
+		}
+		seenMappings[scope.MappingID] = struct{}{}
+		if strings.TrimSpace(binding.MappingRevisions[scope.MappingID]) == "" {
+			return fmt.Errorf("%w: mapping scope %q has no revision fence", ErrInvalidPlan, scope.MappingID)
 		}
 	}
 	return nil
@@ -985,8 +1009,9 @@ func validateDesiredForAction(action domain.ActionKind, desired DesiredState) er
 // validateBindingForDesired makes the relevant configuration fences
 // mandatory. A caller may omit unrelated connection or mapping revisions, but
 // a desired predicate cannot target an unfenced connection. Arr imports also
-// cross a configured path mapping into the upstream namespace, so at least one
-// selected mapping revision must be present for that action.
+// cross configured path mappings into the upstream namespace, so every
+// connection/root scope used by the exact import must name one selected
+// mapping and its revision.
 func validateBindingForDesired(action domain.ActionKind, desired DesiredState, binding Binding) error {
 	connections := desiredConnectionIDs(desired)
 	for _, connectionID := range connections {
@@ -994,10 +1019,79 @@ func validateBindingForDesired(action domain.ActionKind, desired DesiredState, b
 			return fmt.Errorf("%w: desired connection %q has no configuration revision fence", ErrInvalidPlan, connectionID)
 		}
 	}
-	if action == domain.ActionArrImport && len(binding.MappingRevisions) == 0 {
-		return fmt.Errorf("%w: Arr import requires a path mapping revision fence", ErrInvalidPlan)
+	if action == domain.ActionArrImport {
+		needs := desiredMappingNeeds(desired)
+		if len(needs) == 0 {
+			return fmt.Errorf("%w: Arr import has no source path mapping scope", ErrInvalidPlan)
+		}
+		for _, need := range needs {
+			matches := mappingScopesForNeed(binding.MappingScopes, need)
+			switch len(matches) {
+			case 0:
+				return fmt.Errorf("%w: Arr import source root %q for connection %q has no path mapping scope", ErrInvalidPlan, need.RootID, need.ConnectionID)
+			case 1:
+				if strings.TrimSpace(binding.MappingRevisions[matches[0].MappingID]) == "" {
+					return fmt.Errorf("%w: Arr import mapping %q has no configuration revision fence", ErrInvalidPlan, matches[0].MappingID)
+				}
+			default:
+				return fmt.Errorf("%w: Arr import source root %q for connection %q has ambiguous path mapping scopes", ErrInvalidPlan, need.RootID, need.ConnectionID)
+			}
+		}
 	}
 	return nil
+}
+
+type mappingNeed struct {
+	ConnectionID domain.ConfigID
+	RootID       domain.ConfigID
+}
+
+func desiredMappingNeeds(desired DesiredState) []mappingNeed {
+	seen := make(map[mappingNeed]struct{})
+	add := func(connectionID, rootID domain.ConfigID) {
+		if connectionID.Valid() && rootID.Valid() {
+			seen[mappingNeed{ConnectionID: connectionID, RootID: rootID}] = struct{}{}
+		}
+	}
+	for _, predicate := range desired.Predicates {
+		switch predicate.Kind {
+		case PredicateImport:
+			for _, selection := range predicate.Import.Files {
+				add(predicate.Import.ConnectionID, selection.Source.RootID)
+				for _, video := range selection.VideoPaths {
+					add(predicate.Import.ConnectionID, video.RootID)
+				}
+			}
+		case PredicateEpisodeAssociation:
+			add(predicate.Episode.ConnectionID, predicate.Episode.Source.RootID)
+		case PredicateSubtitleAssociation:
+			add(predicate.Subtitle.ConnectionID, predicate.Subtitle.Source.RootID)
+			for _, video := range predicate.Subtitle.VideoPaths {
+				add(predicate.Subtitle.ConnectionID, video.RootID)
+			}
+		}
+	}
+	result := make([]mappingNeed, 0, len(seen))
+	for need := range seen {
+		result = append(result, need)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].ConnectionID != result[right].ConnectionID {
+			return result[left].ConnectionID < result[right].ConnectionID
+		}
+		return result[left].RootID < result[right].RootID
+	})
+	return result
+}
+
+func mappingScopesForNeed(scopes []MappingScope, need mappingNeed) []MappingScope {
+	result := make([]MappingScope, 0, len(scopes))
+	for _, scope := range scopes {
+		if scope.ConnectionID == need.ConnectionID && scope.RootID == need.RootID {
+			result = append(result, scope)
+		}
+	}
+	return result
 }
 
 func desiredConnectionIDs(desired DesiredState) []domain.ConfigID {
@@ -1114,7 +1208,10 @@ func isVideoManifestMember(entry domain.FileManifestEntry) bool {
 }
 
 func isSubtitleManifestMember(entry domain.FileManifestEntry) bool {
-	return entry.Type == domain.ManifestSubtitle || entry.Role == domain.RoleSubtitle
+	if entry.Type == domain.ManifestSubtitle {
+		return entry.Role == "" || entry.Role == domain.RoleSubtitle
+	}
+	return entry.Type == domain.ManifestFile && entry.Role == domain.RoleSubtitle
 }
 
 // NewRevision creates a new immutable revision without changing previous.
@@ -1275,7 +1372,7 @@ func (plan Plan) CheckCurrent(current CurrentState) []Conflict {
 	if !sameRevisionSubset(plan.Binding.ConnectionRevisions, current.Binding.ConnectionRevisions) {
 		conflicts = append(conflicts, Conflict{Code: "configuration_changed", Field: "connectionRevisions", Target: plan.ID, Message: "a relevant connection configuration revision changed", Blocking: true})
 	}
-	if !sameRevisionSubset(plan.Binding.MappingRevisions, current.Binding.MappingRevisions) {
+	if !sameRevisionSubset(relevantMappingRevisions(plan), current.Binding.MappingRevisions) || !sameMappingScopeSubset(relevantMappingScopes(plan), current.Binding.MappingScopes) {
 		conflicts = append(conflicts, Conflict{Code: "mapping_changed", Field: "mappingRevisions", Target: plan.ID, Message: "a relevant path mapping revision changed", Blocking: true})
 	}
 	if len(plan.Capabilities) != 0 && !sameCapabilities(plan.Capabilities, current.Capabilities) {
@@ -1656,6 +1753,7 @@ type digestBinding struct {
 	SourceDigest   string
 	Connections    []RevisionBinding
 	Mappings       []RevisionBinding
+	MappingScopes  []MappingScope `json:",omitempty"`
 }
 
 // digestConflict and digestImpact intentionally omit display prose. Codes,
@@ -1679,7 +1777,7 @@ func digestPlan(plan Plan) (string, error) {
 		Version: 1, Revision: plan.Revision, Action: plan.Action,
 		Desired: plan.Desired, Manifest: normalizeManifest(plan.Manifest), ManifestLimits: plan.ManifestLimits,
 		Preconditions: normalizePreconditions(plan.Preconditions),
-		Binding:       digestBinding{SourceID: plan.Binding.SourceID, SourceRevision: plan.Binding.SourceRevision, SourceDigest: normalizeDigest(plan.Binding.SourceDigest), Connections: revisionBindings(plan.Binding.ConnectionRevisions), Mappings: revisionBindings(plan.Binding.MappingRevisions)},
+		Binding:       digestBinding{SourceID: plan.Binding.SourceID, SourceRevision: plan.Binding.SourceRevision, SourceDigest: normalizeDigest(plan.Binding.SourceDigest), Connections: revisionBindings(plan.Binding.ConnectionRevisions), Mappings: revisionBindings(plan.Binding.MappingRevisions), MappingScopes: normalizeMappingScopes(plan.Binding.MappingScopes)},
 		Capabilities:  normalizeCapabilities(plan.Capabilities), Conflicts: digestConflicts(plan.Conflicts), Impacts: digestImpacts(plan.Impacts),
 		EstimatedBytes: plan.EstimatedBytes, RequiredApproval: plan.RequiredApproval,
 		CreatedAt: plan.CreatedAt.UTC().Format(time.RFC3339Nano), ExpiresAt: plan.ExpiresAt.UTC().Format(time.RFC3339Nano),
@@ -1975,9 +2073,14 @@ func digestConflicts(conflicts []Conflict) []digestConflict {
 		result[index] = digestConflict{Code: conflict.Code, Field: conflict.Field, Target: conflict.Target, Evidence: sortedUniqueStrings(conflict.Evidence), Blocking: conflict.Blocking}
 	}
 	sort.Slice(result, func(left, right int) bool {
-		return result[left].Code+"\x00"+result[left].Field+"\x00"+result[left].Target < result[right].Code+"\x00"+result[right].Field+"\x00"+result[right].Target
+		return digestConflictKey(result[left]) < digestConflictKey(result[right])
 	})
 	return result
+}
+
+func digestConflictKey(conflict digestConflict) string {
+	encoded, _ := json.Marshal(conflict)
+	return string(encoded)
 }
 
 func digestImpacts(impacts []Impact) []digestImpact {
@@ -2003,8 +2106,23 @@ func revisionBindings(values map[domain.ConfigID]string) []RevisionBinding {
 func cloneBinding(binding Binding) Binding {
 	binding.ConnectionRevisions = cloneRevisionMap(binding.ConnectionRevisions)
 	binding.MappingRevisions = cloneRevisionMap(binding.MappingRevisions)
+	binding.MappingScopes = normalizeMappingScopes(binding.MappingScopes)
 	binding.SourceDigest = normalizeDigest(binding.SourceDigest)
 	return binding
+}
+
+func normalizeMappingScopes(scopes []MappingScope) []MappingScope {
+	result := append([]MappingScope(nil), scopes...)
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].MappingID != result[right].MappingID {
+			return result[left].MappingID < result[right].MappingID
+		}
+		if result[left].ConnectionID != result[right].ConnectionID {
+			return result[left].ConnectionID < result[right].ConnectionID
+		}
+		return result[left].RootID < result[right].RootID
+	})
+	return result
 }
 
 func cloneRevisionMap(values map[domain.ConfigID]string) map[domain.ConfigID]string {
@@ -2021,6 +2139,50 @@ func cloneRevisionMap(values map[domain.ConfigID]string) map[domain.ConfigID]str
 func sameRevisionSubset(expected, actual map[domain.ConfigID]string) bool {
 	for id, revision := range expected {
 		if actual[id] != revision {
+			return false
+		}
+	}
+	return true
+}
+
+func relevantMappingRevisions(plan Plan) map[domain.ConfigID]string {
+	result := make(map[domain.ConfigID]string)
+	for _, scope := range relevantMappingScopes(plan) {
+		if revision := plan.Binding.MappingRevisions[scope.MappingID]; revision != "" {
+			result[scope.MappingID] = revision
+		}
+	}
+	return result
+}
+
+func relevantMappingScopes(plan Plan) []MappingScope {
+	needs := desiredMappingNeeds(plan.Desired)
+	result := make([]MappingScope, 0, len(needs))
+	for _, need := range needs {
+		matches := mappingScopesForNeed(plan.Binding.MappingScopes, need)
+		if len(matches) == 1 {
+			result = append(result, matches[0])
+		}
+	}
+	return normalizeMappingScopes(result)
+}
+
+func sameMappingScopeSubset(expected, actual []MappingScope) bool {
+	for _, required := range expected {
+		mappingMatches := 0
+		scopeMatches := 0
+		for _, candidate := range actual {
+			if candidate.MappingID == required.MappingID {
+				mappingMatches++
+				if candidate != required {
+					return false
+				}
+			}
+			if candidate.ConnectionID == required.ConnectionID && candidate.RootID == required.RootID {
+				scopeMatches++
+			}
+		}
+		if mappingMatches != 1 || scopeMatches != 1 {
 			return false
 		}
 	}
@@ -2055,8 +2217,8 @@ func sortedUniqueStrings(values []string) []string {
 
 func sortConflicts(conflicts []Conflict) {
 	sort.Slice(conflicts, func(left, right int) bool {
-		leftKey := conflicts[left].Code + "\x00" + conflicts[left].Field + "\x00" + conflicts[left].Target + "\x00" + conflicts[left].Message
-		rightKey := conflicts[right].Code + "\x00" + conflicts[right].Field + "\x00" + conflicts[right].Target + "\x00" + conflicts[right].Message
+		leftKey := digestConflictKey(digestConflict{Code: conflicts[left].Code, Field: conflicts[left].Field, Target: conflicts[left].Target, Evidence: sortedUniqueStrings(conflicts[left].Evidence), Blocking: conflicts[left].Blocking}) + "\x00" + conflicts[left].Message
+		rightKey := digestConflictKey(digestConflict{Code: conflicts[right].Code, Field: conflicts[right].Field, Target: conflicts[right].Target, Evidence: sortedUniqueStrings(conflicts[right].Evidence), Blocking: conflicts[right].Blocking}) + "\x00" + conflicts[right].Message
 		return leftKey < rightKey
 	})
 }
