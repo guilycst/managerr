@@ -3614,21 +3614,17 @@
         "907815db38e3b336fbc51e7d96f37a94d6110469 independent review round one: two P1 scope findings and three P2 normalization/generation findings; receipt integrated as 868932b40e45ee10d71eb99c13d127d38960ba7e.",
         "f258104718691807e9679e0c6eb278b144ea7a09 X-15 correction round one closes native preview semantics, nested series scope, singular field preservation, strict required fields, and offline generation lookup.",
         "c8a35027540234a5a1a3e474f6059dc30715a612 X-15 correction handoff records Sonarr module and root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes.",
-        "3b1347fdef9a760ba2a5ac73395c142ecd2d653b independent review round two closed R1/R2/R4/R5 and found one P2 alias-equivalence gap; receipt integrated as 28640a026fc200da632e98350cbd27b1d7a064b4."
+        "3b1347fdef9a760ba2a5ac73395c142ecd2d653b independent review round two closed R1/R2/R4/R5 and found one P2 alias-equivalence gap; receipt integrated as 28640a026fc200da632e98350cbd27b1d7a064b4.",
+        "828e0084f2d88f86050db5912412352c1a363bc1 X-15 correction round two requires exact semantic equality for singular/plural language aliases and keeps single-form compatibility.",
+        "ed9d74f1409367f746c3019666f36c1054db2567 X-15 correction round-two handoff records alias regression and offline/module/root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/x05_reviewer",
-        "commit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
-        "findings": [
-          {
-            "id": "R3a",
-            "severity": "P2",
-            "summary": "singular and plural language aliases need exact set agreement; containment currently accepts mixed values"
-          }
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-15",
@@ -3662,8 +3658,8 @@
         },
         "reviewer": "/root/x05_reviewer",
         "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
-        "handoffCommit": "c8a35027540234a5a1a3e474f6059dc30715a612",
-        "reviewSourceCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
+        "handoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567",
+        "reviewSourceCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
         "status": "product_ready",
         "reviewCommit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
         "reviewIntegrationCommit": "28640a026fc200da632e98350cbd27b1d7a064b4",
@@ -3673,14 +3669,14 @@
         "correctionReviewPath": "docs/execution/handoffs/X-15-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-15-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "queued",
+        "correctionStatus": "product_ready",
         "reviewRound": 3,
-        "correctionImplementationCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
-        "correctionHandoffCommit": "c8a35027540234a5a1a3e474f6059dc30715a612"
+        "correctionImplementationCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
+        "correctionHandoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567"
       },
-      "implementationCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
-      "handoffCommit": "c8a35027540234a5a1a3e474f6059dc30715a612",
-      "reviewSourceCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
+      "implementationCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
+      "handoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567",
+      "reviewSourceCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
       "reviewHistory": [
         {
           "round": 1,
@@ -3767,7 +3763,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-15 correction round 2 from 28640a026fc200da632e98350cbd27b1d7a064b4, fixing exact singular/plural language alias agreement, then review independently.",
+  "nextAction": "Independently review X-15 correction source 828e0084f2d88f86050db5912412352c1a363bc1 using handoff ed9d74f1409367f746c3019666f36c1054db2567; integrate only an approved round-three receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
