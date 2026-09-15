@@ -50,12 +50,13 @@ season and absolute numbering, episode-file IDs, typed quality and Sonarr 3.x's
 singular language field, download ID, release metadata, subtitle flag aliases,
 and native rejection `reason` text. The older plural `languages` and
 `message` members are retained as compatibility aliases; if both forms are
-present they must agree. Folder previews reject a supplied `seriesId`, and
-library previews require the returned series and every episode association to
-match the requested series. Missing nested identity, association, language,
-or rejection fields invalidate the complete observation. No subtitle companion
-is inferred. Callers still need an explicit reviewed association before any
-later root workflow action.
+present they must describe the exact same semantic set (a singular language
+therefore requires a one-element plural list). Folder previews reject a
+supplied `seriesId`, and library previews require the returned series and every
+episode association to match the requested series. Missing nested identity,
+association, language, or rejection fields invalidate the complete
+observation. No subtitle companion is inferred. Callers still need an
+explicit reviewed association before any later root workflow action.
 
 Generated code is produced by pinned `oapi-codegen` v2.8.0 and lives under
 `internal/generated`; it is committed and never hand-edited. From this

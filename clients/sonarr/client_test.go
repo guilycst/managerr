@@ -365,13 +365,40 @@ func TestPreviewManualImportRejectsMissingNestedEvidence(t *testing.T) {
 	}
 }
 
-func TestPreviewManualImportRejectsContradictoryLanguageAliases(t *testing.T) {
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writeFixtureJSON(t, writer, `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1,"name":"English"},"languages":[{"id":2,"name":"Portuguese"}]}]`)
-	})
-	client, _ := newFixtureClient(t, handler, Config{})
-	if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads"}); !IsCode(err, ErrorMalformed) {
-		t.Fatalf("language alias error = %v", err)
+func TestPreviewManualImportRejectsNonEquivalentLanguageAliasSets(t *testing.T) {
+	tests := map[string]string{
+		"different-language": `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1,"name":"English"},"languages":[{"id":2,"name":"Portuguese"}]}]`,
+		"plural-superset":    `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1,"name":"English"},"languages":[{"id":1,"name":"English"},{"id":2,"name":"Portuguese"}]}]`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			if _, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads"}); !IsCode(err, ErrorMalformed) {
+				t.Fatalf("language alias error = %v", err)
+			}
+		})
+	}
+}
+
+func TestPreviewManualImportAcceptsEquivalentLanguageAliasesRegardlessOfOrder(t *testing.T) {
+	tests := map[string]string{
+		"language-first":  `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"language":{"id":1,"name":"English"},"languages":[{"id":1,"name":"English"}]}]`,
+		"languages-first": `[{"id":17,"path":"/downloads/episode.mkv","relativePath":"episode.mkv","name":"episode.mkv","size":123,"languages":[{"id":1,"name":"English"}],"language":{"id":1,"name":"English"}}]`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writeFixtureJSON(t, writer, body)
+			})
+			client, _ := newFixtureClient(t, handler, Config{})
+			page, err := client.PreviewManualImport(context.Background(), ManualImportQuery{Folder: "/downloads"})
+			if err != nil || len(page.Items) != 1 || page.Items[0].Language == nil || page.Items[0].Language.ID != 1 || len(page.Items[0].Languages) != 1 || page.Items[0].Languages[0].ID != 1 {
+				t.Fatalf("language aliases = %#v, err=%v", page, err)
+			}
+		})
 	}
 }
 

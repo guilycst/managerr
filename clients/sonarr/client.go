@@ -1439,8 +1439,9 @@ func normalizeManualImport(value generated.ManualImportResource, maxRejections i
 
 // normalizeLanguages preserves Sonarr's native singular language member and
 // the older plural compatibility alias independently. When both are present,
-// they must identify the same language; otherwise the response is ambiguous
-// and cannot contribute complete evidence.
+// their semantic sets must be equal: the singular member represents a
+// one-element set, so a plural superset is ambiguous and cannot contribute
+// complete evidence.
 func normalizeLanguages(singular *generated.Language, plural *[]generated.Language) (*Language, []Language, error) {
 	var native *Language
 	if singular != nil {
@@ -1471,18 +1472,7 @@ func normalizeLanguages(singular *generated.Language, plural *[]generated.Langua
 		}
 	}
 	if native != nil && plural != nil {
-		matched := false
-		for _, alias := range aliases {
-			if alias.ID != native.ID {
-				continue
-			}
-			if alias.Name != native.Name {
-				return nil, nil, errors.New("manual import language aliases disagree")
-			}
-			matched = true
-			break
-		}
-		if !matched {
+		if len(aliases) != 1 || aliases[0].ID != native.ID || aliases[0].Name != native.Name {
 			return nil, nil, errors.New("manual import language aliases disagree")
 		}
 	}
