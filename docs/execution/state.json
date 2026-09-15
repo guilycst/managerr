@@ -2319,31 +2319,17 @@
         "ff16c554aa93459130ea88dd184fb2b80bdac382 independent review round one: changes requested with three P1 and two P2 findings; receipt integrated as dca41abdd99361cee7de0c7dcc10892323c773f2.",
         "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9 W-01 correction round one closes review findings R1-R5 with canonical conflict validation, exact-manifest relationship checks, target connection fences, freshness-aware absence, and deep-copied scalar predicates.",
         "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6 W-01 correction handoff records regression coverage and full checks; G-01 remains open.",
-        "df31bc8e2faf9c505bb45c92204585817f147c1d independent review round two: R1, R4, and R5 closed; R2a and R3a remain P1 and R6 remains P2; receipt integrated as bac142e88b846e84deec01454ec7b994d363fe98."
+        "df31bc8e2faf9c505bb45c92204585817f147c1d independent review round two: R1, R4, and R5 closed; R2a and R3a remain P1 and R6 remains P2; receipt integrated as bac142e88b846e84deec01454ec7b994d363fe98.",
+        "6af605497e62ac182d0d4d4e222cac81aa4232e1 W-01 correction round two closes R2a, R3a, and R6 with exact subtitle file membership, scoped mapping fences, and authority-complete conflict canonicalization.",
+        "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8 W-01 correction round-two handoff records regression and full guardrail evidence; G-01 remains open."
       ],
       "review": {
-        "status": "changes_requested",
-        "decision": "changes_requested",
+        "status": "pending",
+        "decision": null,
         "reviewer": "/root/x05_reviewer",
-        "commit": "df31bc8e2faf9c505bb45c92204585817f147c1d",
-        "findings": [
-          {
-            "id": "R2a",
-            "severity": "P1",
-            "summary": "subtitle manifest membership accepts a directory entry as an exact subtitle file"
-          },
-          {
-            "id": "R3a",
-            "severity": "P1",
-            "summary": "any nonempty mapping revision map satisfies the fence even when the targeted mapping is omitted or changed"
-          },
-          {
-            "id": "R6",
-            "severity": "P2",
-            "summary": "equivalent reversed conflict sets produce different digests because evidence is omitted from canonical tie sorting"
-          }
-        ],
-        "round": 2
+        "commit": null,
+        "findings": [],
+        "round": 3
       },
       "dispatch": {
         "assignedAt": "2026-09-14",
@@ -2404,8 +2390,8 @@
           "productCommit": "3c4067d4d2562fbe3740a252bfd14f411824ed77",
           "handoffCommit": "df02e766ebe1d1919b5faa95a08b5f9da23738c3"
         },
-        "reviewSourceCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
-        "handoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6",
+        "reviewSourceCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
+        "handoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8",
         "reviewRound": 3,
         "reviewCommit": "df31bc8e2faf9c505bb45c92204585817f147c1d",
         "reviewIntegrationCommit": "bac142e88b846e84deec01454ec7b994d363fe98",
@@ -2414,13 +2400,13 @@
         "correctionBaseSha": "bac142e88b846e84deec01454ec7b994d363fe98",
         "correctionReviewPath": "docs/execution/handoffs/W-01-review-round3.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "queued",
-        "correctionImplementationCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
-        "correctionHandoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
+        "correctionHandoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8"
       },
-      "implementationCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
-      "handoffCommit": "57bc0c99a650987fe6db738c3ed0ba0036ff5dd6",
-      "reviewSourceCommit": "7a7ab9883b377ff2e3e7e8be6d399c40c2f633c9",
+      "implementationCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
+      "handoffCommit": "d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8",
+      "reviewSourceCommit": "6af605497e62ac182d0d4d4e222cac81aa4232e1",
       "reviewHistory": [
         {
           "round": 1,
@@ -3604,7 +3590,7 @@
       ]
     }
   },
-  "nextAction": "Implement W-01 correction round 2 from bac142e88b846e84deec01454ec7b994d363fe98, addressing R2a, R3a, and R6, then review the correction independently.",
+  "nextAction": "Independently review W-01 correction source 6af605497e62ac182d0d4d4e222cac81aa4232e1 using handoff d84a4cdbadd5144f2c5cf2b8a1a21c1d7c0248b8; integrate only an approved round-three receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
