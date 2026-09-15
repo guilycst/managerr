@@ -214,11 +214,6 @@ func TestServiceRelationshipsRejectInvalidEvidence(t *testing.T) {
 			reason: "media_0_service_relationship_slug_invalid",
 		},
 		{
-			name:   "zero unbound sentinel",
-			media:  `{"id":1,"mediaType":"movie","status":5,"status4k":5,"serviceId":0,"externalServiceId":7001,"externalServiceSlug":"radarr-main"}`,
-			reason: "media_0_service_relationship_unbound",
-		},
-		{
 			name:   "missing external identity",
 			media:  `{"id":1,"mediaType":"movie","status":5,"status4k":5,"serviceId":7,"externalServiceSlug":"radarr-main"}`,
 			reason: "media_0_service_relationship_identity_missing",
@@ -258,6 +253,100 @@ func TestServiceRelationshipsRejectInvalidEvidence(t *testing.T) {
 	if err != nil || len(page.Items) != 1 || len(page.Items[0].ServiceRelationships) != 2 || page.Items[0].ServiceRelationships[0].Kind != "radarr" || page.Items[0].ServiceRelationships[1].Is4K != true {
 		t.Fatalf("valid service relationships = %#v, err = %v", page, err)
 	}
+}
+
+func TestNativeZeroManagerIdentitiesRemainKnown(t *testing.T) {
+	tests := []struct {
+		name          string
+		media         string
+		wantKind      string
+		wantExt       string
+		wantRelations int
+		want4KExt     string
+		instanceID    string
+	}{
+		{
+			name:          "movie base and 4k",
+			media:         `{"id":1,"mediaType":"movie","status":5,"status4k":5,"serviceId":0,"externalServiceId":7,"externalServiceSlug":"radarr-main","serviceId4k":0,"externalServiceId4k":8,"externalServiceSlug4k":"radarr-4k"}`,
+			wantKind:      "radarr",
+			wantExt:       "7",
+			wantRelations: 2,
+			want4KExt:     "8",
+			instanceID:    "seerr-movie",
+		},
+		{
+			name:          "tv base",
+			media:         `{"id":2,"mediaType":"tv","status":5,"status4k":5,"serviceId":0,"externalServiceId":0,"externalServiceSlug":"sonarr-main"}`,
+			wantKind:      "sonarr",
+			wantExt:       "0",
+			wantRelations: 1,
+			instanceID:    "seerr-tv",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				fixtureJSON(t, writer, `{"pageInfo":{"pages":1,"pageSize":1,"results":1,"page":1},"results":[`+test.media+`]}`)
+			})
+			client, _ := newFixtureClient(t, handler, Config{APIKey: "synthetic-seerr-key", InstanceID: test.instanceID, MaxPageSize: 1})
+			page, err := client.ListMedia(context.Background(), "", 1)
+			if err != nil || len(page.Items) != 1 {
+				t.Fatalf("ListMedia() = %#v, err = %v", page, err)
+			}
+			relationships := page.Items[0].ServiceRelationships
+			if len(relationships) != test.wantRelations || len(relationships) == 0 || relationships[0].Kind != test.wantKind || relationships[0].ServiceID != "0" || relationships[0].ExternalID != test.wantExt || relationships[0].Is4K {
+				t.Fatalf("base relationship = %#v", relationships)
+			}
+			if test.want4KExt != "" {
+				if relationships[1].ServiceID != "0" || relationships[1].ExternalID != test.want4KExt || !relationships[1].Is4K {
+					t.Fatalf("4k relationship = %#v", relationships)
+				}
+			}
+		})
+	}
+
+	t.Run("nested request preserves zero relationship", func(t *testing.T) {
+		handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			fixtureJSON(t, writer, `{"pageInfo":{"pages":1,"pageSize":1,"results":1,"page":1},"results":[{"id":9001,"status":2,"media":{"id":101,"mediaType":"movie","status":5,"status4k":5,"serviceId":0,"externalServiceId":0,"externalServiceSlug":"radarr-main"}}]}`)
+		})
+		client, _ := newFixtureClient(t, handler, Config{APIKey: "synthetic-seerr-key", InstanceID: "seerr-nested", MaxPageSize: 1})
+		page, err := client.ListRequests(context.Background(), "", 1)
+		if err != nil || len(page.Items) != 1 || !page.Items[0].MediaKnown {
+			t.Fatalf("ListRequests() = %#v, err = %v", page, err)
+		}
+		requestRelationships := page.Items[0].ServiceRelationships
+		mediaRelationships := page.Items[0].Media.ServiceRelationships
+		if len(requestRelationships) != 1 || len(mediaRelationships) != 1 || requestRelationships[0].ServiceID != "0" || mediaRelationships[0].ServiceID != "0" || requestRelationships[0].Kind != "radarr" {
+			t.Fatalf("nested relationships = request %#v, media %#v", requestRelationships, mediaRelationships)
+		}
+	})
+
+	t.Run("zero remains known across connections and kinds", func(t *testing.T) {
+		for _, test := range []struct {
+			name       string
+			mediaType  string
+			kind       string
+			instanceID string
+		}{
+			{name: "radarr connection", mediaType: "movie", kind: "radarr", instanceID: "seerr-a"},
+			{name: "sonarr connection", mediaType: "tv", kind: "sonarr", instanceID: "seerr-b"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					fixtureJSON(t, writer, `{"pageInfo":{"pages":1,"pageSize":1,"results":1,"page":1},"results":[{"id":11,"mediaType":"`+test.mediaType+`","status":5,"status4k":5,"serviceId":0,"externalServiceId":0,"externalServiceSlug":"`+test.kind+`-main"}]}`)
+				})
+				client, _ := newFixtureClient(t, handler, Config{APIKey: "synthetic-seerr-key", InstanceID: test.instanceID, MaxPageSize: 1})
+				page, err := client.ListMedia(context.Background(), "", 1)
+				if err != nil || len(page.Items) != 1 || len(page.Items[0].ServiceRelationships) != 1 {
+					t.Fatalf("ListMedia() = %#v, err = %v", page, err)
+				}
+				relationship := page.Items[0].ServiceRelationships[0]
+				if relationship.Kind != test.kind || relationship.ServiceID != "0" || relationship.ExternalID != "0" {
+					t.Fatalf("relationship = %#v", relationship)
+				}
+			})
+		}
+	})
 }
 
 func TestMalformedServiceErrorsFailClosed(t *testing.T) {
@@ -320,6 +409,15 @@ func TestMalformedServiceErrorsFailClosed(t *testing.T) {
 	page, err := client.ListRequests(context.Background(), "", 1)
 	if err != nil || len(page.ServiceErrors) != 1 || page.ServiceErrors[0].IDKnown || page.ServiceErrors[0].Name != "offline-radarr" {
 		t.Fatalf("unknown service error identity = %#v, err = %v", page.ServiceErrors, err)
+	}
+
+	zeroIDHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		fixtureJSON(t, writer, `{"pageInfo":{"pages":1,"pageSize":1,"results":0,"page":1},"results":[],"serviceErrors":{"radarr":[{"id":0,"name":"first-radarr"}]}}`)
+	})
+	client, _ = newFixtureClient(t, zeroIDHandler, Config{APIKey: "synthetic-seerr-key", MaxPageSize: 1})
+	page, err = client.ListRequests(context.Background(), "", 1)
+	if err != nil || len(page.ServiceErrors) != 1 || !page.ServiceErrors[0].IDKnown || page.ServiceErrors[0].ID != 0 || page.ServiceErrors[0].Name != "first-radarr" {
+		t.Fatalf("known zero service error identity = %#v, err = %v", page.ServiceErrors, err)
 	}
 }
 
@@ -569,6 +667,14 @@ func (body *seerrContextBody) Read(_ []byte) (int, error) {
 
 func (body *seerrContextBody) Close() error { return nil }
 
+type seerrErrorBody struct {
+	err error
+}
+
+func (body *seerrErrorBody) Read(_ []byte) (int, error) { return 0, body.err }
+
+func (body *seerrErrorBody) Close() error { return nil }
+
 func seerrResponse(body io.ReadCloser) *http.Response {
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -692,4 +798,52 @@ func TestTransportAndBodyContextErrorsPreserveIdentity(t *testing.T) {
 			t.Fatalf("body timeout error = %v", err)
 		}
 	})
+}
+
+func TestWrappedContextErrorsRemainSanitized(t *testing.T) {
+	const (
+		transportMarker = "synthetic-transport-private-detail"
+		bodyMarker      = "synthetic-body-private-detail"
+	)
+	for _, test := range []struct {
+		name  string
+		cause error
+	}{
+		{name: "canceled", cause: context.Canceled},
+		{name: "deadline exceeded", cause: context.DeadlineExceeded},
+	} {
+		t.Run("transport "+test.name, func(t *testing.T) {
+			transport := seerrRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return nil, errors.Join(fmt.Errorf("%s endpoint=%s", transportMarker, request.URL.String()), test.cause)
+			})
+			client, err := New(Config{Endpoint: "https://seerr.invalid/private-transport", APIKey: "synthetic-seerr-key", HTTPClient: &http.Client{Transport: transport}, RequestTimeout: time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Status(context.Background())
+			if !errors.Is(err, test.cause) {
+				t.Fatalf("transport error = %v, want errors.Is(..., %v)", err, test.cause)
+			}
+			if strings.Contains(err.Error(), transportMarker) || strings.Contains(err.Error(), "seerr.invalid") {
+				t.Fatalf("transport context error leaked private detail: %v", err)
+			}
+		})
+
+		t.Run("body "+test.name, func(t *testing.T) {
+			transport := seerrRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return seerrResponse(&seerrErrorBody{err: errors.Join(fmt.Errorf("%s endpoint=%s body=private", bodyMarker, request.URL.String()), test.cause)}), nil
+			})
+			client, err := New(Config{Endpoint: "https://seerr.invalid/private-body", APIKey: "synthetic-seerr-key", HTTPClient: &http.Client{Transport: transport}, RequestTimeout: time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Status(context.Background())
+			if !errors.Is(err, test.cause) {
+				t.Fatalf("body error = %v, want errors.Is(..., %v)", err, test.cause)
+			}
+			if strings.Contains(err.Error(), bodyMarker) || strings.Contains(err.Error(), "seerr.invalid") || strings.Contains(err.Error(), "body=private") {
+				t.Fatalf("body context error leaked private detail: %v", err)
+			}
+		})
+	}
 }

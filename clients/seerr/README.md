@@ -39,9 +39,12 @@ not mean that the value is a status this client recognizes. The separate
 `UNKNOWN` (currently `1`), a future status value and a missing status therefore
 remain unknown availability, never known-unavailable media. A recognized
 `partially_available` status remains distinct from `available`, request
-status and Jellyfin library availability. Missing or unbound Arr service
-relationships remain evidence with no normal tracked relationship, and
-malformed service relationship or `serviceErrors` evidence fails closed.
+status and Jellyfin library availability. Nullable Arr service relationships
+remain evidence with no normal tracked relationship; a present zero manager
+ID is valid and preserved because Seerr assigns it to the first configured
+service. A present zero `serviceErrors` manager ID is preserved with
+`IDKnown=true`, while a missing nullable ID remains explicitly unknown.
+Malformed service relationship or `serviceErrors` evidence fails closed.
 
 This v0.0.1 client is read-only. It has no request creation, approval,
 cancellation, deletion, search, command, or discovery method. Seerr writes

@@ -544,7 +544,8 @@ type RequestObservation struct {
 }
 
 // ServiceError preserves typed serviceErrors evidence without exposing
-// arbitrary upstream JSON.
+// arbitrary upstream JSON. IDKnown distinguishes a present native zero ID
+// from a nullable/missing ID; zero is a valid first configured-manager ID.
 type ServiceError struct {
 	Kind    string
 	ID      int64
@@ -1276,14 +1277,10 @@ func serviceRelationships(value generated.Media, is4K bool) ([]ServiceRelationsh
 			reasons = append(reasons, serviceRelationshipReason(fourK, "slug_invalid"))
 			return
 		}
-		// Seerr uses zero as an unbound service sentinel. Do not turn that
-		// sentinel into a normal Arr relationship or combine it with a
-		// positive identity that would look tracked to a caller.
-		if serviceID != nil && *serviceID == 0 || externalID != nil && *externalID == 0 {
-			reasons = append(reasons, serviceRelationshipReason(fourK, "unbound"))
-			return
-		}
-		if serviceID == nil || externalID == nil || *serviceID == 0 || *externalID == 0 {
+		// A nullable field is Seerr's absence signal. Zero is a valid
+		// configured-manager identity (the first configured Arr service), so
+		// preserve it exactly when the native field is present.
+		if serviceID == nil || externalID == nil {
 			reasons = append(reasons, serviceRelationshipReason(fourK, "identity_missing"))
 			return
 		}
@@ -1516,9 +1513,7 @@ func normalizeServiceErrors(raw json.RawMessage) ([]ServiceError, error) {
 				if *value.Id < 0 {
 					return nil, errors.New("Seerr serviceErrors id is invalid")
 				}
-				if *value.Id > 0 {
-					item.ID, item.IDKnown = *value.Id, true
-				}
+				item.ID, item.IDKnown = *value.Id, true
 			}
 			if value.Name != nil {
 				if !validBoundedText(*value.Name, maxTextChars, false) {
@@ -1580,10 +1575,10 @@ func (client *Client) request(ctx context.Context, operation, resource string, q
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		if ctxErr := requestContext.Err(); ctxErr != nil {
-			return nil, 0, ctxErr
+			return nil, 0, canonicalContextError(ctxErr)
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, 0, err
+		if contextErr := canonicalContextError(err); contextErr != nil {
+			return nil, 0, contextErr
 		}
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			return nil, 0, UpstreamError{Code: ErrorUnavailable, Operation: operation, Retryable: true}
@@ -1594,10 +1589,10 @@ func (client *Client) request(ctx context.Context, operation, resource string, q
 	body, err := readBounded(response.Body, client.maxResponseBytes)
 	if err != nil {
 		if ctxErr := requestContext.Err(); ctxErr != nil {
-			return nil, response.StatusCode, ctxErr
+			return nil, response.StatusCode, canonicalContextError(ctxErr)
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, response.StatusCode, err
+		if contextErr := canonicalContextError(err); contextErr != nil {
+			return nil, response.StatusCode, contextErr
 		}
 		if errors.Is(err, errResponseTooLarge) {
 			return nil, response.StatusCode, UpstreamError{Code: ErrorResponseTooLarge, Operation: operation, Status: response.StatusCode}
@@ -1851,6 +1846,16 @@ func contextError(ctx context.Context) error {
 		return nil
 	}
 	return ctx.Err()
+}
+
+func canonicalContextError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func addReason(reasons *[]string, value string) {
