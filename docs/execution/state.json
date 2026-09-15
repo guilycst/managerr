@@ -4088,7 +4088,9 @@
         "650cdfa51ec161b260097652246a59753429b2ab C-06 correction round one fixes explicit 18-entry Linux cross-build coverage, pinned Vacuum validation for every standalone OpenAPI contract, and bounded full aggregate race/guardrail execution.",
         "08f5db0593d34f41e5a0f2730b1b11281de0820f C-06 correction handoff records matrix counts, per-module checks, actionlint/YAML, planning, hook and successful bounded full guardrail results; qBittorrent cold-cache limitation remains explicit.",
         "3ef41d3a567692f67fb70d18d290003e44e34777 independent review round two confirmed explicit 18-pair matrix and working-tree contract checks, but found P2 staged-only OpenAPI validation bypass; bounded full aggregate again timed out at 180s in root storage race, so successful full gate remains unclaimed.",
-        "7ee64242f7e1221632f713e9bb0001055fea2922 integrated C-06 round-two review receipt; correction round two is required for staged-candidate validation."
+        "7ee64242f7e1221632f713e9bb0001055fea2922 integrated C-06 round-two review receipt; correction round two is required for staged-candidate validation.",
+        "5e53134e40322b512efef1865d78da2da6368e5b C-06 correction round two binds pinned Vacuum to staged api/vacuum.yaml, root and all standalone OpenAPI candidate bytes, preserving explicit 18-entry cross-build coverage.",
+        "90f44a58057cad652e4eb499d5ddac94b2c05c98 C-06 correction handoff records staged-only invalid-contract regression, 18 cross-build pairs, all nine-module checks and a successful bounded full aggregate in 41.5 seconds."
       ],
       "review": {
         "status": "changes_requested",
@@ -4139,8 +4141,8 @@
         },
         "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
-        "reviewSourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
-        "status": "changes_requested",
+        "reviewSourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
+        "status": "product_ready",
         "reviewCommit": "3ef41d3a567692f67fb70d18d290003e44e34777",
         "reviewIntegrationCommit": "7ee64242f7e1221632f713e9bb0001055fea2922",
         "reviewRound": 2,
@@ -4150,13 +4152,13 @@
         "correctionReviewPath": "docs/execution/handoffs/C-06-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "assigned",
-        "correctionImplementationCommit": "650cdfa51ec161b260097652246a59753429b2ab",
-        "correctionHandoffCommit": "08f5db0593d34f41e5a0f2730b1b11281de0820f"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
+        "correctionHandoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98"
       },
-      "implementationCommit": "650cdfa51ec161b260097652246a59753429b2ab",
-      "handoffCommit": "08f5db0593d34f41e5a0f2730b1b11281de0820f",
-      "reviewSourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
+      "implementationCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
+      "handoffCommit": "90f44a58057cad652e4eb499d5ddac94b2c05c98",
+      "reviewSourceCommit": "5e53134e40322b512efef1865d78da2da6368e5b",
       "reviewHistory": [
         {
           "round": 1,
@@ -4179,7 +4181,7 @@
       ]
     }
   },
-  "nextAction": "Implement C-06 correction round 2 from 7ee64242f7e1221632f713e9bb0001055fea2922, make hook/CI validate staged candidate contract bytes, and rerun bounded full aggregate with exact timeout outcome; then produce correction handoff and independent round-three review.",
+  "nextAction": "Independently review C-06 correction round two product 5e53134e40322b512efef1865d78da2da6368e5b using handoff 90f44a58057cad652e4eb499d5ddac94b2c05c98; integrate only an approved round-three receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
