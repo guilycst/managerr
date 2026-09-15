@@ -3937,7 +3937,9 @@
       "baseSha": "2a1c366ff6e76617caf883ddb16a4d6a80253ff2",
       "integratedSha": null,
       "evidence": [
-        "dispatched after C-05 generation/CI and X-04 Seerr observations passed; owns only clients/seerr and its handoff."
+        "dispatched after C-05 generation/CI and X-04 Seerr observations passed; owns only clients/seerr and its handoff.",
+        "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3 X-18 product commit adds independent Seerr OpenAPI 3.1.1 read-only client with API-key/bearer transport, bounded pagination, normalized media/request observations, typed errors and synthetic fixtures.",
+        "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16 X-18 handoff records module tests/race/vet/mod-verify, offline generation, Vacuum, lint, architecture, cross-build and root guardrail evidence; aggregate C-06 matrix and runtime/bootstrap remain open."
       ],
       "review": {
         "status": "pending",
@@ -3977,8 +3979,15 @@
         "dependencyCommits": {
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
           "X-04": "b5594b668185245304f70a0f46c1f77ae7b76d7b"
-        }
-      }
+        },
+        "implementationCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
+        "handoffCommit": "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16",
+        "reviewSourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
+        "status": "product_ready"
+      },
+      "implementationCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
+      "handoffCommit": "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16",
+      "reviewSourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3"
     },
     "X-19": {
       "status": "planned",
@@ -4021,7 +4030,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-18 Seerr client module from base 2a1c366ff6e76617caf883ddb16a4d6a80253ff2; product and handoff stay under clients/seerr, then send to /root/x05_reviewer for independent review.",
+  "nextAction": "Independently review X-18 Seerr product 67b01ca1d5555bfe11b348a96bda0b6a67d16bc3 using handoff 7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16; integrate only an approved review receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
