@@ -3608,7 +3608,9 @@
       "baseSha": "c8af024641fb05dbc971242cc0e638d7ba2519d3",
       "integratedSha": null,
       "evidence": [
-        "dispatched after C-05 and X-03 passed; owns only clients/sonarr and its handoff."
+        "dispatched after C-05 and X-03 passed; owns only clients/sonarr and its handoff.",
+        "8a11bea1003b50d00d57318244a4bca8b138397b X-15 product commit adds independent Sonarr module with OpenAPI 3.1.1 contract, generated client, typed transport/errors, fixtures and read-only catalog/options/file/preview methods.",
+        "462a662b6a3bd56049bf47425b4a7c5165effaca X-15 handoff records module checks, cross-builds and root guardrails passed; root matrices still need C-06."
       ],
       "review": {
         "status": "pending",
@@ -3648,8 +3650,15 @@
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
           "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935"
         },
-        "reviewer": "/root/x05_reviewer"
-      }
+        "reviewer": "/root/x05_reviewer",
+        "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
+        "handoffCommit": "462a662b6a3bd56049bf47425b4a7c5165effaca",
+        "reviewSourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
+        "status": "product_ready"
+      },
+      "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
+      "handoffCommit": "462a662b6a3bd56049bf47425b4a7c5165effaca",
+      "reviewSourceCommit": "8a11bea1003b50d00d57318244a4bca8b138397b"
     },
     "X-16": {
       "status": "planned",
@@ -3716,7 +3725,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-15 Sonarr standalone client from c8af024641fb05dbc971242cc0e638d7ba2519d3, then review its exact product and handoff commits independently.",
+  "nextAction": "Independently review X-15 source 8a11bea1003b50d00d57318244a4bca8b138397b using handoff 462a662b6a3bd56049bf47425b4a7c5165effaca; integrate only an approved receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
