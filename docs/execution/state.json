@@ -4086,19 +4086,20 @@
         "f7ef97b0685522d802b8ffba7a3114f1909109b1 independent review round one requested changes: P2 cross-build include expansion leaves only Seerr amd64/arm64 jobs instead of all 18 module/architecture combinations; P2 aggregate scripts/CI Vacuum only api/openapi.yaml and accept invalid standalone contract fields. Reviewer also bounded a stalled root storage race, so full aggregate success is not claimed.",
         "937f74fee8c6154a712d57c99cf6e1707a648a42 integrated C-06 round-one review receipt; correction is required and full root race gate must be rerun.",
         "650cdfa51ec161b260097652246a59753429b2ab C-06 correction round one fixes explicit 18-entry Linux cross-build coverage, pinned Vacuum validation for every standalone OpenAPI contract, and bounded full aggregate race/guardrail execution.",
-        "08f5db0593d34f41e5a0f2730b1b11281de0820f C-06 correction handoff records matrix counts, per-module checks, actionlint/YAML, planning, hook and successful bounded full guardrail results; qBittorrent cold-cache limitation remains explicit."
+        "08f5db0593d34f41e5a0f2730b1b11281de0820f C-06 correction handoff records matrix counts, per-module checks, actionlint/YAML, planning, hook and successful bounded full guardrail results; qBittorrent cold-cache limitation remains explicit.",
+        "3ef41d3a567692f67fb70d18d290003e44e34777 independent review round two confirmed explicit 18-pair matrix and working-tree contract checks, but found P2 staged-only OpenAPI validation bypass; bounded full aggregate again timed out at 180s in root storage race, so successful full gate remains unclaimed.",
+        "7ee64242f7e1221632f713e9bb0001055fea2922 integrated C-06 round-two review receipt; correction round two is required for staged-candidate validation."
       ],
       "review": {
         "status": "changes_requested",
         "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
+        "commit": "3ef41d3a567692f67fb70d18d290003e44e34777",
         "findings": [
-          "R1 P2 CI cross-build include matrix collapses to Seerr only",
-          "R2 P2 standalone OpenAPI contracts bypass Vacuum",
-          "R3 verification full root race gate stalled and must be rerun"
+          "R2a P2 hook validates working-tree OpenAPI instead of staged candidate bytes",
+          "R3 verification full aggregate race gate timed out in root storage race and remains unproven"
         ],
-        "round": 1
+        "round": 2
       },
       "dispatch": {
         "assignedAt": "2026-09-15",
@@ -4139,17 +4140,17 @@
         "implementationCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
         "handoffCommit": "152cff6e6ab2f9cf4991d337b622e54e147ce381",
         "reviewSourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
-        "status": "product_ready",
-        "reviewCommit": "f7ef97b0685522d802b8ffba7a3114f1909109b1",
-        "reviewIntegrationCommit": "937f74fee8c6154a712d57c99cf6e1707a648a42",
-        "reviewRound": 1,
-        "correctionRound": 1,
+        "status": "changes_requested",
+        "reviewCommit": "3ef41d3a567692f67fb70d18d290003e44e34777",
+        "reviewIntegrationCommit": "7ee64242f7e1221632f713e9bb0001055fea2922",
+        "reviewRound": 2,
+        "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
-        "correctionBaseSha": "937f74fee8c6154a712d57c99cf6e1707a648a42",
-        "correctionReviewPath": "docs/execution/handoffs/C-06-review-round2.md",
-        "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round1.md",
+        "correctionBaseSha": "7ee64242f7e1221632f713e9bb0001055fea2922",
+        "correctionReviewPath": "docs/execution/handoffs/C-06-review-round3.md",
+        "correctionHandoffPath": "docs/execution/handoffs/C-06-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
+        "correctionStatus": "assigned",
         "correctionImplementationCommit": "650cdfa51ec161b260097652246a59753429b2ab",
         "correctionHandoffCommit": "08f5db0593d34f41e5a0f2730b1b11281de0820f"
       },
@@ -4165,11 +4166,20 @@
           "sourceCommit": "4ca9df839a7187e63f8058807aa11ef847c50f55",
           "receipt": "docs/execution/handoffs/C-06-review-round1.md",
           "integratedCommit": "937f74fee8c6154a712d57c99cf6e1707a648a42"
+        },
+        {
+          "round": 2,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "3ef41d3a567692f67fb70d18d290003e44e34777",
+          "status": "changes_requested",
+          "sourceCommit": "650cdfa51ec161b260097652246a59753429b2ab",
+          "receipt": "docs/execution/handoffs/C-06-review-round2.md",
+          "integratedCommit": "7ee64242f7e1221632f713e9bb0001055fea2922"
         }
       ]
     }
   },
-  "nextAction": "Independently review C-06 correction round one product 650cdfa51ec161b260097652246a59753429b2ab using handoff 08f5db0593d34f41e5a0f2730b1b11281de0820f; integrate only an approved round-two receipt.",
+  "nextAction": "Implement C-06 correction round 2 from 7ee64242f7e1221632f713e9bb0001055fea2922, make hook/CI validate staged candidate contract bytes, and rerun bounded full aggregate with exact timeout outcome; then produce correction handoff and independent round-three review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
