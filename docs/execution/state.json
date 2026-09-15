@@ -3945,7 +3945,9 @@
         "3dc53eee75cf296662a60b7422ec557692cdaee8 X-18 correction round one closes review R1-R3 with unknown availability certainty, bounded request deadlines/context identity and strict service/service-error evidence validation.",
         "460b5d7d45a2ab837a9e7c2f66cdee1aa153487c X-18 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail, planning and cross-build checks; final review remains pending.",
         "90e6a2cdd327734d3b95df327c25655e46facbf7 independent review round two closed original R1-R3 and found R3a P1 valid service ID 0 discarded plus R2a P2 context errors exposing raw transport/body details.",
-        "8f5209b6d75c59493534607cd9a15e231cca28d4 integrated X-18 round-two review receipt; correction round two is required before approval."
+        "8f5209b6d75c59493534607cd9a15e231cca28d4 integrated X-18 round-two review receipt; correction round two is required before approval.",
+        "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1 X-18 correction round two closes review R3a/R2a with nullable-vs-zero service identity preservation and sanitized context cancellation/deadline errors.",
+        "7f408d0908bf9e8e61e97dace70f620322e6c9d7 X-18 correction handoff records module, generation, fixture, Vacuum, lint, architecture, guardrail, planning and cross-build checks; final review remains pending."
       ],
       "review": {
         "status": "changes_requested",
@@ -3991,8 +3993,8 @@
         },
         "implementationCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
         "handoffCommit": "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16",
-        "reviewSourceCommit": "3dc53eee75cf296662a60b7422ec557692cdaee8",
-        "status": "changes_requested",
+        "reviewSourceCommit": "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1",
+        "status": "product_ready",
         "reviewCommit": "90e6a2cdd327734d3b95df327c25655e46facbf7",
         "reviewIntegrationCommit": "8f5209b6d75c59493534607cd9a15e231cca28d4",
         "reviewRound": 2,
@@ -4002,13 +4004,13 @@
         "correctionReviewPath": "docs/execution/handoffs/X-18-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-18-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "assigned",
-        "correctionImplementationCommit": "3dc53eee75cf296662a60b7422ec557692cdaee8",
-        "correctionHandoffCommit": "460b5d7d45a2ab837a9e7c2f66cdee1aa153487c"
+        "correctionStatus": "product_ready",
+        "correctionImplementationCommit": "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1",
+        "correctionHandoffCommit": "7f408d0908bf9e8e61e97dace70f620322e6c9d7"
       },
-      "implementationCommit": "3dc53eee75cf296662a60b7422ec557692cdaee8",
-      "handoffCommit": "460b5d7d45a2ab837a9e7c2f66cdee1aa153487c",
-      "reviewSourceCommit": "3dc53eee75cf296662a60b7422ec557692cdaee8",
+      "implementationCommit": "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1",
+      "handoffCommit": "7f408d0908bf9e8e61e97dace70f620322e6c9d7",
+      "reviewSourceCommit": "a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1",
       "reviewHistory": [
         {
           "round": 1,
@@ -4071,7 +4073,7 @@
       "review": null
     }
   },
-  "nextAction": "Implement X-18 correction round 2 from 8f5209b6d75c59493534607cd9a15e231cca28d4, closing reviewer findings R3a and R2a; then produce correction handoff and independent round-three review.",
+  "nextAction": "Independently review X-18 correction round two product a0670e0a60b7b4920ff8a672bfa311d9b93a0ce1 using handoff 7f408d0908bf9e8e61e97dace70f620322e6c9d7; integrate only an approved round-three receipt.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
