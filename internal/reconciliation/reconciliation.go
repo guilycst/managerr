@@ -207,7 +207,7 @@ func AggregateRecords(input Input) (Result, error) {
 	result := Result{ObservedAt: input.Now}
 	result.Items = make([]Aggregate, 0, len(groups))
 	for _, builder := range groups {
-		item := builder.finish()
+		item := builder.finish(input.Now)
 		result.Items = append(result.Items, item)
 		result.Conflicts = append(result.Conflicts, item.Conflicts...)
 	}
@@ -281,7 +281,7 @@ func (builder *aggregateBuilder) ensureConnections(expected []domain.ConfigID) {
 	}
 }
 
-func (builder *aggregateBuilder) finish() Aggregate {
+func (builder *aggregateBuilder) finish(now time.Time) Aggregate {
 	item := Aggregate{Identity: builder.identity, ObservedAt: builder.observedAt}
 	for title := range builder.titles {
 		item.Titles = append(item.Titles, title)
@@ -318,6 +318,11 @@ func (builder *aggregateBuilder) finish() Aggregate {
 			evidence.Value, evidence.Known = summarize(observations)
 			if evidence.Value == domain.TrackingUnknown {
 				evidence.Reason = "unknown_or_conflicting_observation"
+			}
+			if evidence.Value == domain.TrackingAbsent && !absenceEvidenceFresh(observations, now) {
+				evidence.Value = domain.TrackingUnknown
+				evidence.Known = false
+				evidence.Reason = "absence_evidence_stale"
 			}
 			if conflict, ok := dimensionConflict(connectionID, dimension, observations); ok {
 				builder.conflicts = append(builder.conflicts, conflict)
@@ -406,11 +411,15 @@ func dedupeConflicts(conflicts []Conflict) []Conflict {
 	return result
 }
 
-// ConfirmedAbsent reports whether every selected connection has a complete,
-// non-conflicting absent observation for the requested dimension. A missing,
-// unknown, partial or stale observation returns false and leaves the item
-// eligible for an "unknown" UI state rather than an untracked label.
-func (aggregate Aggregate) ConfirmedAbsent(connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) bool {
+// ConfirmedAbsentAt reports whether every selected connection has a complete,
+// non-conflicting absent observation for the requested dimension at now. The
+// timestamp is explicit so a caller can make a deterministic filter decision
+// and so a later filter cannot reuse an expired absence proof.
+func (aggregate Aggregate) ConfirmedAbsentAt(now time.Time, connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) bool {
+	if now.IsZero() {
+		return false
+	}
+	now = now.UTC()
 	if !validDimension(dimension) || len(connectionIDs) == 0 {
 		return false
 	}
@@ -433,13 +442,8 @@ func (aggregate Aggregate) ConfirmedAbsent(connectionIDs []domain.ConfigID, dime
 					continue
 				}
 				found = true
-				if evidence.Value != domain.TrackingAbsent || !evidence.Known || len(evidence.Observations) == 0 {
+				if evidence.Value != domain.TrackingAbsent || !evidence.Known || len(evidence.Observations) == 0 || !absenceEvidenceFresh(evidence.Observations, now) {
 					return false
-				}
-				for _, observation := range evidence.Observations {
-					if observation.Value != domain.TrackingAbsent {
-						return false
-					}
 				}
 				for _, conflict := range aggregate.Conflicts {
 					if conflict.ConnectionID == connectionID && conflict.Dimension == dimension && conflict.Blocking {
@@ -455,13 +459,25 @@ func (aggregate Aggregate) ConfirmedAbsent(connectionIDs []domain.ConfigID, dime
 	return true
 }
 
+// ConfirmedAbsent reports using the current UTC clock. Prefer
+// ConfirmedAbsentAt when the caller already has an aggregation/filter clock.
+func (aggregate Aggregate) ConfirmedAbsent(connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) bool {
+	return aggregate.ConfirmedAbsentAt(time.Now().UTC(), connectionIDs, dimension)
+}
+
 // FilterConfirmedAbsent returns the filtered view commonly shown as
 // "untracked". It evaluates each selected dimension independently and keeps
 // the original per-instance evidence intact.
 func (result Result) FilterConfirmedAbsent(connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) []Aggregate {
+	return result.FilterConfirmedAbsentAt(time.Now().UTC(), connectionIDs, dimension)
+}
+
+// FilterConfirmedAbsentAt returns the filtered view at an explicit clock. Raw
+// observations are retained even when a prior absence proof has aged out.
+func (result Result) FilterConfirmedAbsentAt(now time.Time, connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) []Aggregate {
 	filtered := make([]Aggregate, 0)
 	for _, item := range result.Items {
-		if item.ConfirmedAbsent(connectionIDs, dimension) {
+		if item.ConfirmedAbsentAt(now, connectionIDs, dimension) {
 			filtered = append(filtered, cloneAggregate(item))
 		}
 	}
@@ -471,6 +487,12 @@ func (result Result) FilterConfirmedAbsent(connectionIDs []domain.ConfigID, dime
 // ConfirmedAbsent is the result-level counterpart to Aggregate.ConfirmedAbsent
 // and makes a no-results/invalid-connection decision explicit to callers.
 func (result Result) ConfirmedAbsent(connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) ([]Aggregate, error) {
+	return result.ConfirmedAbsentAt(time.Now().UTC(), connectionIDs, dimension)
+}
+
+// ConfirmedAbsentAt is the result-level counterpart to
+// Aggregate.ConfirmedAbsentAt and makes the filter clock explicit.
+func (result Result) ConfirmedAbsentAt(now time.Time, connectionIDs []domain.ConfigID, dimension domain.TrackingDimension) ([]Aggregate, error) {
 	if len(connectionIDs) == 0 {
 		return nil, ErrNoConnections
 	}
@@ -482,7 +504,10 @@ func (result Result) ConfirmedAbsent(connectionIDs []domain.ConfigID, dimension 
 	if !validDimension(dimension) {
 		return nil, fmt.Errorf("%w: unsupported tracking dimension %q", ErrInvalidInput, dimension)
 	}
-	return result.FilterConfirmedAbsent(connectionIDs, dimension), nil
+	if now.IsZero() {
+		return nil, fmt.Errorf("%w: filter time is required", ErrInvalidInput)
+	}
+	return result.FilterConfirmedAbsentAt(now.UTC(), connectionIDs, dimension), nil
 }
 
 func validDimension(dimension domain.TrackingDimension) bool {
@@ -492,6 +517,29 @@ func validDimension(dimension domain.TrackingDimension) bool {
 	default:
 		return false
 	}
+}
+
+// absenceEvidenceFresh applies the freshness bound at the time a result is
+// consumed. TrackingObservation.Validate checks the bound relative to the old
+// observation snapshot; that alone cannot keep a cached absence authoritative
+// after the snapshot ages out.
+func absenceEvidenceFresh(observations []domain.TrackingObservation, now time.Time) bool {
+	if now.IsZero() || len(observations) == 0 {
+		return false
+	}
+	now = now.UTC()
+	for _, observation := range observations {
+		if observation.Value != domain.TrackingAbsent || observation.Coverage == nil || observation.Coverage.Completeness != domain.CompletenessComplete || observation.CoverageMaxAge <= 0 || observation.ObservedAt.After(now) || observation.Coverage.ObservedAt.After(now) {
+			return false
+		}
+		if observation.Coverage.CompletedAt == nil || observation.Coverage.CompletedAt.After(observation.ObservedAt) {
+			return false
+		}
+		if age := now.Sub(observation.Coverage.ObservedAt); age < 0 || age > observation.CoverageMaxAge {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeConnections(connections []domain.ConfigID) ([]domain.ConfigID, error) {
@@ -526,6 +574,14 @@ func cloneTrackingObservation(observation domain.TrackingObservation) domain.Tra
 	if observation.Coverage != nil {
 		coverage := *observation.Coverage
 		coverage.ReasonCodes = append([]string(nil), observation.Coverage.ReasonCodes...)
+		if observation.Coverage.StartedAt != nil {
+			startedAt := *observation.Coverage.StartedAt
+			coverage.StartedAt = &startedAt
+		}
+		if observation.Coverage.CompletedAt != nil {
+			completedAt := *observation.Coverage.CompletedAt
+			coverage.CompletedAt = &completedAt
+		}
 		clone.Coverage = &coverage
 	}
 	return clone

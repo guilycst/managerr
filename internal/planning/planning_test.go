@@ -229,6 +229,18 @@ func TestBuildReturnsInvalidPlanForExplicitConflictWithoutDispatchShape(t *testi
 	if !errors.Is(plan.ValidateApproval(Approval{PlanID: plan.ID, Revision: plan.Revision, Digest: plan.Digest, At: planningNow}, planningNow), ErrPlanConflict) {
 		t.Fatal("blocking plan could be approved")
 	}
+	digest := plan.Digest
+	plan.Status = StatusReady
+	plan.BlockingIssues = nil
+	if err := plan.Validate(); err == nil {
+		t.Fatal("blocking conflict was bypassed by mutable derived fields")
+	}
+	if plan.Digest != digest {
+		t.Fatal("derived status mutation unexpectedly changed the original digest")
+	}
+	if err := plan.ValidateApproval(Approval{PlanID: plan.ID, Revision: plan.Revision, Digest: digest, At: planningNow}, planningNow); err == nil {
+		t.Fatal("blocking conflict bypass reached approval")
+	}
 }
 
 func TestPlanValidationDetectsAuthorityMutationButIgnoresDisplayText(t *testing.T) {
@@ -300,12 +312,208 @@ func TestEvaluateMissingContentDigestDoesNotClaimCopy(t *testing.T) {
 	}
 }
 
+func TestArrImportReferencesOnlyFlattenedExactManifestMembers(t *testing.T) {
+	source := planningTarget(planningDownloadRoot, "incoming/Film.mkv")
+	desired := NewImportPredicate(planningConnection, "movie-1", []ImportSelection{{
+		Source:           planningTarget(planningDownloadRoot, "incoming/unapproved.mkv"),
+		MovieOrEpisodeID: "movie-1",
+		Confidence:       MappingExact,
+	}}, "copy")
+	state, err := NewDesiredState(desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(Request{
+		ID: "plan-import-outside-manifest", Action: domain.ActionArrImport, Desired: state,
+		Manifest: []domain.FileManifestEntry{planningFile(source, 10, "source-inode", planningNow)},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("outside-manifest import error = %v, want ErrInvalidPlan", err)
+	}
+
+	video := planningTarget(planningDownloadRoot, "incoming/pack/Film.mkv")
+	subtitle := planningTarget(planningDownloadRoot, "incoming/pack/Film.pt.srt")
+	directory := domain.FileManifestEntry{
+		RootID: planningDownloadRoot, RelativePath: "incoming/pack", Type: domain.ManifestDirectory,
+		FileIdentity: "pack-inode", Role: domain.RoleVideo, ObservedAt: planningNow,
+		Children: []domain.FileManifestEntry{
+			planningFile(video, 10, "video-inode", planningNow),
+			planningSubtitleFile(subtitle, 5, "subtitle-inode", planningNow),
+		},
+	}
+	importState, err := NewDesiredState(NewImportPredicate(planningConnection, "series-1", []ImportSelection{
+		{Source: video, EpisodeIDs: []string{"episode-1"}, Confidence: MappingExact},
+		{Source: subtitle, Subtitle: true, PairID: "pair-1", Language: "pt-BR", VideoPaths: []domain.FileTarget{video}, Confidence: MappingExact},
+	}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Build(Request{
+		ID: "plan-import-directory-child", Action: domain.ActionArrImport, Desired: importState,
+		Manifest: []domain.FileManifestEntry{directory},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("directory child import was rejected: %v", err)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("directory child plan failed self-validation: %v", err)
+	}
+
+	missingVideoState, err := NewDesiredState(NewImportPredicate(planningConnection, "series-1", []ImportSelection{
+		{Source: subtitle, Subtitle: true, PairID: "pair-1", Language: "pt-BR", VideoPaths: []domain.FileTarget{planningTarget(planningDownloadRoot, "incoming/pack/missing.mkv")}, Confidence: MappingExact},
+	}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(Request{
+		ID: "plan-import-missing-video", Action: domain.ActionArrImport, Desired: missingVideoState,
+		Manifest: []domain.FileManifestEntry{directory},
+		Binding: Binding{
+			SourceID: "discovery-1", SourceRevision: "manifest-1",
+			ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"},
+			MappingRevisions:    map[domain.ConfigID]string{"mapping-main": "map-1"},
+		},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("nonexistent subtitle video error = %v, want ErrInvalidPlan", err)
+	}
+}
+
+func TestTargetConnectionsNeedConfigurationFenceAndUnrelatedCurrentBindingsMayBeOmitted(t *testing.T) {
+	registration := NewRegistrationPredicate(planningConnection, "tmdb-1", domain.MediaMovie, "movie-1", ports.RegistrationFields{})
+	desired, err := NewDesiredState(registration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Request{ID: "plan-connection-fence", Action: domain.ActionArrRegistration, Desired: desired, Binding: Binding{SourceID: "discovery-1", SourceRevision: "catalog-1"}, CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour)}
+	if _, err := Build(base); !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("missing target connection fence error = %v, want ErrInvalidPlan", err)
+	}
+	base.Binding.ConnectionRevisions = map[domain.ConfigID]string{planningConnection: "cfg-1"}
+	plan, err := Build(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := CurrentState{
+		Binding: Binding{SourceID: "discovery-1", SourceRevision: "catalog-1", ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"}},
+		Desired: desired, ObservedAt: planningNow.Add(time.Minute),
+	}
+	if err := plan.ValidateCurrent(current); err != nil {
+		t.Fatalf("omitting unrelated current bindings invalidated plan: %v", err)
+	}
+	current.Binding.ConnectionRevisions = nil
+	if err := plan.ValidateCurrent(current); !errors.Is(err, ErrPlanBindingChanged) {
+		t.Fatalf("missing target current fence error = %v, want ErrPlanBindingChanged", err)
+	}
+}
+
+func TestArrImportRequiresPathMappingRevisionFence(t *testing.T) {
+	source := planningTarget(planningDownloadRoot, "incoming/Film.mkv")
+	desired, err := NewDesiredState(NewImportPredicate(planningConnection, "movie-1", []ImportSelection{{Source: source, MovieOrEpisodeID: "movie-1", Confidence: MappingExact}}, "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		ID: "plan-import-mapping-fence", Action: domain.ActionArrImport, Desired: desired,
+		Manifest:  []domain.FileManifestEntry{planningFile(source, 10, "source-inode", planningNow)},
+		Binding:   Binding{SourceID: "discovery-1", SourceRevision: "manifest-1", ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"}},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	}
+	if _, err := Build(request); !errors.Is(err, ErrInvalidPlan) {
+		t.Fatalf("missing path mapping fence error = %v, want ErrInvalidPlan", err)
+	}
+	request.Binding.MappingRevisions = map[domain.ConfigID]string{"mapping-main": "map-1"}
+	if _, err := Build(request); err != nil {
+		t.Fatalf("fenced Arr import rejected: %v", err)
+	}
+}
+
+func TestDesiredConstructorsDeepCopyScalarPointersAcrossRevisions(t *testing.T) {
+	monitored := false
+	seasonFolder := true
+	seasonNumber := 1
+	absoluteNumber := 101
+	registration := Predicate{Kind: PredicateRegistration, Registration: &RegistrationPredicate{
+		ConnectionID: planningConnection, ProviderID: "tvdb-1", Kind: domain.MediaEpisode, ExternalID: "series-1",
+		Fields: ports.RegistrationFields{Monitored: &monitored, SeasonFolder: &seasonFolder},
+	}}
+	episode := Predicate{Kind: PredicateEpisodeAssociation, Episode: &EpisodePredicate{
+		ConnectionID: planningConnection, Source: planningTarget(planningDownloadRoot, "incoming/Show.S01E01.mkv"), SeriesID: "series-1",
+		EpisodeIDs: []string{"episode-1"}, SeasonNumber: &seasonNumber, AbsoluteNumber: &absoluteNumber,
+	}}
+	desired, err := NewDesiredState(registration, episode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitored = true
+	seasonFolder = false
+	seasonNumber = 9
+	absoluteNumber = 999
+	for _, predicate := range desired.Predicates {
+		switch predicate.Kind {
+		case PredicateRegistration:
+			if predicate.Registration.Fields.Monitored == nil || *predicate.Registration.Fields.Monitored || predicate.Registration.Fields.SeasonFolder == nil || !*predicate.Registration.Fields.SeasonFolder {
+				t.Fatalf("NewDesiredState retained registration scalar aliases: %#v", predicate.Registration.Fields)
+			}
+		case PredicateEpisodeAssociation:
+			if predicate.Episode.SeasonNumber == nil || *predicate.Episode.SeasonNumber != 1 || predicate.Episode.AbsoluteNumber == nil || *predicate.Episode.AbsoluteNumber != 101 {
+				t.Fatalf("NewDesiredState retained episode scalar aliases: %#v", predicate.Episode)
+			}
+		}
+	}
+
+	monitored = false
+	plan, err := Build(Request{
+		ID: "plan-pointer-copy", Action: domain.ActionArrRegistration, Desired: DesiredState{Predicates: []Predicate{registration}},
+		Binding:   Binding{SourceID: "catalog", SourceRevision: "1", ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-1"}},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitored = true
+	if plan.Desired.Predicates[0].Registration.Fields.Monitored == nil || *plan.Desired.Predicates[0].Registration.Fields.Monitored {
+		t.Fatal("Build retained caller registration scalar pointer")
+	}
+	revised, err := NewRevision(plan, Request{
+		Action: domain.ActionArrRegistration, Desired: DesiredState{Predicates: []Predicate{registration}},
+		Binding:   Binding{SourceID: "catalog", SourceRevision: "2", ConnectionRevisions: map[domain.ConfigID]string{planningConnection: "cfg-2"}},
+		CreatedAt: planningNow, ExpiresAt: planningNow.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Desired.Predicates[0].Registration.Fields.Monitored == plan.Desired.Predicates[0].Registration.Fields.Monitored {
+		t.Fatal("revision reused the previous scalar pointer")
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("previous plan was corrupted by revision construction: %v", err)
+	}
+}
+
 func planningTarget(root domain.ConfigID, relative string) domain.FileTarget {
 	return domain.FileTarget{RootID: root, RelativePath: relative}
 }
 
 func planningFile(target domain.FileTarget, size int64, identity string, observedAt time.Time) domain.FileManifestEntry {
 	return domain.FileManifestEntry{RootID: target.RootID, RelativePath: target.RelativePath, Type: domain.ManifestFile, Size: size, Digest: planningDigest("a"), FileIdentity: identity, Role: domain.RoleVideo, ObservedAt: observedAt}
+}
+
+func planningSubtitleFile(target domain.FileTarget, size int64, identity string, observedAt time.Time) domain.FileManifestEntry {
+	return domain.FileManifestEntry{RootID: target.RootID, RelativePath: target.RelativePath, Type: domain.ManifestSubtitle, Size: size, Digest: planningDigest("a"), FileIdentity: identity, Role: domain.RoleSubtitle, ObservedAt: observedAt}
 }
 
 func planningDigest(value string) string {

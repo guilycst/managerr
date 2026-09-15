@@ -299,6 +299,7 @@ func NewHardlinkPredicate(source, target domain.FileTarget, identity string) Pre
 // NewRegistrationPredicate creates an exact field-level Arr registration
 // predicate. Upstream external ID may be empty for a new registration.
 func NewRegistrationPredicate(connectionID domain.ConfigID, providerID string, kind domain.MediaKind, externalID string, fields ports.RegistrationFields) Predicate {
+	fields = cloneRegistrationFields(fields)
 	return Predicate{Kind: PredicateRegistration, Registration: &RegistrationPredicate{ConnectionID: connectionID, ProviderID: providerID, Kind: kind, ExternalID: externalID, Fields: fields}}
 }
 
@@ -321,7 +322,7 @@ func NewRequestPredicate(connectionID domain.ConfigID, providerID, externalID, v
 // NewEpisodePredicate creates a selected series/episode association. An
 // ambiguous or unresolved mapping is rejected by Validate.
 func NewEpisodePredicate(connectionID domain.ConfigID, source domain.FileTarget, seriesID string, episodeIDs []string, seasonNumber, absoluteNumber *int) Predicate {
-	return Predicate{Kind: PredicateEpisodeAssociation, Episode: &EpisodePredicate{ConnectionID: connectionID, Source: source, SeriesID: seriesID, EpisodeIDs: episodeIDs, SeasonNumber: seasonNumber, AbsoluteNumber: absoluteNumber}}
+	return Predicate{Kind: PredicateEpisodeAssociation, Episode: &EpisodePredicate{ConnectionID: connectionID, Source: source, SeriesID: seriesID, EpisodeIDs: episodeIDs, SeasonNumber: cloneIntPointer(seasonNumber), AbsoluteNumber: cloneIntPointer(absoluteNumber)}}
 }
 
 // NewSubtitlePredicate creates an explicit subtitle association, retaining
@@ -854,6 +855,12 @@ func Build(request Request) (Plan, error) {
 	if err := validateDesiredForAction(request.Action, request.Desired); err != nil {
 		return Plan{}, err
 	}
+	if err := validateBindingForDesired(request.Action, request.Desired, request.Binding); err != nil {
+		return Plan{}, err
+	}
+	if err := validateDesiredAgainstManifest(request.Action, request.Desired, request.Manifest); err != nil {
+		return Plan{}, err
+	}
 	for index, precondition := range request.Preconditions {
 		if err := precondition.Validate(); err != nil {
 			return Plan{}, fmt.Errorf("precondition %d: %v", index, err)
@@ -884,11 +891,7 @@ func Build(request Request) (Plan, error) {
 		ExpiresAt: request.ExpiresAt,
 	}
 	plan = normalizePlan(plan)
-	for _, conflict := range plan.Conflicts {
-		if conflict.Blocking {
-			plan.BlockingIssues = append(plan.BlockingIssues, cloneConflict(conflict))
-		}
-	}
+	plan.BlockingIssues = canonicalBlockingIssues(plan.Conflicts)
 	if len(plan.BlockingIssues) > 0 {
 		plan.Status = StatusInvalid
 	} else {
@@ -979,6 +982,141 @@ func validateDesiredForAction(action domain.ActionKind, desired DesiredState) er
 	return nil
 }
 
+// validateBindingForDesired makes the relevant configuration fences
+// mandatory. A caller may omit unrelated connection or mapping revisions, but
+// a desired predicate cannot target an unfenced connection. Arr imports also
+// cross a configured path mapping into the upstream namespace, so at least one
+// selected mapping revision must be present for that action.
+func validateBindingForDesired(action domain.ActionKind, desired DesiredState, binding Binding) error {
+	connections := desiredConnectionIDs(desired)
+	for _, connectionID := range connections {
+		if strings.TrimSpace(binding.ConnectionRevisions[connectionID]) == "" {
+			return fmt.Errorf("%w: desired connection %q has no configuration revision fence", ErrInvalidPlan, connectionID)
+		}
+	}
+	if action == domain.ActionArrImport && len(binding.MappingRevisions) == 0 {
+		return fmt.Errorf("%w: Arr import requires a path mapping revision fence", ErrInvalidPlan)
+	}
+	return nil
+}
+
+func desiredConnectionIDs(desired DesiredState) []domain.ConfigID {
+	seen := make(map[domain.ConfigID]struct{})
+	for _, predicate := range desired.Predicates {
+		var connectionID domain.ConfigID
+		switch predicate.Kind {
+		case PredicateRegistration:
+			connectionID = predicate.Registration.ConnectionID
+		case PredicateImport:
+			connectionID = predicate.Import.ConnectionID
+		case PredicateAvailability, PredicateRequest:
+			connectionID = predicate.Service.ConnectionID
+		case PredicateEpisodeAssociation:
+			connectionID = predicate.Episode.ConnectionID
+		case PredicateSubtitleAssociation:
+			connectionID = predicate.Subtitle.ConnectionID
+		}
+		if connectionID != "" {
+			seen[connectionID] = struct{}{}
+		}
+	}
+	result := make([]domain.ConfigID, 0, len(seen))
+	for connectionID := range seen {
+		result = append(result, connectionID)
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left] < result[right] })
+	return result
+}
+
+// validateDesiredAgainstManifest keeps every path-bearing Arr association
+// inside the flattened exact manifest. Directory entries are not wildcards;
+// only their explicitly enumerated descendants are eligible references.
+func validateDesiredAgainstManifest(action domain.ActionKind, desired DesiredState, manifest []domain.FileManifestEntry) error {
+	if len(manifest) == 0 {
+		return nil
+	}
+	members := flattenManifest(manifest)
+	for predicateIndex, predicate := range desired.Predicates {
+		switch predicate.Kind {
+		case PredicateImport:
+			for selectionIndex, selection := range predicate.Import.Files {
+				entry, ok := members[fileTargetKey(selection.Source)]
+				if !ok {
+					return fmt.Errorf("%w: import predicate %d selection %d source is outside the exact manifest", ErrInvalidPlan, predicateIndex, selectionIndex)
+				}
+				if selection.Subtitle {
+					if !isSubtitleManifestMember(entry) {
+						return fmt.Errorf("%w: import predicate %d selection %d source is not an approved subtitle", ErrInvalidPlan, predicateIndex, selectionIndex)
+					}
+				} else if !isVideoManifestMember(entry) {
+					return fmt.Errorf("%w: import predicate %d selection %d source is not an approved video", ErrInvalidPlan, predicateIndex, selectionIndex)
+				}
+				for videoIndex, video := range selection.VideoPaths {
+					if err := validateManifestVideoReference(members, video, fmt.Sprintf("import predicate %d selection %d video %d", predicateIndex, selectionIndex, videoIndex)); err != nil {
+						return err
+					}
+				}
+			}
+		case PredicateEpisodeAssociation:
+			if err := validateManifestVideoReference(members, predicate.Episode.Source, fmt.Sprintf("episode predicate %d source", predicateIndex)); err != nil {
+				return err
+			}
+		case PredicateSubtitleAssociation:
+			entry, ok := members[fileTargetKey(predicate.Subtitle.Source)]
+			if !ok {
+				return fmt.Errorf("%w: subtitle predicate %d source is outside the exact manifest", ErrInvalidPlan, predicateIndex)
+			}
+			if !isSubtitleManifestMember(entry) {
+				return fmt.Errorf("%w: subtitle predicate %d source is not an approved subtitle", ErrInvalidPlan, predicateIndex)
+			}
+			for videoIndex, video := range predicate.Subtitle.VideoPaths {
+				if err := validateManifestVideoReference(members, video, fmt.Sprintf("subtitle predicate %d video %d", predicateIndex, videoIndex)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	_ = action // retained in the signature for action-specific future gates.
+	return nil
+}
+
+func flattenManifest(entries []domain.FileManifestEntry) map[string]domain.FileManifestEntry {
+	members := make(map[string]domain.FileManifestEntry)
+	var visit func(domain.FileManifestEntry)
+	visit = func(entry domain.FileManifestEntry) {
+		members[fileTargetKey(domain.FileTarget{RootID: entry.RootID, RelativePath: entry.RelativePath})] = entry
+		for _, child := range entry.Children {
+			visit(child)
+		}
+	}
+	for _, entry := range entries {
+		visit(entry)
+	}
+	return members
+}
+
+func validateManifestVideoReference(members map[string]domain.FileManifestEntry, target domain.FileTarget, label string) error {
+	entry, ok := members[fileTargetKey(target)]
+	if !ok {
+		return fmt.Errorf("%w: %s is outside the exact manifest", ErrInvalidPlan, label)
+	}
+	if !isVideoManifestMember(entry) {
+		return fmt.Errorf("%w: %s is not an approved video", ErrInvalidPlan, label)
+	}
+	return nil
+}
+
+func isVideoManifestMember(entry domain.FileManifestEntry) bool {
+	if entry.Type != domain.ManifestFile || entry.Role == domain.RoleSubtitle || entry.Role == domain.RoleCompanion {
+		return false
+	}
+	return entry.Role == "" || entry.Role == domain.RoleVideo
+}
+
+func isSubtitleManifestMember(entry domain.FileManifestEntry) bool {
+	return entry.Type == domain.ManifestSubtitle || entry.Role == domain.RoleSubtitle
+}
+
 // NewRevision creates a new immutable revision without changing previous.
 // The plan ID is retained and the revision is exactly previous.Revision+1.
 func NewRevision(previous Plan, request Request) (Plan, error) {
@@ -1010,12 +1148,18 @@ func (plan Plan) Validate() error {
 	if err := validateDesiredForAction(plan.Action, plan.Desired); err != nil {
 		return err
 	}
+	if err := validateBindingForDesired(plan.Action, plan.Desired, plan.Binding); err != nil {
+		return err
+	}
 	limits, err := plan.ManifestLimits.normalized()
 	if err != nil {
 		return err
 	}
 	plan.ManifestLimits = limits
 	if err := validateManifestForAction(plan.Action, plan.Manifest, plan.ManifestLimits); err != nil {
+		return err
+	}
+	if err := validateDesiredAgainstManifest(plan.Action, plan.Desired, plan.Manifest); err != nil {
 		return err
 	}
 	if plan.CreatedAt.IsZero() || plan.ExpiresAt.IsZero() || !plan.ExpiresAt.After(plan.CreatedAt) {
@@ -1044,11 +1188,16 @@ func (plan Plan) Validate() error {
 			return err
 		}
 	}
-	if plan.Status == StatusReady && len(plan.BlockingIssues) != 0 {
-		return fmt.Errorf("%w: ready plan has blocking issues", ErrInvalidPlan)
+	canonicalBlocking := canonicalBlockingIssues(plan.Conflicts)
+	canonicalStatus := StatusReady
+	if len(canonicalBlocking) != 0 {
+		canonicalStatus = StatusInvalid
 	}
-	if plan.Status == StatusInvalid && len(plan.BlockingIssues) == 0 {
-		return fmt.Errorf("%w: invalid plan has no blocking issues", ErrInvalidPlan)
+	if plan.Status != canonicalStatus {
+		return fmt.Errorf("%w: plan status does not match canonical conflicts", ErrInvalidPlan)
+	}
+	if !sameConflictAuthorities(plan.BlockingIssues, canonicalBlocking) {
+		return fmt.Errorf("%w: blocking issues do not match canonical conflicts", ErrInvalidPlan)
 	}
 	computedDigest, err := digestPlan(plan)
 	if err != nil {
@@ -1604,7 +1753,7 @@ func normalizePredicate(predicate Predicate) Predicate {
 	}
 	if predicate.Registration != nil {
 		registration := *predicate.Registration
-		registration.Fields.Seasons = sortedUniqueStrings(registration.Fields.Seasons)
+		registration.Fields = cloneRegistrationFields(registration.Fields)
 		clone.Registration = &registration
 	}
 	if predicate.Import != nil {
@@ -1619,6 +1768,8 @@ func normalizePredicate(predicate Predicate) Predicate {
 	if predicate.Episode != nil {
 		episode := *predicate.Episode
 		episode.EpisodeIDs = sortedUniqueStrings(episode.EpisodeIDs)
+		episode.SeasonNumber = cloneIntPointer(episode.SeasonNumber)
+		episode.AbsoluteNumber = cloneIntPointer(episode.AbsoluteNumber)
 		clone.Episode = &episode
 	}
 	if predicate.Subtitle != nil {
@@ -1647,7 +1798,7 @@ func normalizePredicateShallow(predicate Predicate) Predicate {
 	}
 	if predicate.Registration != nil {
 		registration := *predicate.Registration
-		registration.Fields.Seasons = sortedUniqueStrings(registration.Fields.Seasons)
+		registration.Fields = cloneRegistrationFields(registration.Fields)
 		clone.Registration = &registration
 	}
 	if predicate.Import != nil {
@@ -1658,6 +1809,8 @@ func normalizePredicateShallow(predicate Predicate) Predicate {
 	if predicate.Episode != nil {
 		episode := *predicate.Episode
 		episode.EpisodeIDs = sortedUniqueStrings(episode.EpisodeIDs)
+		episode.SeasonNumber = cloneIntPointer(episode.SeasonNumber)
+		episode.AbsoluteNumber = cloneIntPointer(episode.AbsoluteNumber)
 		clone.Episode = &episode
 	}
 	if predicate.Subtitle != nil {
@@ -1666,6 +1819,29 @@ func normalizePredicateShallow(predicate Predicate) Predicate {
 		clone.Subtitle = &subtitle
 	}
 	return clone
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func cloneRegistrationFields(fields ports.RegistrationFields) ports.RegistrationFields {
+	fields.Monitored = cloneBoolPointer(fields.Monitored)
+	fields.SeasonFolder = cloneBoolPointer(fields.SeasonFolder)
+	fields.Seasons = sortedUniqueStrings(fields.Seasons)
+	return fields
 }
 
 func normalizeSelections(selections []ImportSelection) []ImportSelection {
@@ -1755,6 +1931,34 @@ func normalizeConflicts(conflicts []Conflict) []Conflict {
 	}
 	sortConflicts(result)
 	return result
+}
+
+func canonicalBlockingIssues(conflicts []Conflict) []Conflict {
+	normalized := normalizeConflicts(conflicts)
+	result := make([]Conflict, 0, len(normalized))
+	for _, conflict := range normalized {
+		if conflict.Blocking {
+			result = append(result, cloneConflict(conflict))
+		}
+	}
+	return result
+}
+
+// sameConflictAuthorities compares only the fields that determine whether a
+// plan is safe. Message text is display-only and intentionally remains outside
+// the plan digest and this authority comparison.
+func sameConflictAuthorities(left, right []Conflict) bool {
+	left = normalizeConflicts(left)
+	right = normalizeConflicts(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Code != right[index].Code || left[index].Field != right[index].Field || left[index].Target != right[index].Target || left[index].Blocking != right[index].Blocking || !sameStringSet(left[index].Evidence, right[index].Evidence) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeImpacts(impacts []Impact) []Impact {

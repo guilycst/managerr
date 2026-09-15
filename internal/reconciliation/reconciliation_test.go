@@ -59,10 +59,10 @@ func TestAggregateKeepsProviderIdentityScopedToConnection(t *testing.T) {
 	if got := item.Instances[0].Dimensions[0].Value; got != domain.TrackingAbsent {
 		t.Fatalf("radarr-backup registration = %q, want absent", got)
 	}
-	if item.ConfirmedAbsent([]domain.ConfigID{reconciliationConnectionB}, domain.TrackingRegistration) != true {
+	if item.ConfirmedAbsentAt(now, []domain.ConfigID{reconciliationConnectionB}, domain.TrackingRegistration) != true {
 		t.Fatal("complete absent evidence should support a filtered untracked view")
 	}
-	if item.ConfirmedAbsent([]domain.ConfigID{reconciliationConnectionA, reconciliationConnectionB}, domain.TrackingRegistration) {
+	if item.ConfirmedAbsentAt(now, []domain.ConfigID{reconciliationConnectionA, reconciliationConnectionB}, domain.TrackingRegistration) {
 		t.Fatal("present evidence in one selected instance must prevent a universal untracked result")
 	}
 }
@@ -84,7 +84,7 @@ func TestAggregateMissingAndUnknownEvidenceNeverBecomesAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := result.Items[0]
-	if item.ConfirmedAbsent([]domain.ConfigID{reconciliationConnectionA}, domain.TrackingImport) {
+	if item.ConfirmedAbsentAt(now, []domain.ConfigID{reconciliationConnectionA}, domain.TrackingImport) {
 		t.Fatal("unknown evidence must not be filtered as absent")
 	}
 	if item.ConfirmedAbsent([]domain.ConfigID{reconciliationConnectionB}, domain.TrackingImport) {
@@ -94,6 +94,64 @@ func TestAggregateMissingAndUnknownEvidenceNeverBecomesAbsent(t *testing.T) {
 		if instance.ConnectionID == reconciliationConnectionB && instance.Dimensions[1].Reason != "observation_missing" {
 			t.Fatalf("missing import reason = %q", instance.Dimensions[1].Reason)
 		}
+	}
+}
+
+func TestAggregateAgesAbsenceAtAggregationAndLaterFiltering(t *testing.T) {
+	observedAt := time.Date(2026, time.June, 7, 8, 9, 10, 0, time.UTC)
+	observation := trackingObservation(t, reconciliationConnectionA, domain.TrackingRegistration, domain.TrackingAbsent, "", observedAt, "complete-snapshot")
+	staleNow := observedAt.Add(24 * time.Hour)
+	result, err := AggregateRecords(Input{
+		Now: staleNow,
+		Records: []Record{{
+			Identity:   Identity{Kind: domain.MediaMovie, ProviderID: "tmdb-stale"},
+			ObservedAt: observedAt,
+			Tracking:   []domain.TrackingObservation{observation},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := result.Items[0]
+	evidence := item.Instances[0].Dimensions[0]
+	if evidence.Value != domain.TrackingUnknown || evidence.Known || evidence.Reason != "absence_evidence_stale" {
+		t.Fatalf("stale absence evidence = %#v, want unknown with stale reason", evidence)
+	}
+	if len(evidence.Observations) != 1 || evidence.Observations[0].Evidence[0] != "complete-snapshot" {
+		t.Fatalf("stale raw evidence was lost: %#v", evidence.Observations)
+	}
+	if item.ConfirmedAbsentAt(staleNow, []domain.ConfigID{reconciliationConnectionA}, domain.TrackingRegistration) {
+		t.Fatal("stale absence was accepted by the aggregate filter")
+	}
+	filtered, err := result.ConfirmedAbsentAt(staleNow, []domain.ConfigID{reconciliationConnectionA}, domain.TrackingRegistration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 0 {
+		t.Fatalf("stale absence entered filtered view: %#v", filtered)
+	}
+
+	freshNow := observedAt.Add(30 * time.Minute)
+	freshResult, err := AggregateRecords(Input{
+		Now: freshNow,
+		Records: []Record{{
+			Identity:   Identity{Kind: domain.MediaMovie, ProviderID: "tmdb-fresh-then-stale"},
+			ObservedAt: observedAt,
+			Tracking:   []domain.TrackingObservation{observation},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshItem := freshResult.Items[0]
+	if freshItem.Instances[0].Dimensions[0].Value != domain.TrackingAbsent || !freshItem.ConfirmedAbsentAt(freshNow, []domain.ConfigID{reconciliationConnectionA}, domain.TrackingRegistration) {
+		t.Fatal("fresh complete absence was not accepted")
+	}
+	if freshItem.ConfirmedAbsentAt(staleNow, []domain.ConfigID{reconciliationConnectionA}, domain.TrackingRegistration) {
+		t.Fatal("later filtering reused expired absence proof")
+	}
+	if len(freshItem.Instances[0].Dimensions[0].Observations) != 1 {
+		t.Fatal("later stale filtering discarded raw evidence")
 	}
 }
 
