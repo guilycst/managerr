@@ -15,9 +15,7 @@
   "resumeDocument": "docs/execution/RESUME.md",
   "contractsStatus": "c03_domain_bootstrap_complete",
   "implementationLanesDefined": true,
-  "activeImplementationTasks": [
-    "X-15"
-  ],
+  "activeImplementationTasks": [],
   "featureLanesPaused": false,
   "pauseReason": "Guardrails-first pause requested by user on 2026-09-11; released after clean-checkout pass",
   "guardrailBaseline": {
@@ -3603,10 +3601,10 @@
       ]
     },
     "X-15": {
-      "status": "in_progress",
+      "status": "done",
       "owner": "/root/x05_implementer",
       "baseSha": "c8af024641fb05dbc971242cc0e638d7ba2519d3",
-      "integratedSha": null,
+      "integratedSha": "828e0084f2d88f86050db5912412352c1a363bc1",
       "evidence": [
         "dispatched after C-05 and X-03 passed; owns only clients/sonarr and its handoff.",
         "8a11bea1003b50d00d57318244a4bca8b138397b X-15 product commit adds independent Sonarr module with OpenAPI 3.1.1 contract, generated client, typed transport/errors, fixtures and read-only catalog/options/file/preview methods.",
@@ -3616,13 +3614,15 @@
         "c8a35027540234a5a1a3e474f6059dc30715a612 X-15 correction handoff records Sonarr module and root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes.",
         "3b1347fdef9a760ba2a5ac73395c142ecd2d653b independent review round two closed R1/R2/R4/R5 and found one P2 alias-equivalence gap; receipt integrated as 28640a026fc200da632e98350cbd27b1d7a064b4.",
         "828e0084f2d88f86050db5912412352c1a363bc1 X-15 correction round two requires exact semantic equality for singular/plural language aliases and keeps single-form compatibility.",
-        "ed9d74f1409367f746c3019666f36c1054db2567 X-15 correction round-two handoff records alias regression and offline/module/root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes."
+        "ed9d74f1409367f746c3019666f36c1054db2567 X-15 correction round-two handoff records alias regression and offline/module/root checks; C-06 still owns aggregate matrix inclusion and G-01 blocks Arr writes.",
+        "dcbbace77a90cee5fd14ca32220a89b4b09d84a8 independent review round three approved X-15; exact alias equality and prior scope regressions pass under race and full guardrails.",
+        "be41b3d15cf52ba489c07d7d8e9b21d1a3a56cf7 integrated X-15 round-three approval receipt; aggregate C-06 matrix inclusion and G-01 remain open."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "approved",
+        "decision": "approved",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
+        "commit": "dcbbace77a90cee5fd14ca32220a89b4b09d84a8",
         "findings": [],
         "round": 3
       },
@@ -3651,7 +3651,7 @@
         ],
         "reviewPath": "docs/execution/handoffs/X-15-review-round3.md",
         "handoffPath": "docs/execution/handoffs/X-15.md",
-        "nextReviewer": "/root/x05_reviewer",
+        "nextReviewer": null,
         "dependencyCommits": {
           "C-05": "0b219e9d86776382532eced5251d363322d6dc37",
           "X-03": "31243c71d90717ffa8ca7404817fca541b8ba935"
@@ -3660,19 +3660,21 @@
         "implementationCommit": "8a11bea1003b50d00d57318244a4bca8b138397b",
         "handoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567",
         "reviewSourceCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
-        "status": "product_ready",
-        "reviewCommit": "3b1347fdef9a760ba2a5ac73395c142ecd2d653b",
-        "reviewIntegrationCommit": "28640a026fc200da632e98350cbd27b1d7a064b4",
+        "status": "done",
+        "reviewCommit": "dcbbace77a90cee5fd14ca32220a89b4b09d84a8",
+        "reviewIntegrationCommit": "be41b3d15cf52ba489c07d7d8e9b21d1a3a56cf7",
         "correctionRound": 2,
         "correctionOwner": "/root/x05_implementer",
         "correctionBaseSha": "28640a026fc200da632e98350cbd27b1d7a064b4",
         "correctionReviewPath": "docs/execution/handoffs/X-15-review-round3.md",
         "correctionHandoffPath": "docs/execution/handoffs/X-15-correction-round2.md",
         "correctionReviewer": "/root/x05_reviewer",
-        "correctionStatus": "product_ready",
+        "correctionStatus": "approved",
         "reviewRound": 3,
         "correctionImplementationCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
-        "correctionHandoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567"
+        "correctionHandoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567",
+        "correctionReviewCommit": "dcbbace77a90cee5fd14ca32220a89b4b09d84a8",
+        "correctionReviewIntegrationCommit": "be41b3d15cf52ba489c07d7d8e9b21d1a3a56cf7"
       },
       "implementationCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
       "handoffCommit": "ed9d74f1409367f746c3019666f36c1054db2567",
@@ -3695,6 +3697,15 @@
           "sourceCommit": "f258104718691807e9679e0c6eb278b144ea7a09",
           "receipt": "docs/execution/handoffs/X-15-review-round2.md",
           "integratedCommit": "28640a026fc200da632e98350cbd27b1d7a064b4"
+        },
+        {
+          "round": 3,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "dcbbace77a90cee5fd14ca32220a89b4b09d84a8",
+          "status": "approved",
+          "sourceCommit": "828e0084f2d88f86050db5912412352c1a363bc1",
+          "receipt": "docs/execution/handoffs/X-15-review-round3.md",
+          "integratedCommit": "be41b3d15cf52ba489c07d7d8e9b21d1a3a56cf7"
         }
       ]
     },
@@ -3763,7 +3774,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-15 correction source 828e0084f2d88f86050db5912412352c1a363bc1 using handoff ed9d74f1409367f746c3019666f36c1054db2567; integrate only an approved round-three receipt.",
+  "nextAction": "Dispatch X-16 standalone Radarr client module from the current clean checkpoint; keep the same independent client boundary and reviewer cadence.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
