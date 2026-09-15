@@ -94,6 +94,30 @@ paths:
         default:
           $ref: '#/components/responses/UpstreamFailure'
 
+  /Users/Me/Views:
+    get:
+      tags: [libraries]
+      operationId: ListCurrentUserViews
+      summary: Read the current user's Jellyfin library views
+      description: The fallback used when the configured server exposes views instead of media folders.
+      responses:
+        '200':
+          description: Current user view collection
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/Library'
+                  - $ref: '#/components/schemas/LibraryEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/UpstreamFailure'
+
   /Items:
     get:
       tags: [items]

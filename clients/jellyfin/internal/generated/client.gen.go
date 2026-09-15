@@ -103,6 +103,14 @@ type ListMediaFolders200JSONResponseBody struct {
 	union json.RawMessage
 }
 
+// ListCurrentUserViews200JSONResponseBody0 defines parameters for ListCurrentUserViews.
+type ListCurrentUserViews200JSONResponseBody0 = []Library
+
+// ListCurrentUserViews200JSONResponseBody defines parameters for ListCurrentUserViews.
+type ListCurrentUserViews200JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // ListUserViews200JSONResponseBody0 defines parameters for ListUserViews.
 type ListUserViews200JSONResponseBody0 = []Library
 
@@ -231,6 +239,68 @@ func (t ListMediaFolders200JSONResponseBody) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ListMediaFolders200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsListCurrentUserViews200JSONResponseBody0 returns the union data inside the ListCurrentUserViews200JSONResponseBody as a ListCurrentUserViews200JSONResponseBody0
+func (t ListCurrentUserViews200JSONResponseBody) AsListCurrentUserViews200JSONResponseBody0() (ListCurrentUserViews200JSONResponseBody0, error) {
+	var body ListCurrentUserViews200JSONResponseBody0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromListCurrentUserViews200JSONResponseBody0 overwrites any union data inside the ListCurrentUserViews200JSONResponseBody as the provided ListCurrentUserViews200JSONResponseBody0
+func (t *ListCurrentUserViews200JSONResponseBody) FromListCurrentUserViews200JSONResponseBody0(v ListCurrentUserViews200JSONResponseBody0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeListCurrentUserViews200JSONResponseBody0 performs a merge with any union data inside the ListCurrentUserViews200JSONResponseBody, using the provided ListCurrentUserViews200JSONResponseBody0
+func (t *ListCurrentUserViews200JSONResponseBody) MergeListCurrentUserViews200JSONResponseBody0(v ListCurrentUserViews200JSONResponseBody0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsLibraryEnvelope returns the union data inside the ListCurrentUserViews200JSONResponseBody as a LibraryEnvelope
+func (t ListCurrentUserViews200JSONResponseBody) AsLibraryEnvelope() (LibraryEnvelope, error) {
+	var body LibraryEnvelope
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLibraryEnvelope overwrites any union data inside the ListCurrentUserViews200JSONResponseBody as the provided LibraryEnvelope
+func (t *ListCurrentUserViews200JSONResponseBody) FromLibraryEnvelope(v LibraryEnvelope) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLibraryEnvelope performs a merge with any union data inside the ListCurrentUserViews200JSONResponseBody, using the provided LibraryEnvelope
+func (t *ListCurrentUserViews200JSONResponseBody) MergeLibraryEnvelope(v LibraryEnvelope) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ListCurrentUserViews200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ListCurrentUserViews200JSONResponseBody) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -411,6 +481,13 @@ type ClientInterface interface {
 	// Corresponds with GET /System/Info/Public (the `GetSystemInfo` operationId).
 	GetSystemInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListCurrentUserViews Read the current user's Jellyfin library views
+	//
+	// The fallback used when the configured server exposes views instead of media folders.
+	//
+	// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
+	ListCurrentUserViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListUserViews Read a user's Jellyfin library views
 	//
 	// Corresponds with GET /Users/{userId}/Views (the `ListUserViews` operationId).
@@ -497,6 +574,23 @@ func (c *Client) RefreshLibrary(ctx context.Context, reqEditors ...RequestEditor
 // Corresponds with GET /System/Info/Public (the `GetSystemInfo` operationId).
 func (c *Client) GetSystemInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSystemInfoRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListCurrentUserViews Read the current user's Jellyfin library views
+//
+// The fallback used when the configured server exposes views instead of media folders.
+//
+// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
+func (c *Client) ListCurrentUserViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCurrentUserViewsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -787,6 +881,33 @@ func NewGetSystemInfoRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListCurrentUserViewsRequest constructs an http.Request for the ListCurrentUserViews method
+func NewListCurrentUserViewsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/Users/Me/Views")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListUserViewsRequest constructs an http.Request for the ListUserViews method
 func NewListUserViewsRequest(server string, userId UserID) (*http.Request, error) {
 	var err error
@@ -914,6 +1035,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /System/Info/Public (the `GetSystemInfo` operationId).
 	GetSystemInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSystemInfoResponse, error)
+
+	// ListCurrentUserViewsWithResponse Read the current user's Jellyfin library views
+	//
+	// The fallback used when the configured server exposes views instead of media folders.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
+	ListCurrentUserViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error)
 
 	// ListUserViewsWithResponse Read a user's Jellyfin library views
 	//
@@ -1114,6 +1244,47 @@ func (r GetSystemInfoResponse) ContentType() string {
 	return ""
 }
 
+type ListCurrentUserViewsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListCurrentUserViews200JSONResponseBody
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListCurrentUserViewsResponse) GetJSON200() *ListCurrentUserViews200JSONResponseBody {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r ListCurrentUserViewsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCurrentUserViewsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCurrentUserViewsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListCurrentUserViewsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListUserViewsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1233,6 +1404,21 @@ func (c *ClientWithResponses) GetSystemInfoWithResponse(ctx context.Context, req
 		return nil, err
 	}
 	return ParseGetSystemInfoResponse(rsp)
+}
+
+// ListCurrentUserViewsWithResponse Read the current user's Jellyfin library views
+//
+// The fallback used when the configured server exposes views instead of media folders.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /Users/Me/Views (the `ListCurrentUserViews` operationId).
+func (c *ClientWithResponses) ListCurrentUserViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCurrentUserViewsResponse, error) {
+	rsp, err := c.ListCurrentUserViews(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCurrentUserViewsResponse(rsp)
 }
 
 // ListUserViewsWithResponse Read a user's Jellyfin library views
@@ -1363,6 +1549,38 @@ func ParseGetSystemInfoResponse(rsp *http.Response) (*GetSystemInfoResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SystemInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case rsp.StatusCode == 401:
+		break // No content-type
+
+	case rsp.StatusCode == 403:
+		break // No content-type
+
+	}
+
+	return response, nil
+}
+
+// ParseListCurrentUserViewsResponse parses an HTTP response from a ListCurrentUserViewsWithResponse call
+func ParseListCurrentUserViewsResponse(rsp *http.Response) (*ListCurrentUserViewsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCurrentUserViewsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListCurrentUserViews200JSONResponseBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

@@ -36,12 +36,14 @@ const (
 	maxUserIDChars      = 256
 	maxItemIDChars      = 256
 	maxLibraryIDChars   = 256
+	maxSystemTextChars  = 256
 	maxTextChars        = 4096
 	maxProviderIDChars  = 256
 	maxProviderIDs      = 64
 	maxMediaSources     = 128
 	maxQueryChars       = 4096
 	maxCollectionFields = 1024
+	maxJSONDepth        = 64
 )
 
 const (
@@ -248,15 +250,15 @@ func (client *Client) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
 	if err := decodeJSON(body, &value); err != nil || validateBoundedText(value.Version, 128, true) != nil {
 		return SystemInfo{}, malformed("jellyfin.system.info")
 	}
-	productName, err := optionalText(value.ProductName, maxTextChars)
+	productName, err := optionalText(value.ProductName, maxSystemTextChars)
 	if err != nil {
 		return SystemInfo{}, malformed("jellyfin.system.info")
 	}
-	serverName, err := optionalText(value.ServerName, maxTextChars)
+	serverName, err := optionalText(value.ServerName, maxSystemTextChars)
 	if err != nil {
 		return SystemInfo{}, malformed("jellyfin.system.info")
 	}
-	operatingSystem, err := optionalText(value.OperatingSystem, maxTextChars)
+	operatingSystem, err := optionalText(value.OperatingSystem, maxSystemTextChars)
 	if err != nil {
 		return SystemInfo{}, malformed("jellyfin.system.info")
 	}
@@ -407,6 +409,9 @@ func (client *Client) ListItems(ctx context.Context, query ItemQuery) (Page[Item
 	if start != query.StartIndex {
 		return Page[Item]{}, malformed("jellyfin.items")
 	}
+	if query.Limit > 0 && len(items) > query.Limit {
+		return Page[Item]{}, malformed("jellyfin.items.limit")
+	}
 	coverage := Coverage{ObservedCount: len(items), ObservedAt: time.Now().UTC()}
 	switch {
 	case arrayShape:
@@ -444,6 +449,8 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 	}
 	var result []Item
 	pageCount := 0
+	partialReasons := make([]string, 0, 2)
+	unknownCoverage := false
 	for {
 		if pageCount >= client.maxPages || len(result) >= client.maxItems {
 			return Page[Item]{Items: result, Coverage: Coverage{
@@ -462,6 +469,14 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 			}}, err
 		}
 		pageCount++
+		if page.Coverage.Completeness != CompletenessComplete {
+			for _, reason := range page.Coverage.ReasonCodes {
+				if !containsString(partialReasons, reason) {
+					partialReasons = append(partialReasons, reason)
+				}
+			}
+			unknownCoverage = unknownCoverage || page.Coverage.Completeness == CompletenessUnknown
+		}
 		if page.Coverage.Completeness != CompletenessComplete && len(page.Items) == 0 {
 			return Page[Item]{Items: result, Coverage: Coverage{
 				Completeness: CompletenessUnknown, ObservedCount: len(result),
@@ -474,7 +489,7 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 			}
 			result = append(result, item)
 			if len(result) > client.maxItems {
-				return Page[Item]{}, tooLarge("jellyfin.items", client.maxItems)
+				return Page[Item]{}, tooLarge("jellyfin.items")
 			}
 		}
 		if page.Coverage.Completeness == CompletenessComplete && len(page.Items) < limit {
@@ -496,10 +511,15 @@ func (client *Client) ListAllItems(ctx context.Context, query ItemQuery) (Page[I
 			break
 		}
 	}
-	coverage := Coverage{Completeness: CompletenessComplete, ObservedCount: len(result), ObservedAt: time.Now().UTC()}
+	coverage := Coverage{Completeness: CompletenessComplete, ObservedCount: len(result), ObservedAt: time.Now().UTC(), ReasonCodes: partialReasons}
 	if pageCount > 1 {
 		coverage.Completeness = CompletenessPartial
-		coverage.ReasonCodes = []string{"pagination_snapshot_unverified"}
+		if !containsString(coverage.ReasonCodes, "pagination_snapshot_unverified") {
+			coverage.ReasonCodes = append(coverage.ReasonCodes, "pagination_snapshot_unverified")
+		}
+	}
+	if unknownCoverage {
+		coverage.Completeness = CompletenessUnknown
 	}
 	return Page[Item]{Items: result, Coverage: coverage}, nil
 }
@@ -610,7 +630,7 @@ func (client *Client) itemQuery(query ItemQuery) (url.Values, error) {
 	}
 	if len(query.ItemIDs) > 0 {
 		if len(query.ItemIDs) > client.maxItems {
-			return nil, tooLarge("jellyfin.items.ids", client.maxItems)
+			return nil, tooLarge("jellyfin.items.ids")
 		}
 		seen := make(map[string]struct{}, len(query.ItemIDs))
 		ids := make([]string, 0, len(query.ItemIDs))
@@ -1040,7 +1060,7 @@ func decodeJSON(data []byte, target any) error {
 func validateJSON(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := walkJSON(decoder); err != nil {
+	if err := walkJSON(decoder, 0); err != nil {
 		return err
 	}
 	var trailing any
@@ -1050,7 +1070,7 @@ func validateJSON(data []byte) error {
 	return nil
 }
 
-func walkJSON(decoder *json.Decoder) error {
+func walkJSON(decoder *json.Decoder, depth int) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -1058,6 +1078,9 @@ func walkJSON(decoder *json.Decoder) error {
 	delim, isDelim := token.(json.Delim)
 	if !isDelim {
 		return nil
+	}
+	if depth >= maxJSONDepth {
+		return errors.New("JSON nesting exceeds configured bound")
 	}
 	switch delim {
 	case '{':
@@ -1075,7 +1098,7 @@ func walkJSON(decoder *json.Decoder) error {
 				return errors.New("duplicate object key")
 			}
 			seen[name] = struct{}{}
-			if err := walkJSON(decoder); err != nil {
+			if err := walkJSON(decoder, depth+1); err != nil {
 				return err
 			}
 		}
@@ -1085,7 +1108,7 @@ func walkJSON(decoder *json.Decoder) error {
 		}
 	case '[':
 		for decoder.More() {
-			if err := walkJSON(decoder); err != nil {
+			if err := walkJSON(decoder, depth+1); err != nil {
 				return err
 			}
 		}
@@ -1133,8 +1156,8 @@ func invalidInput(operation string) error {
 	return UpstreamError{Code: ErrorInvalidInput, Operation: operation}
 }
 
-func tooLarge(operation string, limit int) error {
-	return UpstreamError{Code: ErrorResponseTooLarge, Operation: operation, Status: limit}
+func tooLarge(operation string) error {
+	return UpstreamError{Code: ErrorResponseTooLarge, Operation: operation}
 }
 
 func parseEndpoint(value string) (*url.URL, error) {
@@ -1242,6 +1265,15 @@ func completeCoverage(count int) Coverage {
 func containsItemID(items []Item, id string) bool {
 	for _, item := range items {
 		if item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}
