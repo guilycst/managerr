@@ -3939,14 +3939,20 @@
       "evidence": [
         "dispatched after C-05 generation/CI and X-04 Seerr observations passed; owns only clients/seerr and its handoff.",
         "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3 X-18 product commit adds independent Seerr OpenAPI 3.1.1 read-only client with API-key/bearer transport, bounded pagination, normalized media/request observations, typed errors and synthetic fixtures.",
-        "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16 X-18 handoff records module tests/race/vet/mod-verify, offline generation, Vacuum, lint, architecture, cross-build and root guardrail evidence; aggregate C-06 matrix and runtime/bootstrap remain open."
+        "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16 X-18 handoff records module tests/race/vet/mod-verify, offline generation, Vacuum, lint, architecture, cross-build and root guardrail evidence; aggregate C-06 matrix and runtime/bootstrap remain open.",
+        "d51e7fcedd730a6f58bdcce99e9fc926baaee5a5 independent review round one requested changes: P1 unknown availability collapsed to known negative; P2 request deadline/cancellation identity weakened; P2 invalid service relationships and malformed service errors escaped complete coverage.",
+        "5565f40b2009a69251e223816ba1392d2bc29857 integrated X-18 round-one review receipt; correction is required before approval."
       ],
       "review": {
-        "status": "pending",
-        "decision": null,
+        "status": "changes_requested",
+        "decision": "changes_requested",
         "reviewer": "/root/x05_reviewer",
-        "commit": null,
-        "findings": [],
+        "commit": "d51e7fcedd730a6f58bdcce99e9fc926baaee5a5",
+        "findings": [
+          "R1 P1 unknown native availability claims Known=true",
+          "R2 P2 request timeout/cancellation identity weakened",
+          "R3 P2 invalid service evidence or malformed service errors pass complete"
+        ],
         "round": 1
       },
       "dispatch": {
@@ -3983,11 +3989,32 @@
         "implementationCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
         "handoffCommit": "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16",
         "reviewSourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
-        "status": "product_ready"
+        "status": "changes_requested",
+        "reviewCommit": "d51e7fcedd730a6f58bdcce99e9fc926baaee5a5",
+        "reviewIntegrationCommit": "5565f40b2009a69251e223816ba1392d2bc29857",
+        "reviewRound": 1,
+        "correctionRound": 1,
+        "correctionOwner": "/root/x05_implementer",
+        "correctionBaseSha": "5565f40b2009a69251e223816ba1392d2bc29857",
+        "correctionReviewPath": "docs/execution/handoffs/X-18-review-round2.md",
+        "correctionHandoffPath": "docs/execution/handoffs/X-18-correction-round1.md",
+        "correctionReviewer": "/root/x05_reviewer",
+        "correctionStatus": "assigned"
       },
       "implementationCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
       "handoffCommit": "7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16",
-      "reviewSourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3"
+      "reviewSourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
+      "reviewHistory": [
+        {
+          "round": 1,
+          "reviewer": "/root/x05_reviewer",
+          "commit": "d51e7fcedd730a6f58bdcce99e9fc926baaee5a5",
+          "status": "changes_requested",
+          "sourceCommit": "67b01ca1d5555bfe11b348a96bda0b6a67d16bc3",
+          "receipt": "docs/execution/handoffs/X-18-review-round1.md",
+          "integratedCommit": "5565f40b2009a69251e223816ba1392d2bc29857"
+        }
+      ]
     },
     "X-19": {
       "status": "planned",
@@ -4030,7 +4057,7 @@
       "review": null
     }
   },
-  "nextAction": "Independently review X-18 Seerr product 67b01ca1d5555bfe11b348a96bda0b6a67d16bc3 using handoff 7742877c37a0b8f0b6bd5d04ed01c0c4d7bceb16; integrate only an approved review receipt.",
+  "nextAction": "Implement X-18 correction round 1 from 5565f40b2009a69251e223816ba1392d2bc29857, closing reviewer findings R1-R3; then produce correction handoff and independent round-two review.",
   "planningValidation": {
     "command": "python3 scripts/check_planning.py --self-test",
     "result": "passed",
