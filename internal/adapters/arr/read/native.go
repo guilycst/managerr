@@ -26,17 +26,48 @@ type nativeCatalogRecord struct {
 	Reasons []string
 }
 
+// nativeFileRegistry applies the same identity invariant to every native
+// catalog and import read-back path. One upstream file ID may be repeated for
+// multiple episodes only when its mapped path and size are identical. A
+// different file ID may never claim the same mapped path.
+type nativeFileRegistry struct {
+	byID   map[string]ports.MediaFile
+	byPath map[string]string
+}
+
+func newNativeFileRegistry() *nativeFileRegistry {
+	return &nativeFileRegistry{byID: make(map[string]ports.MediaFile), byPath: make(map[string]string)}
+}
+
+func (registry *nativeFileRegistry) add(file ports.MediaFile, detailConflict, pathConflict string) string {
+	if prior, exists := registry.byID[file.ExternalID]; exists {
+		if prior.Path != file.Path || prior.Size != file.Size {
+			return detailConflict
+		}
+		return ""
+	}
+	pathKey := sourceKey(file.Path)
+	if priorID, exists := registry.byPath[pathKey]; exists && priorID != file.ExternalID {
+		return pathConflict
+	}
+	registry.byID[file.ExternalID] = file
+	registry.byPath[pathKey] = file.ExternalID
+	return ""
+}
+
 // List enters the standalone module for native-shaped catalog responses. A
 // malformed legacy fixture is deliberately handled by listLegacy so existing
 // partial-evidence behavior remains stable while production responses gain the
 // module's strict validation and typed error boundary.
 func (client *Client) List(ctx context.Context, connectionID domain.ConfigID, cursor string, requestedLimit int) (ports.Page[ports.MediaRecord], error) {
 	if client.nativeAvailable() {
+		client.nativeMu.Lock()
+		defer client.nativeMu.Unlock()
 		result, err := client.listNative(ctx, connectionID, cursor, requestedLimit)
 		if err == nil {
 			return result, nil
 		}
-		if !nativeCompatibilityFallback(err) {
+		if !client.nativeCompatibilityFallback(err) {
 			return result, err
 		}
 	}
@@ -47,28 +78,189 @@ func (client *Client) nativeAvailable() bool {
 	return client != nil && (client.sonarr != nil || client.radarr != nil)
 }
 
-func nativeCompatibilityFallback(err error) bool {
+type nativeCompatibilityError struct {
+	err       error
+	operation string
+	body      []byte
+}
+
+func (err *nativeCompatibilityError) Error() string { return err.err.Error() }
+
+func (err *nativeCompatibilityError) Unwrap() error { return err.err }
+
+func (client *Client) nativeCompatibilityFallback(err error) bool {
 	if err == nil {
 		return false
 	}
-	if sonarrnative.IsCode(err, sonarrnative.ErrorMalformed) || radarrnative.IsCode(err, radarrnative.ErrorMalformed) {
-		return true
+	var compatibilityErr *nativeCompatibilityError
+	if !errors.As(err, &compatibilityErr) || len(compatibilityErr.body) == 0 {
+		return false
 	}
 	var upstream domain.UpstreamError
-	if !errors.As(err, &upstream) {
+	if !errors.As(compatibilityErr.err, &upstream) {
 		return false
 	}
-	// The adapter fallback exists only for the legacy response shapes covered
-	// by the pre-module fixtures. Transport failures stay on the standalone
-	// typed boundary; unsupported/malformed response classes can still be
-	// decoded by the established root compatibility path.
-	if strings.HasPrefix(upstream.Operation, "arr.import.observe") || strings.Contains(upstream.Operation, ".observe.file") {
-		// These are already normalized observations with an explicit incomplete
-		// identity/path result. Falling back would let a second decoder turn the
-		// same native evidence into a false success.
+	// The compatibility path is selected only after the strict native error is
+	// paired with a complete, bounded response that matches one explicitly
+	// supported older shape. Transport/status failures and strict native
+	// identity failures never fall through to a permissive decoder.
+	if upstream.Code != domain.OutcomeUnknown || upstream.Status != 0 {
 		return false
 	}
-	return upstream.Code == domain.OutcomeUnknown || upstream.Code == domain.OutcomeUnsupported
+	switch {
+	case upstream.Operation == "arr.inventory.list":
+		return legacyCatalogShape(compatibilityErr.body)
+	case strings.HasPrefix(upstream.Operation, "arr.manual_import.preview"):
+		return legacyPreviewShape(compatibilityErr.body)
+	case upstream.Operation == "arr.movie.observe", upstream.Operation == "arr.movie.observe.files", upstream.Operation == "arr.episode.observe":
+		return legacyObserveShape(upstream.Operation, compatibilityErr.body)
+	default:
+		return false
+	}
+}
+
+func (client *Client) translatedNativeError(err error, operation, responsePath string) error {
+	translated := translateNativeError(err, operation)
+	if translated == nil || errors.Is(translated, context.Canceled) || errors.Is(translated, context.DeadlineExceeded) {
+		return translated
+	}
+	if client.nativeCapture == nil {
+		return translated
+	}
+	body, ok := client.nativeCapture.latest(responsePath)
+	if !ok {
+		return translated
+	}
+	return &nativeCompatibilityError{err: translated, operation: operation, body: body}
+}
+
+func legacyCatalogShape(body []byte) bool {
+	items, _, _, err := decodeCollection(body, maxNativeNestedItems)
+	if err != nil || len(items) == 0 {
+		return false
+	}
+	legacy := false
+	for _, raw := range items {
+		var object map[string]json.RawMessage
+		if err := decodeJSON(raw, &object); err != nil || !legacyIdentityPresent(object["id"]) {
+			return false
+		}
+		// These fields distinguish the older root compatibility projection from
+		// the strict v3 catalog contract. Require every row to use that shape;
+		// mixed native/legacy arrays are ambiguous and stay failed closed.
+		if _, hasPath := object["path"]; hasPath {
+			return false
+		}
+		if _, hasMonitored := object["monitored"]; hasMonitored {
+			return false
+		}
+		legacy = true
+	}
+	return legacy
+}
+
+func legacyPreviewShape(body []byte) bool {
+	var items []json.RawMessage
+	if err := decodeJSON(body, &items); err != nil || len(items) == 0 {
+		return false
+	}
+	legacy := false
+	for _, raw := range items {
+		var object map[string]json.RawMessage
+		if err := decodeJSON(raw, &object); err != nil {
+			return false
+		}
+		if !legacyIdentityPresent(object["id"]) || !legacyStringPresent(object["path"]) {
+			return false
+		}
+		_, hasName := object["name"]
+		_, hasSize := object["size"]
+		_, hasRelativePath := object["relativePath"]
+		// All three fields are required by the native preview contracts. Their
+		// absence is therefore not enough to prove an older shape; only the
+		// explicitly retained rejection alias can select this compatibility path.
+		if !hasName || !hasSize || !hasRelativePath {
+			return false
+		}
+		// A legacy response can contain ordinary accepted candidates alongside
+		// the old rejection spelling. Scan the complete response before deciding;
+		// a native-shaped accepted row must not hide a later legacy marker, and a
+		// response containing only native fields remains in the strict path.
+		legacy = legacy || legacyRejectionAlias(object["rejections"])
+	}
+	return legacy
+}
+
+func legacyRejectionAlias(value json.RawMessage) bool {
+	if len(value) == 0 || strings.TrimSpace(string(value)) == "null" {
+		return false
+	}
+	var rejections []json.RawMessage
+	if err := decodeJSON(value, &rejections); err != nil {
+		return false
+	}
+	for _, raw := range rejections {
+		var object map[string]json.RawMessage
+		if err := decodeJSON(raw, &object); err != nil {
+			return false
+		}
+		if _, hasType := object["type"]; !hasType {
+			return true
+		}
+	}
+	return false
+}
+
+func legacyObserveShape(operation string, body []byte) bool {
+	switch operation {
+	case "arr.movie.observe":
+		var object map[string]json.RawMessage
+		if err := decodeJSON(body, &object); err != nil || !legacyIdentityPresent(object["id"]) {
+			return false
+		}
+		_, hasPath := object["path"]
+		_, hasMonitored := object["monitored"]
+		return !hasPath || !hasMonitored
+	case "arr.movie.observe.files":
+		// The standalone module already supports the complete native movie-file
+		// resource. There is no separately proven legacy array shape here, and a
+		// permissive fallback would let duplicate IDs or paths bypass the native
+		// identity checks. Keep malformed file read-back unknown until an older
+		// response contract can be specified explicitly.
+		return false
+	case "arr.episode.observe":
+		var items []json.RawMessage
+		if err := decodeJSON(body, &items); err != nil || len(items) == 0 {
+			return false
+		}
+		legacy := false
+		for _, raw := range items {
+			var object map[string]json.RawMessage
+			if err := decodeJSON(raw, &object); err != nil || !legacyIdentityPresent(object["id"]) || !legacyIdentityPresent(object["seriesId"]) {
+				return false
+			}
+			if _, hasFileFlag := object["hasFile"]; hasFileFlag {
+				return false
+			}
+			legacy = true
+		}
+		return legacy
+	default:
+		return false
+	}
+}
+
+func legacyIdentityPresent(value json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed != "" && trimmed != "null" && trimmed != `""`
+}
+
+func legacyStringPresent(value json.RawMessage) bool {
+	if !legacyIdentityPresent(value) {
+		return false
+	}
+	var text string
+	return json.Unmarshal(value, &text) == nil && strings.TrimSpace(text) != ""
 }
 
 func translateNativeError(err error, operation string) error {
@@ -79,15 +271,27 @@ func translateNativeError(err error, operation string) error {
 		return err
 	}
 	if upstream, ok := err.(sonarrnative.UpstreamError); ok {
-		return domain.UpstreamError{Code: translateSonarrCode(upstream.Code), Status: upstream.Status, Retryable: upstream.Retryable, Operation: operation, Detail: "Sonarr upstream request failed"}
+		code := translateSonarrCode(upstream.Code)
+		if upstream.Status >= 300 && upstream.Status < 400 {
+			code = domain.OutcomeUnknown
+		}
+		return domain.UpstreamError{Code: code, Status: upstream.Status, Retryable: upstream.Retryable, Operation: operation, Detail: "Sonarr upstream request failed"}
 	}
 	var sonarrErr sonarrnative.UpstreamError
 	if errors.As(err, &sonarrErr) {
-		return domain.UpstreamError{Code: translateSonarrCode(sonarrErr.Code), Status: sonarrErr.Status, Retryable: sonarrErr.Retryable, Operation: operation, Detail: "Sonarr upstream request failed"}
+		code := translateSonarrCode(sonarrErr.Code)
+		if sonarrErr.Status >= 300 && sonarrErr.Status < 400 {
+			code = domain.OutcomeUnknown
+		}
+		return domain.UpstreamError{Code: code, Status: sonarrErr.Status, Retryable: sonarrErr.Retryable, Operation: operation, Detail: "Sonarr upstream request failed"}
 	}
 	var radarrErr radarrnative.UpstreamError
 	if errors.As(err, &radarrErr) {
-		return domain.UpstreamError{Code: translateRadarrCode(radarrErr.Code), Status: radarrErr.Status, Retryable: radarrErr.Retryable, Operation: operation, Detail: "Radarr upstream request failed"}
+		code := translateRadarrCode(radarrErr.Code)
+		if radarrErr.Status >= 300 && radarrErr.Status < 400 {
+			code = domain.OutcomeUnknown
+		}
+		return domain.UpstreamError{Code: code, Status: radarrErr.Status, Retryable: radarrErr.Retryable, Operation: operation, Detail: "Radarr upstream request failed"}
 	}
 	return domain.UpstreamError{Code: domain.OutcomeUnavailable, Retryable: true, Operation: operation, Detail: "Arr upstream is unavailable"}
 }
@@ -272,36 +476,60 @@ func (client *Client) nativeCatalog(ctx context.Context) ([]nativeCatalogRecord,
 	if client.config.Kind == domain.ConnectionRadarr {
 		page, err := client.radarr.ListMovies(ctx)
 		if err != nil {
-			return nil, translateNativeError(err, "arr.inventory.list")
+			return nil, client.translatedNativeError(err, "arr.inventory.list", apiMovies)
 		}
 		result := make([]nativeCatalogRecord, len(page.Items))
+		registry := newNativeFileRegistry()
 		for index, movie := range page.Items {
 			record, reasons := client.nativeRadarrRecord(ctx, movie)
+			record.Files, reasons = mergeNativeCatalogFiles(registry, record.Files, reasons, "movie_file_conflicting_details", "movie_file_identity_conflict")
 			result[index] = nativeCatalogRecord{ID: record.ExternalID, Record: record, Reasons: reasons}
 		}
 		return result, nil
 	}
 	page, err := client.sonarr.ListSeries(ctx)
 	if err != nil {
-		return nil, translateNativeError(err, "arr.inventory.list")
+		return nil, client.translatedNativeError(err, "arr.inventory.list", apiSeries)
 	}
 	result := make([]nativeCatalogRecord, len(page.Items))
+	registry := newNativeFileRegistry()
 	for index, series := range page.Items {
 		record, reasons := client.nativeSonarrRecord(ctx, series)
+		record.Files, reasons = mergeNativeCatalogFiles(registry, record.Files, reasons, "episode_file_conflicting_details", "episode_file_identity_conflict")
 		result[index] = nativeCatalogRecord{ID: record.ExternalID, Record: record, Reasons: reasons}
 	}
 	return result, nil
 }
 
+func mergeNativeCatalogFiles(registry *nativeFileRegistry, files []ports.MediaFile, reasons []string, detailConflict, pathConflict string) ([]ports.MediaFile, []string) {
+	if len(files) == 0 {
+		return files, reasons
+	}
+	accepted := make([]ports.MediaFile, 0, len(files))
+	for _, file := range files {
+		if conflict := registry.add(file, detailConflict, pathConflict); conflict != "" {
+			reasons = append(reasons, conflict)
+			continue
+		}
+		accepted = append(accepted, file)
+	}
+	return accepted, reasons
+}
+
 func (client *Client) nativeRadarrRecord(ctx context.Context, movie radarrnative.Movie) (ports.MediaRecord, []string) {
 	record := ports.MediaRecord{ExternalID: strconv.FormatInt(movie.ID, 10), Title: movie.Title, Kind: domain.MediaMovie, Monitored: movie.Monitored, ProviderID: nativeRadarrProvider(movie)}
 	var reasons []string
+	registry := newNativeFileRegistry()
 	if movie.MovieFile != nil {
 		file, reason := client.nativeRadarrFile(*movie.MovieFile, movie.ID)
 		if reason != "" {
 			reasons = append(reasons, reason)
 		} else {
-			record.Files = append(record.Files, file)
+			if conflict := registry.add(file, "movie_file_conflicting_details", "movie_file_identity_conflict"); conflict != "" {
+				reasons = append(reasons, conflict)
+			} else {
+				record.Files = append(record.Files, file)
+			}
 		}
 		return record, reasons
 	}
@@ -313,6 +541,10 @@ func (client *Client) nativeRadarrRecord(ctx context.Context, movie radarrnative
 		file, reason := client.nativeRadarrFile(nativeFile, movie.ID)
 		if reason != "" {
 			reasons = append(reasons, reason)
+			continue
+		}
+		if conflict := registry.add(file, "movie_file_conflicting_details", "movie_file_identity_conflict"); conflict != "" {
+			reasons = append(reasons, conflict)
 			continue
 		}
 		record.Files = append(record.Files, file)
@@ -358,7 +590,8 @@ func (client *Client) nativeSonarrRecord(ctx context.Context, series sonarrnativ
 		return record, []string{"episode_files_unavailable"}
 	}
 	reasons := make([]string, 0)
-	fileIndex := make(map[int64]int)
+	registry := newNativeFileRegistry()
+	fileIndex := make(map[string]int)
 	for _, episode := range episodes.Items {
 		if episode.EpisodeFile == nil {
 			continue
@@ -368,15 +601,15 @@ func (client *Client) nativeSonarrRecord(ctx context.Context, series sonarrnativ
 			reasons = append(reasons, reason)
 			continue
 		}
-		position, exists := fileIndex[fileID(file.ExternalID)]
+		if conflict := registry.add(file, "episode_file_conflicting_details", "episode_file_identity_conflict"); conflict != "" {
+			reasons = append(reasons, conflict)
+			continue
+		}
+		position, exists := fileIndex[file.ExternalID]
 		if !exists {
 			file.EpisodeIDs = []string{strconv.FormatInt(episode.ID, 10)}
 			record.Files = append(record.Files, file)
-			fileIndex[fileID(file.ExternalID)] = len(record.Files) - 1
-			continue
-		}
-		if record.Files[position].Path != file.Path || record.Files[position].Size != file.Size {
-			reasons = append(reasons, "episode_file_conflicting_details")
+			fileIndex[file.ExternalID] = len(record.Files) - 1
 			continue
 		}
 		episodeID := strconv.FormatInt(episode.ID, 10)
@@ -400,11 +633,6 @@ func nativeSonarrProvider(series sonarrnative.Series) string {
 		}
 	}
 	return ""
-}
-
-func fileID(value string) int64 {
-	parsed, _ := strconv.ParseInt(value, 10, 64)
-	return parsed
 }
 
 func (client *Client) nativeSonarrFile(nativeFile sonarrnative.EpisodeFile, expectedSeriesID int64) (ports.MediaFile, string) {
@@ -434,7 +662,7 @@ func (client *Client) nativeOptions(ctx context.Context, connectionID domain.Con
 	if client.config.Kind == domain.ConnectionRadarr {
 		roots, err := client.radarr.ListRootFolders(ctx)
 		if err != nil {
-			return result, translateNativeError(err, "arr.options.root_folders")
+			return result, client.translatedNativeError(err, "arr.options.root_folders", apiRootFolders)
 		}
 		for _, root := range roots.Items {
 			if strings.TrimSpace(root.Path) != "" {
@@ -443,7 +671,7 @@ func (client *Client) nativeOptions(ctx context.Context, connectionID domain.Con
 		}
 		profiles, err := client.radarr.ListQualityProfiles(ctx)
 		if err != nil {
-			return result, translateNativeError(err, "arr.options.quality_profiles")
+			return result, client.translatedNativeError(err, "arr.options.quality_profiles", apiQuality)
 		}
 		for _, profile := range profiles.Items {
 			result.QualityProfiles = append(result.QualityProfiles, ports.QualityProfile{ID: strconv.FormatInt(profile.ID, 10), Name: profile.Name})
@@ -451,7 +679,7 @@ func (client *Client) nativeOptions(ctx context.Context, connectionID domain.Con
 	} else {
 		roots, err := client.sonarr.ListRootFolders(ctx)
 		if err != nil {
-			return result, translateNativeError(err, "arr.options.root_folders")
+			return result, client.translatedNativeError(err, "arr.options.root_folders", apiRootFolders)
 		}
 		for _, root := range roots.Items {
 			if strings.TrimSpace(root.Path) != "" {
@@ -460,7 +688,7 @@ func (client *Client) nativeOptions(ctx context.Context, connectionID domain.Con
 		}
 		profiles, err := client.sonarr.ListQualityProfiles(ctx)
 		if err != nil {
-			return result, translateNativeError(err, "arr.options.quality_profiles")
+			return result, client.translatedNativeError(err, "arr.options.quality_profiles", apiQuality)
 		}
 		for _, profile := range profiles.Items {
 			result.QualityProfiles = append(result.QualityProfiles, ports.QualityProfile{ID: strconv.FormatInt(profile.ID, 10), Name: profile.Name})
@@ -482,9 +710,10 @@ func (client *Client) nativeObserveImport(ctx context.Context, connectionID doma
 	var files []ports.MediaFile
 	var reasons []string
 	if client.config.Kind == domain.ConnectionRadarr {
+		registry := newNativeFileRegistry()
 		movie, err := client.radarr.GetMovie(ctx, int64(parsedID))
 		if err != nil {
-			return result, translateNativeError(err, "arr.movie.observe")
+			return result, client.translatedNativeError(err, "arr.movie.observe", apiMovies+"/"+strconv.FormatInt(int64(parsedID), 10))
 		}
 		if movie.ID != int64(parsedID) {
 			return result, observationIncomplete("arr.movie.observe", "movie_identity_mismatch")
@@ -494,16 +723,22 @@ func (client *Client) nativeObserveImport(ctx context.Context, connectionID doma
 			if reason != "" {
 				return result, observationIncomplete("arr.movie.observe.file", reason)
 			}
+			if conflict := registry.add(file, "movie_file_conflicting_details", "movie_file_identity_conflict"); conflict != "" {
+				return result, observationIncomplete("arr.movie.observe.file", conflict)
+			}
 			files = append(files, file)
 		} else {
 			movieFiles, fileErr := client.radarr.ListMovieFiles(ctx, movie.ID)
 			if fileErr != nil {
-				return result, translateNativeError(fileErr, "arr.movie.observe.files")
+				return result, client.translatedNativeError(fileErr, "arr.movie.observe.files", apiMovieFiles)
 			}
 			for _, nativeFile := range movieFiles.Items {
 				file, reason := client.nativeRadarrFile(nativeFile, movie.ID)
 				if reason != "" {
 					return result, observationIncomplete("arr.movie.observe.file", reason)
+				}
+				if conflict := registry.add(file, "movie_file_conflicting_details", "movie_file_identity_conflict"); conflict != "" {
+					return result, observationIncomplete("arr.movie.observe.file", conflict)
 				}
 				files = append(files, file)
 			}
@@ -511,9 +746,10 @@ func (client *Client) nativeObserveImport(ctx context.Context, connectionID doma
 	} else {
 		episodes, episodeErr := client.sonarr.ListEpisodesWithFiles(ctx, int64(parsedID))
 		if episodeErr != nil {
-			return result, translateNativeError(episodeErr, "arr.episode.observe")
+			return result, client.translatedNativeError(episodeErr, "arr.episode.observe", apiEpisodes)
 		}
-		fileIndex := make(map[int64]int)
+		registry := newNativeFileRegistry()
+		fileIndex := make(map[string]int)
 		for _, episode := range episodes.Items {
 			if episode.EpisodeFile == nil {
 				continue
@@ -523,7 +759,11 @@ func (client *Client) nativeObserveImport(ctx context.Context, connectionID doma
 				reasons = append(reasons, reason)
 				continue
 			}
-			id := fileID(file.ExternalID)
+			if conflict := registry.add(file, "episode_file_conflicting_details", "episode_file_identity_conflict"); conflict != "" {
+				reasons = append(reasons, conflict)
+				continue
+			}
+			id := file.ExternalID
 			position, exists := fileIndex[id]
 			if !exists {
 				file.EpisodeIDs = []string{strconv.FormatInt(episode.ID, 10)}
@@ -578,7 +818,7 @@ func (client *Client) nativePreviewImport(ctx context.Context, connectionID doma
 			}
 			page, nativeErr := client.radarr.PreviewManualImport(ctx, nativeQuery)
 			if nativeErr != nil {
-				return ports.ImportPreview{}, translateNativeError(nativeErr, "arr.manual_import.preview")
+				return ports.ImportPreview{}, client.translatedNativeError(nativeErr, "arr.manual_import.preview", apiManualImport)
 			}
 			converted := make([]RadarrManualImportResource, len(page.Items))
 			for index, item := range page.Items {
@@ -592,7 +832,7 @@ func (client *Client) nativePreviewImport(ctx context.Context, connectionID doma
 			// validates the returned series/episode associations below.
 			page, nativeErr := client.sonarr.PreviewManualImport(ctx, nativeQuery)
 			if nativeErr != nil {
-				return ports.ImportPreview{}, translateNativeError(nativeErr, "arr.manual_import.preview")
+				return ports.ImportPreview{}, client.translatedNativeError(nativeErr, "arr.manual_import.preview", apiManualImport)
 			}
 			converted := make([]SonarrManualImportResource, len(page.Items))
 			for index, item := range page.Items {

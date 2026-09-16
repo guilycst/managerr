@@ -24,7 +24,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	radarrnative "github.com/guilycst/mastarr/clients/radarr"
 	sonarrnative "github.com/guilycst/mastarr/clients/sonarr"
@@ -83,12 +85,14 @@ type Config struct {
 // Client is a read-only Arr API client. It implements no registration or
 // import execution methods.
 type Client struct {
-	config    Config
-	endpoint  *url.URL
-	http      *http.Client
-	cursorKey []byte
-	sonarr    *sonarrnative.Client
-	radarr    *radarrnative.Client
+	config        Config
+	endpoint      *url.URL
+	http          *http.Client
+	cursorKey     []byte
+	sonarr        *sonarrnative.Client
+	radarr        *radarrnative.Client
+	nativeCapture *nativeResponseCapture
+	nativeMu      sync.Mutex
 }
 
 var _ ports.MediaManagerReadPort = (*Client)(nil)
@@ -159,6 +163,8 @@ func New(config Config) (*Client, error) {
 	config.RootPaths = cloneRootPaths(config.RootPaths)
 	config.Mappings = append([]domain.PathMapping(nil), config.Mappings...)
 	nativeHTTP := *client
+	nativeCapture := newNativeResponseCapture(nativeHTTP.Transport, config.MaxResponseSize)
+	nativeHTTP.Transport = nativeCapture
 	var sonarrClient *sonarrnative.Client
 	var radarrClient *radarrnative.Client
 	switch config.Kind {
@@ -188,7 +194,7 @@ func New(config Config) (*Client, error) {
 			return nil, errors.New("Radarr compatibility client setup failed")
 		}
 	}
-	return &Client{config: config, endpoint: endpoint, http: client, cursorKey: cursorKey, sonarr: sonarrClient, radarr: radarrClient}, nil
+	return &Client{config: config, endpoint: endpoint, http: client, cursorKey: cursorKey, sonarr: sonarrClient, radarr: radarrClient, nativeCapture: nativeCapture}, nil
 }
 
 // NewClient is an explicit constructor alias.
@@ -330,6 +336,7 @@ func (client *Client) listLegacy(ctx context.Context, connectionID domain.Config
 		seen[id] = struct{}{}
 	}
 	pageSeen := make(map[string]struct{}, len(rawRecords))
+	fileRegistry := newNativeFileRegistry()
 	records := make([]ports.MediaRecord, 0, len(rawRecords))
 	for index, raw := range rawRecords {
 		if err := ctx.Err(); err != nil {
@@ -339,6 +346,13 @@ func (client *Client) listLegacy(ctx context.Context, connectionID domain.Config
 		if decodeErr != nil {
 			return ports.Page[ports.MediaRecord]{}, malformed(fmt.Sprintf("arr.inventory.record.%d", index))
 		}
+		detailConflict, pathConflict := "movie_file_conflicting_details", "movie_file_identity_conflict"
+		if client.config.Kind == domain.ConnectionSonarr {
+			// Sonarr's legacy decoder uses the same physical-file identity rules;
+			// only the reason prefix differs for its episode-file evidence.
+			detailConflict, pathConflict = "episode_file_conflicting_details", "episode_file_identity_conflict"
+		}
+		record.Files, reasons = mergeNativeCatalogFiles(fileRegistry, record.Files, reasons, detailConflict, pathConflict)
 		for _, reason := range reasons {
 			addReason(&state.Reasons, reason)
 		}
@@ -459,11 +473,13 @@ func (client *Client) Options(ctx context.Context, connectionID domain.ConfigID)
 		return result, err
 	}
 	if client.nativeAvailable() {
+		client.nativeMu.Lock()
+		defer client.nativeMu.Unlock()
 		result, err := client.nativeOptions(ctx, connectionID)
 		if err == nil {
 			return result, nil
 		}
-		if !nativeCompatibilityFallback(err) {
+		if !client.nativeCompatibilityFallback(err) {
 			return result, err
 		}
 	}
@@ -823,11 +839,13 @@ func (client *Client) ReprocessRequestFromNativePreviewWithPairs(request NativeP
 
 func (client *Client) previewImport(ctx context.Context, connectionID domain.ConfigID, request ports.ImportPreviewRequest, downloadID string) (ports.ImportPreview, error) {
 	if client.nativeAvailable() {
+		client.nativeMu.Lock()
+		defer client.nativeMu.Unlock()
 		preview, err := client.nativePreviewImport(ctx, connectionID, request, downloadID)
 		if err == nil {
 			return preview, nil
 		}
-		if !nativeCompatibilityFallback(err) {
+		if !client.nativeCompatibilityFallback(err) {
 			return preview, err
 		}
 	}
@@ -1205,11 +1223,13 @@ func (client *Client) ObserveImport(ctx context.Context, connectionID domain.Con
 		return result, invalidInput("arr.import.external_id")
 	}
 	if client.nativeAvailable() {
+		client.nativeMu.Lock()
+		defer client.nativeMu.Unlock()
 		result, err := client.nativeObserveImport(ctx, connectionID, externalID)
 		if err == nil {
 			return result, nil
 		}
-		if !nativeCompatibilityFallback(err) {
+		if !client.nativeCompatibilityFallback(err) {
 			return result, err
 		}
 	}
@@ -3341,6 +3361,9 @@ func decodeJSON(data []byte, target any) error {
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return errors.New("empty JSON response")
 	}
+	if err := validateStrictJSON(trimmed); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -3348,6 +3371,88 @@ func decodeJSON(data []byte, target any) error {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return errors.New("trailing JSON response data")
+	}
+	return nil
+}
+
+const maxStrictJSONDepth = 256
+
+// validateStrictJSON rejects duplicate object members and invalid UTF-8 before
+// standard-library decoding can apply last-wins or replacement semantics.
+// Native client responses are checked by their standalone modules first; the
+// same invariant is required when an explicitly supported legacy shape is
+// decoded by this root compatibility path.
+func validateStrictJSON(data []byte) error {
+	if !utf8.Valid(data) {
+		return errors.New("invalid UTF-8 JSON response")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkStrictJSON(decoder, 0); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON response data")
+		}
+		return err
+	}
+	return nil
+}
+
+func walkStrictJSON(decoder *json.Decoder, depth int) error {
+	if depth > maxStrictJSONDepth {
+		return errors.New("JSON nesting exceeds the configured bound")
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, keyErr := decoder.Token()
+			if keyErr != nil {
+				return keyErr
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("JSON object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return errors.New("duplicate JSON object member")
+			}
+			seen[key] = struct{}{}
+			if err := walkStrictJSON(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		closeToken, closeErr := decoder.Token()
+		if closeErr != nil || closeToken != json.Delim('}') {
+			if closeErr != nil {
+				return closeErr
+			}
+			return errors.New("JSON object is not closed")
+		}
+	case '[':
+		for decoder.More() {
+			if err := walkStrictJSON(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		closeToken, closeErr := decoder.Token()
+		if closeErr != nil || closeToken != json.Delim(']') {
+			if closeErr != nil {
+				return closeErr
+			}
+			return errors.New("JSON array is not closed")
+		}
+	default:
+		return errors.New("unexpected JSON delimiter")
 	}
 	return nil
 }

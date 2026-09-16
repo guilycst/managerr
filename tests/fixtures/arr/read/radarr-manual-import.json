@@ -27,7 +27,7 @@
     "name": "Synthetic Film (2024).en.srt",
     "size": 4567,
     "movie": {"id": 101, "title": "Synthetic Film (2024)", "tmdbId": 4242},
-    "languages": [{"name": "English", "isoCode": "en"}],
+    "languages": [{"id": 1, "name": "English", "isoCode": "en"}],
     "rejections": []
   }
 ]
